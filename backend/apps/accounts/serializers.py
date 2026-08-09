@@ -1,0 +1,133 @@
+from rest_framework import serializers
+from django.contrib.auth import get_user_model
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from .models import Profile
+
+User = get_user_model()
+
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        # Add custom claims
+        token['email'] = user.email
+        token['name'] = user.name
+        token['role'] = user.role
+        return token
+
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        data['user'] = {
+            'id': str(self.user.id),
+            'email': self.user.email,
+            'name': self.user.name,
+            'role': self.user.role,
+        }
+        return data
+
+class ProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Profile
+        fields = ['id', 'avatar']
+
+class UserSerializer(serializers.ModelSerializer):
+    profile = ProfileSerializer(read_only=True)
+    avatar_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'name', 'role', 'status', 'profile', 'avatar_url', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'role', 'status', 'created_at', 'updated_at']
+
+    def get_avatar_url(self, obj):
+        try:
+            if obj.profile and obj.profile.avatar:
+                request = self.context.get('request')
+                if request:
+                    return request.build_absolute_uri(obj.profile.avatar.url)
+                return obj.profile.avatar.url
+        except Profile.DoesNotExist:
+            pass
+        return None
+
+# Custom Token Refresh Serializer with session verification and rotation mapping
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+from rest_framework_simplejwt.exceptions import InvalidToken
+from rest_framework_simplejwt.tokens import RefreshToken
+import hashlib
+from django.utils import timezone
+from .models import Session
+
+class CustomTokenRefreshSerializer(TokenRefreshSerializer):
+    def validate(self, attrs):
+        refresh_token = attrs['refresh']
+        token_hash = hashlib.sha256(refresh_token.encode('utf-8')).hexdigest()
+
+        try:
+            session_obj = Session.objects.get(refresh_token_hash=token_hash)
+            if session_obj.revoked_at is not None:
+                raise InvalidToken("Session has been revoked.")
+            if session_obj.expires_at < timezone.now():
+                raise InvalidToken("Session has expired.")
+            # Verify user status is not inactive
+            if session_obj.user.status == 'INACTIVE':
+                raise InvalidToken("User account is inactive.")
+        except Session.DoesNotExist:
+            raise InvalidToken("Invalid session or token.")
+
+        data = super().validate(attrs)
+
+        # Handle refresh token rotation if generated
+        if 'refresh' in data:
+            new_refresh = data['refresh']
+            new_hash = hashlib.sha256(new_refresh.encode('utf-8')).hexdigest()
+
+            # Revoke previous session
+            session_obj.revoked_at = timezone.now()
+            session_obj.save()
+
+            # Create new session
+            new_refresh_obj = RefreshToken(new_refresh)
+            expires_at = timezone.now() + new_refresh_obj.lifetime
+            Session.objects.create(
+                user=session_obj.user,
+                refresh_token_hash=new_hash,
+                expires_at=expires_at
+            )
+        return data
+
+
+class ProfileUpdateSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(source='user.name', required=False)
+    email = serializers.EmailField(source='user.email', required=False)
+    password = serializers.CharField(write_only=True, required=False, min_length=6)
+
+    class Meta:
+        model = Profile
+        fields = ['id', 'avatar', 'name', 'email', 'password']
+
+    def update(self, instance, validated_data):
+        user_data = validated_data.pop('user', {})
+        user = instance.user
+        
+        # Update User fields if provided
+        if 'name' in user_data:
+            user.name = user_data['name']
+        if 'email' in user_data:
+            # Note: in real production we might restrict email changes,
+            # but prompt says "Profile editing should include Name, Profile picture, Email where permitted, Password change."
+            user.email = user_data['email']
+            user.username = user_data['email'] # keep username in sync
+            
+        password = validated_data.pop('password', None)
+        if password:
+            user.set_password(password)
+            
+        user.save()
+        
+        # Update Profile avatar if provided
+        if 'avatar' in validated_data:
+            instance.avatar = validated_data['avatar']
+            
+        instance.save()
+        return instance
