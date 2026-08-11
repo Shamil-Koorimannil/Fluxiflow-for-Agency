@@ -67,7 +67,7 @@ export const TeamDetail: React.FC = () => {
         <h3 className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest flex items-center gap-1.5">
           {title} ({tasks.length})
           {showOverdueAlert && (
-            <span className="flex items-center gap-0.5 text-[10px] font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded-full lowercase normal-case">
+            <span className="flex items-center gap-0.5 text-[10px] font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded-full normal-case">
               <AlertCircle className="h-3 w-3" /> overdue
             </span>
           )}

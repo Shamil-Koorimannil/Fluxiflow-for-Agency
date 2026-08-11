@@ -1,9 +1,11 @@
 import React from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../features/auth/AuthContext';
+import { FluxiflowLogo } from '../components/common/FluxiflowLogo';
 import { CheckSquare, Folder, Users, List, User as UserIcon, LogOut, Search, Menu as MenuIcon, BarChart3 } from 'lucide-react';
 import { NotificationBell } from '../features/notifications/NotificationBell';
 import { Drawer } from '@mui/material';
+
 
 export const MainLayout: React.FC = () => {
   const { user, logout } = useAuth();
@@ -38,6 +40,11 @@ export const MainLayout: React.FC = () => {
     <div className={`flex h-screen w-screen bg-white dark:bg-black overflow-hidden text-black dark:text-white font-sans transition-all duration-300 ${isExiting ? 'animate-fade-out' : ''}`}>
       {/* DESKTOP SIDEBAR - Hidden on Mobile */}
       <aside className="hidden md:flex flex-col w-64 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black h-full shrink-0">
+        {/* ── Logo ── */}
+        <div className="flex items-center px-6 py-5 border-b border-zinc-200 dark:border-zinc-800">
+          <FluxiflowLogo />
+        </div>
+
         {/* Profile header */}
         {user && (
           <Link
@@ -63,13 +70,6 @@ export const MainLayout: React.FC = () => {
             </div>
           </Link>
         )}
-
-        {/* Branding header */}
-        <div className="px-6 py-4 border-b border-zinc-100 dark:border-zinc-900 bg-zinc-50/50 dark:bg-black">
-          <span className="text-xs font-semibold tracking-widest text-zinc-400 uppercase">
-            Fluxiflow for Agency
-          </span>
-        </div>
 
         {/* Navigation links */}
         <nav className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
@@ -146,7 +146,7 @@ export const MainLayout: React.FC = () => {
               </NavLink>
             </>
           )}
-          
+
           <NavLink
             to="/app/search"
             className={({ isActive }) =>
@@ -185,11 +185,12 @@ export const MainLayout: React.FC = () => {
             >
               <MenuIcon className="h-5 w-5" />
             </button>
-            <span className="font-extrabold tracking-tight text-sm uppercase text-zinc-400">
-              Fluxiflow
-            </span>
+            {/* Mobile header: show logo, hidden on desktop where sidebar handles it */}
+            <div className="md:hidden">
+              <FluxiflowLogo />
+            </div>
           </div>
-          
+
           <div className="flex items-center gap-4">
             <NotificationBell />
           </div>
@@ -271,6 +272,11 @@ export const MainLayout: React.FC = () => {
       >
         <div className="flex-1 flex flex-col justify-between min-h-0 bg-white dark:bg-black text-black dark:text-white">
           <div className="flex flex-col">
+            {/* ── Logo ── */}
+            <div className="flex items-center px-6 py-5 border-b border-zinc-200 dark:border-zinc-800">
+              <FluxiflowLogo />
+            </div>
+
             {/* Profile header */}
             {user && (
               <Link

@@ -61,8 +61,11 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    // If login endpoint returns 401, don't attempt refresh
-    if (originalRequest.url.includes('/auth/login/')) {
+    // If login or verification endpoints return 401, don't attempt refresh
+    if (
+      originalRequest.url.includes('/auth/verify-otp/') ||
+      originalRequest.url.includes('/auth/request-otp/')
+    ) {
       return Promise.reject(error);
     }
 

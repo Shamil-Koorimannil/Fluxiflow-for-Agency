@@ -1,4 +1,3 @@
-import random
 import hashlib
 from django.utils import timezone
 from datetime import timedelta
@@ -9,12 +8,16 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.conf import settings
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.views import TokenObtainPairView
 from .models import Profile, Organization, Membership, Invitation, OTPVerification, Session
 from .serializers import UserSerializer, ProfileUpdateSerializer
+from .services import OTPService, InvitationEmailService
+# pyrefly: ignore [missing-import]
 from apps.activity.models import ActivityLog
+# pyrefly: ignore [missing-import]
 from apps.tasks.models import Task, TaskAssignee
+# pyrefly: ignore [missing-import]
 from apps.tasks.serializers import TaskSerializer
+# pyrefly: ignore [missing-import]
 from apps.core.permissions import IsAdmin
 import datetime
 from django.utils.timezone import make_aware
@@ -137,21 +140,73 @@ def calculate_user_health_metrics(user):
 
 # --- OTP Authentication View Handlers ---
 
-# --- Token-based Password Authentication Handlers ---
+class RequestOTPView(views.APIView):
+    permission_classes = [permissions.AllowAny]
 
-class CustomTokenObtainPairView(TokenObtainPairView):
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        try:
-            serializer.is_valid(raise_exception=True)
-        except Exception:
-            return Response({"detail": "No active account found with the given credentials"}, status=status.HTTP_401_UNAUTHORIZED)
-
-        user = serializer.user
+    def post(self, request):
+        email = request.data.get('email', '').strip().lower()
+        if not email:
+            return Response({"detail": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
+            
+        user = User.objects.filter(email=email).first()
+        if not user:
+            # Prevent email enumeration by returning a generic success message
+            return Response({
+                "message": "If this email is registered, a verification code has been sent."
+            }, status=status.HTTP_200_OK)
+            
         if user.status == 'INACTIVE' or not user.is_active:
-            return Response({"detail": "Your account has been deactivated. Please contact your administrator."}, status=status.HTTP_403_FORBIDDEN)
+            return Response({
+                "detail": "Your account is currently deactivated. Please contact your administrator."
+            }, status=status.HTTP_403_FORBIDDEN)
+            
+        # Check if an OTP was recently generated (within 60 seconds)
+        last_otp = OTPVerification.objects.filter(
+            email=user.email,
+            purpose='LOGIN',
+            verified_at__isnull=True,
+            created_at__gt=timezone.now() - timedelta(seconds=60)
+        ).exists()
+        if last_otp:
+            return Response({
+                "detail": "Please wait 60 seconds before requesting another code."
+            }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            
+        try:
+            otp_code = OTPService.generate_otp(user.email, purpose='LOGIN')
+            OTPService.send_otp_email(user.name, user.email, otp_code)
+        except Exception as e:
+            return Response({"detail": f"Failed to send OTP code: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+        return Response({
+            "message": "If this email is registered, a verification code has been sent."
+        }, status=status.HTTP_200_OK)
 
-        # Update status from INVITED to ACTIVE if this is their first login
+
+class VerifyOTPView(views.APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        email = request.data.get('email', '').strip().lower()
+        otp_code = request.data.get('otp', '').strip()
+        
+        if not email or not otp_code:
+            return Response({"detail": "Email and verification code are required."}, status=status.HTTP_400_BAD_REQUEST)
+            
+        user = User.objects.filter(email=email).first()
+        if not user:
+            return Response({"detail": "No active account found with the given credentials."}, status=status.HTTP_400_BAD_REQUEST)
+            
+        if user.status == 'INACTIVE' or not user.is_active:
+            return Response({
+                "detail": "Your account is currently deactivated. Please contact your administrator."
+            }, status=status.HTTP_403_FORBIDDEN)
+            
+        success, message = OTPService.verify_otp(user.email, otp_code, purpose='LOGIN')
+        if not success:
+            return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
+            
+        # Update user from INVITED to ACTIVE if this is their first login
         with transaction.atomic():
             if user.status == 'INVITED':
                 user.status = 'ACTIVE'
@@ -170,12 +225,18 @@ class CustomTokenObtainPairView(TokenObtainPairView):
                     entity_id=user.id,
                     description=f"{user.name} logged in for the first time and activated their account."
                 )
-
-        refresh = serializer.validated_data['refresh']
-        access = serializer.validated_data['access']
-
+                
+        # Generate session tokens using RefreshToken
+        refresh = RefreshToken.for_user(user)
+        refresh['email'] = user.email
+        refresh['name'] = user.name
+        refresh['role'] = user.role
+        
+        refresh_token_str = str(refresh)
+        access_token_str = str(refresh.access_token)
+        
         # Store signature in Session database to maintain token revocation checks
-        token_hash = hashlib.sha256(refresh.encode('utf-8')).hexdigest()
+        token_hash = hashlib.sha256(refresh_token_str.encode('utf-8')).hexdigest()
         expires_at = timezone.now() + settings.SIMPLE_JWT['REFRESH_TOKEN_LIFETIME']
 
         Session.objects.create(
@@ -185,10 +246,11 @@ class CustomTokenObtainPairView(TokenObtainPairView):
         )
 
         return Response({
-            "access": access,
-            "refresh": refresh,
+            "access": access_token_str,
+            "refresh": refresh_token_str,
             "user": UserSerializer(user, context={'request': request}).data
         }, status=status.HTTP_200_OK)
+
 
 
 class MeView(views.APIView):
@@ -287,7 +349,6 @@ class TeamListView(views.APIView):
         email = request.data.get('email', '').strip().lower()
         name = request.data.get('name', '').strip()
         role = request.data.get('role', 'MEMBER')
-        password = request.data.get('password', '').strip()
 
         if not email or not name:
             return Response({"detail": "Name and email are required fields."}, status=status.HTTP_400_BAD_REQUEST)
@@ -307,8 +368,7 @@ class TeamListView(views.APIView):
                 email=email,
                 name=name,
                 role=role,
-                status='INVITED',
-                password=password if password else 'password123'
+                status='INVITED'
             )
             Profile.objects.get_or_create(user=new_user)
             Membership.objects.create(organization=org, user=new_user)
@@ -325,18 +385,6 @@ class TeamListView(views.APIView):
                 expires_at=expires_at
             )
 
-            # Send invitation email via SMTP
-            try:
-                send_mail(
-                    subject="Invitation to join Fluxiflow for Agency",
-                    message=f"Hello {name},\n\nYou have been invited to join Fluxiflow for Agency by {request.user.name}.\n\nYou can log in and access your workspace at:\nhttp://localhost:5173/login",
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[email],
-                    fail_silently=False
-                )
-            except Exception as e:
-                print(f"Invitation email delivery error to {email}: {e}")
-
             # Log activity
             ActivityLog.objects.create(
                 user=request.user,
@@ -346,7 +394,30 @@ class TeamListView(views.APIView):
                 description=f"{request.user.name} invited {name} ({email}) to the team."
             )
 
-        return Response({"detail": "Invitation sent successfully."}, status=status.HTTP_201_CREATED)
+        # Send invitation email AFTER transaction commit so a DB rollback
+        # doesn't result in an email going out for a failed creation.
+        frontend_url = settings.FRONTEND_URL
+        email_sent, email_error = InvitationEmailService.send_invitation_email(
+            member_name=name,
+            member_email=email,
+            invited_by_name=request.user.name,
+            frontend_url=frontend_url,
+        )
+
+        if email_sent:
+            return Response(
+                {"detail": "Member invited successfully.", "email_sent": True},
+                status=status.HTTP_201_CREATED
+            )
+        else:
+            return Response(
+                {
+                    "detail": "Member added, but the invitation email could not be sent. Use Resend Invitation to try again.",
+                    "email_sent": False,
+                    "member_email": email,
+                },
+                status=status.HTTP_201_CREATED
+            )
 
 
 class TeamDetailView(views.APIView):
@@ -370,7 +441,6 @@ class TeamDetailView(views.APIView):
         name = request.data.get('name', '').strip()
         email = request.data.get('email', '').strip().lower()
         role = request.data.get('role', None)
-        password = request.data.get('password', '').strip()
 
         if email and email != user.email:
             if User.objects.filter(email=email).exclude(id=user.id).exists():
@@ -384,10 +454,6 @@ class TeamDetailView(views.APIView):
                 user.username = email
             if role:
                 user.role = role
-            if password:
-                user.set_password(password)
-                # Revoke active sessions on password change
-                Session.objects.filter(user=user, revoked_at__isnull=True).update(revoked_at=timezone.now())
             user.save()
 
             # Profile picture patch
@@ -513,23 +579,20 @@ class TeamResendInvitationView(views.APIView):
                 expires_at=timezone.now() + timedelta(days=7)
             )
 
-        # Mock Email delivery - output to console
-        print(f"\n==================================================")
-        print(f" RESENDING INVITATION TO: {user.email}")
-        print(f" LINK: http://localhost:5173/login")
-        print(f"==================================================\n")
+        # Send resend invitation email via service
+        frontend_url = settings.FRONTEND_URL
+        email_sent, email_error = InvitationEmailService.send_resend_invitation_email(
+            member_name=user.name,
+            member_email=user.email,
+            invited_by_name=request.user.name,
+            frontend_url=frontend_url,
+        )
 
-        # Send resend invitation email via SMTP
-        try:
-            send_mail(
-                subject="Reminder: Invitation to join Fluxiflow for Agency",
-                message=f"Hello {user.name},\n\nThis is a reminder that you have been invited to join Fluxiflow for Agency by {request.user.name}.\n\nYou can log in and access your workspace at:\nhttp://localhost:5173/login",
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email],
-                fail_silently=False
+        if not email_sent:
+            return Response(
+                {"detail": f"Resend failed: could not deliver invitation email. {email_error or ''}".strip()},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-        except Exception as e:
-            print(f"Resend invitation email delivery error to {user.email}: {e}")
 
         ActivityLog.objects.create(
             user=request.user,
@@ -540,6 +603,7 @@ class TeamResendInvitationView(views.APIView):
         )
 
         return Response({"detail": "Invitation resent successfully."}, status=status.HTTP_200_OK)
+
 
 
 class TeamWorkloadView(views.APIView):

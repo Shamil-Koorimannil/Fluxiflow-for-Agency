@@ -473,7 +473,7 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
 
       {/* CONFIRM TASK DELETE DIALOG */}
       {isDeleteModalOpen && (
-        <div className="fixed inset-0 bg-black/40 z-[60] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/40 z-60 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl max-w-sm w-full p-6 shadow-lg text-center relative animate-in fade-in zoom-in-95 duration-150 text-black dark:text-white">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/50 text-red-600 mb-4">
               <AlertTriangle className="h-5 w-5" />

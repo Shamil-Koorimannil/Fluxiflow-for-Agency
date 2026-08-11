@@ -100,11 +100,10 @@ class CustomTokenRefreshSerializer(TokenRefreshSerializer):
 class ProfileUpdateSerializer(serializers.ModelSerializer):
     name = serializers.CharField(source='user.name', required=False)
     email = serializers.EmailField(source='user.email', required=False)
-    password = serializers.CharField(write_only=True, required=False, min_length=6)
 
     class Meta:
         model = Profile
-        fields = ['id', 'avatar', 'name', 'email', 'password']
+        fields = ['id', 'avatar', 'name', 'email']
 
     def update(self, instance, validated_data):
         user_data = validated_data.pop('user', {})
@@ -114,14 +113,8 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
         if 'name' in user_data:
             user.name = user_data['name']
         if 'email' in user_data:
-            # Note: in real production we might restrict email changes,
-            # but prompt says "Profile editing should include Name, Profile picture, Email where permitted, Password change."
             user.email = user_data['email']
             user.username = user_data['email'] # keep username in sync
-            
-        password = validated_data.pop('password', None)
-        if password:
-            user.set_password(password)
             
         user.save()
         

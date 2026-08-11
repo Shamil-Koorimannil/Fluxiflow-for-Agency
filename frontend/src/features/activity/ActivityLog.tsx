@@ -104,7 +104,7 @@ export const ActivityLog: React.FC = () => {
 
               {/* Log Details */}
               <div className="flex-1 space-y-0.5 min-w-0">
-                <p className="text-sm text-zinc-800 dark:text-zinc-300 break-words leading-relaxed">
+                <p className="text-sm text-zinc-800 dark:text-zinc-300 wrap-break-word leading-relaxed">
                   <span className="font-semibold text-black dark:text-white">
                     {activity.user_detail?.name || 'System'}
                   </span>{' '}

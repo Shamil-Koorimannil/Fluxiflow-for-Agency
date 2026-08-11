@@ -10,7 +10,6 @@ export const Profile: React.FC = () => {
   
   const [name, setName] = useState(user?.name || '');
   const [email, setEmail] = useState(user?.email || '');
-  const [password, setPassword] = useState('');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(user?.avatar_url || null);
   
@@ -49,9 +48,7 @@ export const Profile: React.FC = () => {
     formData.append('name', name);
     formData.append('email', email);
     
-    if (password) {
-      formData.append('password', password);
-    }
+
     
     if (avatarFile) {
       formData.append('avatar', avatarFile);
@@ -65,7 +62,6 @@ export const Profile: React.FC = () => {
       });
       updateUser(response.data);
       setSuccessMessage('Profile updated successfully.');
-      setPassword('');
       setAvatarFile(null);
     } catch (err: any) {
       if (err.response?.data) {
@@ -185,18 +181,7 @@ export const Profile: React.FC = () => {
               />
             </div>
 
-            <div className="space-y-1.5 md:col-span-2">
-              <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
-                Change Password (optional)
-              </label>
-              <input
-                type="password"
-                placeholder="Leave blank to keep current password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white placeholder-zinc-400 focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white transition-colors"
-              />
-            </div>
+
           </div>
 
           <div className="flex justify-end pt-4 border-t border-zinc-100 dark:border-zinc-800">

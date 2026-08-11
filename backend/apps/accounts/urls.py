@@ -2,14 +2,15 @@ from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 from .serializers import CustomTokenRefreshSerializer
 from .views import (
-    CustomTokenObtainPairView, MeView, LogoutView, ProfileView,
+    RequestOTPView, VerifyOTPView, MeView, LogoutView, ProfileView,
     TeamListView, TeamDetailView, TeamWorkloadView,
     TeamDeactivateView, TeamReactivateView, TeamResendInvitationView, TeamTasksView
 )
 
 urlpatterns = [
-    # Traditional Auth routes
-    path('auth/login/', CustomTokenObtainPairView.as_view(), name='login'),
+    # Passwordless OTP Auth routes
+    path('auth/request-otp/', RequestOTPView.as_view(), name='request_otp'),
+    path('auth/verify-otp/', VerifyOTPView.as_view(), name='verify_otp'),
     path('auth/token/refresh/', TokenRefreshView.as_view(serializer_class=CustomTokenRefreshSerializer), name='token_refresh'),
     path('auth/logout/', LogoutView.as_view(), name='logout'),
     path('auth/me/', MeView.as_view(), name='me'),

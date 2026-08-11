@@ -36,7 +36,6 @@ import {
   Search,
   User as UserIcon,
   Mail,
-  Lock,
   Upload,
   HelpCircle,
 } from 'lucide-react';
@@ -92,7 +91,6 @@ export const Team: React.FC = () => {
   // Form fields
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [role, setRole] = useState<'ADMIN' | 'MEMBER'>('MEMBER');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -118,11 +116,19 @@ export const Team: React.FC = () => {
       });
       return response.data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['team'] });
       setIsAddOpen(false);
+      const invitedEmail = email; // capture before resetForm clears it
       resetForm();
-      showToast('Invitation sent successfully.', 'success');
+      if (data?.email_sent === false) {
+        showToast(
+          `Member added, but the invitation email could not be sent to ${data?.member_email || invitedEmail}. Use Resend Invitation to try again.`,
+          'error'
+        );
+      } else {
+        showToast(`Member invited successfully. Invitation sent to: ${invitedEmail}`, 'success');
+      }
     },
     onError: (err: any) => {
       const msg = err.response?.data?.detail || 'Failed to send invitation. Unique email required.';
@@ -262,9 +268,6 @@ export const Team: React.FC = () => {
     formData.append('name', name);
     formData.append('email', email);
     formData.append('role', role);
-    if (password) {
-      formData.append('password', password);
-    }
     if (avatarFile) {
       formData.append('avatar', avatarFile);
     }
@@ -282,9 +285,6 @@ export const Team: React.FC = () => {
     formData.append('name', name);
     formData.append('email', email);
     formData.append('role', role);
-    if (password) {
-      formData.append('password', password);
-    }
     if (avatarFile) {
       formData.append('avatar', avatarFile);
     }
@@ -306,7 +306,6 @@ export const Team: React.FC = () => {
   const resetForm = () => {
     setName('');
     setEmail('');
-    setPassword('');
     setRole('MEMBER');
     setAvatarFile(null);
     setAvatarPreview(null);
@@ -940,16 +939,7 @@ export const Team: React.FC = () => {
                 <MenuItem value="ADMIN">Admin/Manager</MenuItem>
               </Select>
             </FormControl>
-            <TextField
-              label="Password (Optional)"
-              placeholder="••••••••"
-              type="password"
-              fullWidth
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              slotProps={{ input: { startAdornment: <InputAdornment position="start"><Lock size={14} /></InputAdornment> } }}
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
-            />
+
 
             {/* Avatar input */}
             <Box>
@@ -1043,16 +1033,7 @@ export const Team: React.FC = () => {
                 <MenuItem value="ADMIN">Admin/Manager</MenuItem>
               </Select>
             </FormControl>
-            <TextField
-              label="New Password (Optional)"
-              placeholder="••••••••"
-              type="password"
-              fullWidth
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              slotProps={{ input: { startAdornment: <InputAdornment position="start"><Lock size={14} /></InputAdornment> } }}
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
-            />
+
 
             <Box>
               <Typography variant="caption" sx={{ color: '#71717a', fontWeight: 600, display: 'block', mb: 1 }}>

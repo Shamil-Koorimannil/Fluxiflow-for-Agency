@@ -6,7 +6,8 @@ interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<User>;
+  requestOtp: (email: string) => Promise<void>;
+  login: (email: string, otp: string) => Promise<User>;
   logout: () => Promise<void>;
   updateUser: (user: User) => void;
 }
@@ -39,10 +40,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const login = async (email: string, password: string): Promise<User> => {
+  const requestOtp = async (email: string): Promise<void> => {
     setIsLoading(true);
     try {
-      const response = await api.post('/auth/login/', { email, password });
+      await api.post('/auth/request-otp/', { email });
+      setIsLoading(false);
+    } catch (error) {
+      setIsLoading(false);
+      throw error;
+    }
+  };
+
+  const login = async (email: string, otp: string): Promise<User> => {
+    setIsLoading(true);
+    try {
+      const response = await api.post('/auth/verify-otp/', { email, otp });
       const { access, refresh, user: userData } = response.data;
       setTokens(access, refresh);
       setUser(userData);
@@ -80,6 +92,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         isAuthenticated: !!user,
         isLoading,
+        requestOtp,
         login,
         logout,
         updateUser,

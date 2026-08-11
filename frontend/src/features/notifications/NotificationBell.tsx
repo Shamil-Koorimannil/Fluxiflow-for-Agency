@@ -271,7 +271,7 @@ export const NotificationBell: React.FC = () => {
                       {formatRelativeTime(item.created_at)}
                     </span>
                   </div>
-                  <p className="text-[11px] text-zinc-550 dark:text-zinc-450 mt-1 leading-normal break-words">
+                  <p className="text-[11px] text-zinc-550 dark:text-zinc-450 mt-1 leading-normal wrap-break-word">
                     {item.message}
                   </p>
                 </div>

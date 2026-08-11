@@ -8,6 +8,7 @@ from apps.projects.models import Project
 from apps.tasks.models import Task, TaskAssignee, SubTask, TaskAssignmentHistory
 from apps.activity.models import ActivityLog
 import datetime
+from rest_framework_simplejwt.tokens import RefreshToken
 
 User = get_user_model()
 
@@ -58,10 +59,13 @@ class FluxiflowAPITests(TestCase):
         )
         TaskAssignee.objects.create(task=self.task, user=self.member1)
 
-    def get_jwt_token(self, email, password):
-        response = self.client.post(reverse('login'), {'email': email, 'password': password})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        return response.data['access']
+    def get_jwt_token(self, email, password=None):
+        user = User.objects.get(email=email)
+        refresh = RefreshToken.for_user(user)
+        refresh['email'] = user.email
+        refresh['name'] = user.name
+        refresh['role'] = user.role
+        return str(refresh.access_token)
 
     def set_auth(self, token):
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
@@ -75,18 +79,6 @@ class FluxiflowAPITests(TestCase):
         url = reverse('task-list')
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-    def test_login_works_and_returns_payload(self):
-        self.clear_auth()
-        response = self.client.post(reverse('login'), {
-            'email': self.member1.email,
-            'password': self.member_password
-        })
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn('access', response.data)
-        self.assertIn('refresh', response.data)
-        self.assertEqual(response.data['user']['email'], self.member1.email)
-        self.assertEqual(response.data['user']['role'], 'MEMBER')
 
     # --- 2. Admin Permissions Tests ---
     def test_admin_can_perform_project_crud(self):
@@ -578,7 +570,10 @@ class FluxiflowHealthAPITests(TestCase):
         self.assertEqual(TaskAssignmentHistory.objects.filter(task=task, user=self.member1, unassigned_at__isnull=False).count(), 1)
         self.assertEqual(TaskAssignmentHistory.objects.filter(task=task, user=self.member1, unassigned_at__isnull=True).count(), 1)
 
-    def get_jwt_token(self, email, password):
-        response = self.client.post(reverse('login'), {'email': email, 'password': password})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        return response.data['access']
+    def get_jwt_token(self, email, password=None):
+        user = User.objects.get(email=email)
+        refresh = RefreshToken.for_user(user)
+        refresh['email'] = user.email
+        refresh['name'] = user.name
+        refresh['role'] = user.role
+        return str(refresh.access_token)
