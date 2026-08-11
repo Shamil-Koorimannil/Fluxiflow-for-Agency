@@ -23,7 +23,7 @@ class ActivityLog(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='activities')
     action = models.CharField(max_length=50, choices=ACTION_CHOICES)
     entity_type = models.CharField(max_length=50)  # e.g., 'Task', 'Project', 'SubProject', 'Profile'
-    entity_id = models.UUIDField()
+    entity_id = models.UUIDField(null=True, blank=True)
     description = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
 

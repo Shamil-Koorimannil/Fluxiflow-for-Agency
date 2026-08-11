@@ -51,6 +51,7 @@ class CustomUser(AbstractUser):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='INVITED')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    deactivated_at = models.DateTimeField(null=True, blank=True)
 
     objects = CustomUserManager()
 

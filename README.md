@@ -85,6 +85,15 @@ python manage.py test apps.tasks
 
 ---
 
+## Development Database Backup
+To manually create a backup of your local SQLite database before migrations or major edits, run:
+```bash
+python scripts/backup_db.py
+```
+This copies the database file safely to the `backend/backups/` directory with a timestamp.
+
+---
+
 ## Production Deployment Checklist
 
 To go live with this application, execute the following configuration steps:

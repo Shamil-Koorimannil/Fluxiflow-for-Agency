@@ -1,0 +1,642 @@
+import csv
+import datetime
+from io import BytesIO
+from django.utils import timezone
+from django.db import models
+from django.contrib.auth import get_user_model
+from django.http import HttpResponse
+from apps.tasks.models import Task, TaskAssignee, TaskAssignmentHistory
+from apps.projects.models import Project
+
+# openpyxl for Excel
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.utils import get_column_letter
+
+# reportlab for PDF
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+User = get_user_model()
+
+class ReportGenerator:
+    @staticmethod
+    def get_day_boundaries(date_obj, tz=None):
+        if tz is None:
+            tz = timezone.get_current_timezone()
+        
+        # Combine date with min/max time
+        naive_start = datetime.datetime.combine(date_obj, datetime.time.min)
+        naive_end = datetime.datetime.combine(date_obj, datetime.time.max)
+        
+        # Make timezone-aware
+        start_dt = timezone.make_aware(naive_start, tz)
+        end_dt = timezone.make_aware(naive_end, tz)
+        
+        return start_dt, end_dt
+
+    @staticmethod
+    def compile_report_data(start_date, end_date, member_id=None, project_id=None, status_filter=None, search_query=None, include_deactivated=False):
+        tz = timezone.get_current_timezone()
+        
+        # Format date inputs
+        if isinstance(start_date, str):
+            start_date = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
+        if isinstance(end_date, str):
+            end_date = datetime.datetime.strptime(end_date, "%Y-%m-%d").date()
+            
+        is_range = start_date != end_date
+        
+        # Total date range boundaries
+        total_start_dt, _ = ReportGenerator.get_day_boundaries(start_date, tz)
+        _, total_end_dt = ReportGenerator.get_day_boundaries(end_date, tz)
+
+        # 1. Fetch relevant members
+        members_query = User.objects.all()
+        if not include_deactivated:
+            # Active members, or deactivated after start of the report range
+            members_query = members_query.filter(
+                models.Q(is_active=True, status='ACTIVE') |
+                models.Q(is_active=False, status='INACTIVE', deactivated_at__gt=total_start_dt)
+            )
+        if member_id and member_id != 'all':
+            members_query = members_query.filter(id=member_id)
+            
+        members_list = list(members_query.order_by('name'))
+        member_ids = [m.id for m in members_list]
+
+        # 2. Iterate day by day in range
+        delta = datetime.timedelta(days=1)
+        current_date = start_date
+        
+        def get_avatar(u):
+            try:
+                if u.profile and u.profile.avatar:
+                    return u.profile.avatar.url
+            except Exception:
+                pass
+            return None
+
+        daily_breakdown = []
+        all_member_stats = {
+            m.id: {
+                "member_id": str(m.id),
+                "name": m.name,
+                "role": m.role,
+                "avatar_url": get_avatar(m),
+                "completed": 0,
+                "on_time": 0,
+                "late": 0,
+                "pending": 0,
+                "overdue": 0,
+            } for m in members_list
+        }
+        
+        all_tasks_details = []
+
+        while current_date <= end_date:
+            day_start_dt, day_end_dt = ReportGenerator.get_day_boundaries(current_date, tz)
+            
+            # Fetch assignment histories active on this day
+            histories = TaskAssignmentHistory.objects.filter(
+                user_id__in=member_ids,
+                assigned_at__lte=day_end_dt
+            ).filter(
+                models.Q(unassigned_at__isnull=True) | models.Q(unassigned_at__gt=day_start_dt)
+            ).select_related('task', 'task__project', 'user')
+
+            # Filter by project
+            if project_id and project_id != 'all':
+                histories = histories.filter(task__project_id=project_id)
+                
+            # Filter by search query (task name, member name, project name)
+            if search_query:
+                histories = histories.filter(
+                    models.Q(task__name__icontains=search_query) |
+                    models.Q(user__name__icontains=search_query) |
+                    models.Q(task__project__name__icontains=search_query)
+                )
+
+            # Metrics for this day
+            day_completed = 0
+            day_on_time = 0
+            day_late = 0
+            day_pending = 0
+            day_overdue = 0
+            
+            for h in histories:
+                task = h.task
+                
+                # Check task due datetime
+                if task.due_time:
+                    naive_due = datetime.datetime.combine(task.due_date, task.due_time)
+                    due_dt = timezone.make_aware(naive_due, tz)
+                else:
+                    # Due by the end of the selected day
+                    due_dt = day_end_dt.replace(year=task.due_date.year, month=task.due_date.month, day=task.due_date.day)
+
+                # Determine completion state relative to the end of this day
+                is_completed_on_day = (
+                    h.completed and 
+                    h.completed_at is not None and 
+                    day_start_dt <= h.completed_at <= day_end_dt
+                )
+                
+                is_completed_before_day_end = (
+                    h.completed and
+                    h.completed_at is not None and
+                    h.completed_at <= day_end_dt
+                )
+
+                if is_completed_on_day:
+                    day_completed += 1
+                    all_member_stats[h.user.id]["completed"] += 1
+                    
+                    # On-time check using task due datetime helper
+                    from apps.tasks.helpers import get_task_due_datetime, format_late_duration
+                    due_dt_task = get_task_due_datetime(task.due_date, task.due_time)
+                    if h.completed_at <= due_dt_task:
+                        all_member_stats[h.user.id]["on_time"] += 1
+                        day_on_time += 1
+                        on_time_status = "On Time"
+                        late_duration = "-"
+                    else:
+                        all_member_stats[h.user.id]["late"] += 1
+                        day_late += 1
+                        on_time_status = "Late"
+                        diff = h.completed_at - due_dt_task
+                        late_mins = int(diff.total_seconds() // 60)
+                        late_duration = format_late_duration(late_mins)
+                        
+                    task_status = "COMPLETED"
+                    completed_at_str = timezone.localtime(h.completed_at).strftime("%Y-%m-%d %I:%M %p")
+                else:
+                    # Incomplete by end of day
+                    if not is_completed_before_day_end:
+                        # If task was created before/during this day
+                        if task.created_at <= day_end_dt:
+                            if due_dt < day_end_dt:
+                                day_overdue += 1
+                                all_member_stats[h.user.id]["overdue"] += 1
+                                task_status = "OVERDUE"
+                                on_time_status = "Overdue"
+                            else:
+                                day_pending += 1
+                                all_member_stats[h.user.id]["pending"] += 1
+                                task_status = "PENDING"
+                                on_time_status = "Pending"
+                            late_duration = "-"
+                        else:
+                            # Created in future relative to this reporting day, skip
+                            continue
+                    else:
+                        # Completed on a previous day in range, skip detail addition for this day
+                        # to avoid duplicate list entries, but it was already counted on its completed day.
+                        continue
+
+                # Add to task details
+                all_tasks_details.append({
+                    "date": str(current_date),
+                    "task_id": str(task.id),
+                    "task_name": task.name,
+                    "project_id": str(task.project.id) if task.project else None,
+                    "project_name": task.project.name if task.project else "No Project",
+                    "member_id": str(h.user.id),
+                    "member_name": h.user.name,
+                    "status": task_status,
+                    "due_date": str(task.due_date),
+                    "due_time": task.due_time.strftime("%I:%M %p") if task.due_time else None,
+                    "completed_at": completed_at_str if is_completed_on_day else None,
+                    "priority": task.get_priority_display() if hasattr(task, 'get_priority_display') else task.priority,
+                    "on_time": on_time_status,
+                    "late_by": late_duration
+                })
+
+            daily_breakdown.append({
+                "date": str(current_date),
+                "completed": day_completed,
+                "on_time": day_on_time,
+                "late": day_late,
+                "pending": day_pending,
+                "overdue": day_overdue
+            })
+            
+            current_date += delta
+
+        # Post-process member summaries to calculate On-Time rate
+        member_reports = []
+        for m_id, stats in all_member_stats.items():
+            total_completed = stats["completed"]
+            on_time_count = stats["on_time"]
+            
+            if total_completed > 0:
+                rate = round((on_time_count / total_completed) * 100)
+            else:
+                rate = 100  # Default perfect rate
+                
+            stats["on_time_rate"] = rate
+            member_reports.append(stats)
+
+        # Unified range summaries
+        total_completed = sum(m["completed"] for m in member_reports)
+        total_on_time = sum(m["on_time"] for m in member_reports)
+        total_late = sum(m["late"] for m in member_reports)
+        total_pending = sum(m["pending"] for m in member_reports)
+        total_overdue = sum(m["overdue"] for m in member_reports)
+        
+        overall_on_time_rate = (
+            round((total_on_time / total_completed) * 100) if total_completed > 0 else 100
+        )
+
+        # Apply status filter to the returned task details list
+        if status_filter and status_filter != 'all':
+            if status_filter.lower() == 'late':
+                all_tasks_details = [t for t in all_tasks_details if t["status"] == "COMPLETED" and t["on_time"] == "Late"]
+            else:
+                all_tasks_details = [t for t in all_tasks_details if t["status"].lower() == status_filter.lower()]
+
+        return {
+            "start_date": str(start_date),
+            "end_date": str(end_date),
+            "is_range": is_range,
+            "summary": {
+                "total_members": len(member_ids),
+                "completed": total_completed,
+                "on_time": total_on_time,
+                "late": total_late,
+                "pending": total_pending,
+                "overdue": total_overdue,
+                "on_time_rate": overall_on_time_rate
+            },
+            "member_reports": member_reports,
+            "daily_breakdown": daily_breakdown if is_range else [],
+            "tasks": all_tasks_details
+        }
+
+    @staticmethod
+    def export_excel(start_date, end_date, member_id=None, project_id=None, status_filter=None, search_query=None, include_deactivated=False):
+        data = ReportGenerator.compile_report_data(
+            start_date, end_date, member_id, project_id, status_filter, search_query, include_deactivated
+        )
+
+        wb = Workbook()
+        # Sheet 1: Summary
+        ws1 = wb.active
+        ws1.title = "Summary"
+        
+        # Styles
+        title_font = Font(name="Calibri", size=16, bold=True, color="FFFFFF")
+        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        bold_font = Font(name="Calibri", size=11, bold=True)
+        regular_font = Font(name="Calibri", size=11)
+        
+        fill_title = PatternFill(start_color="000000", end_color="000000", fill_type="solid")
+        fill_header = PatternFill(start_color="333333", end_color="333333", fill_type="solid")
+        fill_accent = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+        
+        align_center = Alignment(horizontal="center", vertical="center")
+        align_left = Alignment(horizontal="left", vertical="center")
+        
+        border_thin = Side(border_style="thin", color="CCCCCC")
+        border_double = Side(border_style="double", color="333333")
+        grid_border = Border(left=border_thin, right=border_thin, top=border_thin, bottom=border_thin)
+
+        # Title block (merged up to G for 7 columns)
+        ws1.merge_cells("A1:G1")
+        ws1["A1"] = f"Fluxiflow Daily Work Report ({data['start_date']} to {data['end_date']})"
+        ws1["A1"].font = title_font
+        ws1["A1"].fill = fill_title
+        ws1["A1"].alignment = align_center
+        ws1.row_dimensions[1].height = 40
+
+        # Overall summary cards row
+        ws1["A3"] = "Total Members"
+        ws1["B3"] = "Total Completed"
+        ws1["C3"] = "Total On-Time"
+        ws1["D3"] = "Total Late"
+        ws1["E3"] = "Total Pending"
+        ws1["F3"] = "Total Overdue"
+        ws1["G3"] = "On-Time Completion %"
+        
+        for col in ["A", "B", "C", "D", "E", "F", "G"]:
+            ws1[f"{col}3"].font = bold_font
+            ws1[f"{col}3"].alignment = align_center
+            ws1[f"{col}3"].fill = fill_accent
+            
+        ws1["A4"] = data["summary"]["total_members"]
+        ws1["B4"] = data["summary"]["completed"]
+        ws1["C4"] = data["summary"]["on_time"]
+        ws1["D4"] = data["summary"]["late"]
+        ws1["E4"] = data["summary"]["pending"]
+        ws1["F4"] = data["summary"]["overdue"]
+        ws1["G4"] = f"{data['summary']['on_time_rate']}%"
+        
+        for col in ["A", "B", "C", "D", "E", "F", "G"]:
+            ws1[f"{col}4"].font = regular_font
+            ws1[f"{col}4"].alignment = align_center
+            ws1[f"{col}4"].border = grid_border
+        
+        ws1.row_dimensions[3].height = 20
+        ws1.row_dimensions[4].height = 25
+
+        # Table Header
+        ws1["A7"] = "Member"
+        ws1["B7"] = "Completed"
+        ws1["C7"] = "On Time"
+        ws1["D7"] = "Late"
+        ws1["E7"] = "Pending"
+        ws1["F7"] = "Overdue"
+        ws1["G7"] = "On-Time Rate"
+        
+        for col in ["A", "B", "C", "D", "E", "F", "G"]:
+            ws1[f"{col}7"].font = header_font
+            ws1[f"{col}7"].fill = fill_header
+            ws1[f"{col}7"].alignment = align_center
+        
+        ws1.row_dimensions[7].height = 25
+
+        # Member list rows
+        row_idx = 8
+        for m in data["member_reports"]:
+            ws1.cell(row=row_idx, column=1, value=m["name"]).alignment = align_left
+            ws1.cell(row=row_idx, column=2, value=m["completed"]).alignment = align_center
+            ws1.cell(row=row_idx, column=3, value=m["on_time"]).alignment = align_center
+            ws1.cell(row=row_idx, column=4, value=m["late"]).alignment = align_center
+            ws1.cell(row=row_idx, column=5, value=m["pending"]).alignment = align_center
+            ws1.cell(row=row_idx, column=6, value=m["overdue"]).alignment = align_center
+            ws1.cell(row=row_idx, column=7, value=f"{m['on_time_rate']}%").alignment = align_center
+            
+            for col in range(1, 8):
+                cell = ws1.cell(row=row_idx, column=col)
+                cell.font = regular_font
+                cell.border = grid_border
+            ws1.row_dimensions[row_idx].height = 20
+            row_idx += 1
+
+        # Sheet 2: Task Details
+        ws2 = wb.create_sheet(title="Task Details")
+        
+        # Header block
+        headers = ["Date", "Member", "Project", "Task", "Status", "Due Date", "Due Time", "Completed At", "Submission Status", "Late By", "Priority"]
+        for col_idx, h_text in enumerate(headers, 1):
+            cell = ws2.cell(row=1, column=col_idx, value=h_text)
+            cell.font = header_font
+            cell.fill = fill_header
+            cell.alignment = align_center
+        ws2.row_dimensions[1].height = 25
+
+        # Data rows
+        detail_row = 2
+        for t in data["tasks"]:
+            ws2.cell(row=detail_row, column=1, value=t["date"]).alignment = align_center
+            ws2.cell(row=detail_row, column=2, value=t["member_name"]).alignment = align_left
+            ws2.cell(row=detail_row, column=3, value=t["project_name"]).alignment = align_left
+            ws2.cell(row=detail_row, column=4, value=t["task_name"]).alignment = align_left
+            ws2.cell(row=detail_row, column=5, value=t["status"]).alignment = align_center
+            ws2.cell(row=detail_row, column=6, value=t["due_date"]).alignment = align_center
+            ws2.cell(row=detail_row, column=7, value=t["due_time"] or "-").alignment = align_center
+            ws2.cell(row=detail_row, column=8, value=t["completed_at"] or "-").alignment = align_center
+            ws2.cell(row=detail_row, column=9, value=t["on_time"]).alignment = align_center
+            ws2.cell(row=detail_row, column=10, value=t["late_by"]).alignment = align_center
+            ws2.cell(row=detail_row, column=11, value=t["priority"]).alignment = align_center
+            
+            for col in range(1, 12):
+                cell = ws2.cell(row=detail_row, column=col)
+                cell.font = regular_font
+                cell.border = grid_border
+            ws2.row_dimensions[detail_row].height = 20
+            detail_row += 1
+
+        # Auto-adjust column widths for readability
+        for ws in [ws1, ws2]:
+            for col in ws.columns:
+                max_len = max(len(str(cell.value or '')) for cell in col)
+                col_letter = get_column_letter(col[0].column)
+                ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+        return output
+
+    @staticmethod
+    def export_csv(start_date, end_date, member_id=None, project_id=None, status_filter=None, search_query=None, include_deactivated=False):
+        data = ReportGenerator.compile_report_data(
+            start_date, end_date, member_id, project_id, status_filter, search_query, include_deactivated
+        )
+        
+        import io
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Headers
+        writer.writerow(["Date", "Member", "Project", "Task", "Status", "Due Date", "Due Time", "Completed At", "Submission Status", "Late By", "Priority"])
+        
+        # Data
+        for t in data["tasks"]:
+            writer.writerow([
+                t["date"],
+                t["member_name"],
+                t["project_name"],
+                t["task_name"],
+                t["status"],
+                t["due_date"],
+                t["due_time"] or "",
+                t["completed_at"] or "",
+                t["on_time"],
+                t["late_by"] if t["late_by"] != "-" else "",
+                t["priority"]
+            ])
+            
+        return b'\xef\xbb\xbf' + output.getvalue().encode('utf-8')
+
+    @staticmethod
+    def export_pdf(start_date, end_date, member_id=None, project_id=None, status_filter=None, search_query=None, include_deactivated=False):
+        data = ReportGenerator.compile_report_data(
+            start_date, end_date, member_id, project_id, status_filter, search_query, include_deactivated
+        )
+
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=letter,
+            rightMargin=36,
+            leftMargin=36,
+            topMargin=36,
+            bottomMargin=36
+        )
+        
+        styles = getSampleStyleSheet()
+        
+        # Define clean premium typography styles
+        title_style = ParagraphStyle(
+            'PDFTitle',
+            parent=styles['Heading1'],
+            fontName='Helvetica-Bold',
+            fontSize=22,
+            textColor=colors.HexColor('#000000'),
+            spaceAfter=6
+        )
+        subtitle_style = ParagraphStyle(
+            'PDFSubTitle',
+            parent=styles['Normal'],
+            fontName='Helvetica',
+            fontSize=11,
+            textColor=colors.HexColor('#666666'),
+            spaceAfter=20
+        )
+        section_heading = ParagraphStyle(
+            'PDFSection',
+            parent=styles['Heading2'],
+            fontName='Helvetica-Bold',
+            fontSize=14,
+            textColor=colors.HexColor('#000000'),
+            spaceBefore=15,
+            spaceAfter=10
+        )
+        body_style = ParagraphStyle(
+            'PDFBody',
+            parent=styles['Normal'],
+            fontName='Helvetica',
+            fontSize=10,
+            textColor=colors.HexColor('#333333')
+        )
+        bold_body = ParagraphStyle(
+            'PDFBoldBody',
+            parent=body_style,
+            fontName='Helvetica-Bold'
+        )
+
+        story = []
+        
+        # Title block
+        story.append(Paragraph("Fluxiflow for Agency", title_style))
+        story.append(Paragraph(f"Daily Work Report — {data['start_date']} to {data['end_date']}", subtitle_style))
+        
+        # Team Summary Box
+        story.append(Paragraph("Team Summary", section_heading))
+        summary_table_data = [
+            [
+                Paragraph("<b>Total Members</b>", body_style),
+                Paragraph("<b>Completed</b>", body_style),
+                Paragraph("<b>On Time</b>", body_style),
+                Paragraph("<b>Late</b>", body_style),
+                Paragraph("<b>Pending</b>", body_style),
+                Paragraph("<b>Overdue</b>", body_style),
+                Paragraph("<b>On-Time Rate</b>", body_style)
+            ],
+            [
+                Paragraph(str(data["summary"]["total_members"]), body_style),
+                Paragraph(str(data["summary"]["completed"]), body_style),
+                Paragraph(str(data["summary"]["on_time"]), body_style),
+                Paragraph(str(data["summary"]["late"]), body_style),
+                Paragraph(str(data["summary"]["pending"]), body_style),
+                Paragraph(str(data["summary"]["overdue"]), body_style),
+                Paragraph(f"{data['summary']['on_time_rate']}%", bold_body)
+            ]
+        ]
+        summary_table = Table(summary_table_data, colWidths=[75, 75, 75, 75, 75, 75, 90])
+        summary_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F2F2F2')),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        story.append(summary_table)
+        story.append(Spacer(1, 15))
+
+        # Member Breakdown Section
+        story.append(Paragraph("Member Reports Summary", section_heading))
+        member_table_data = [
+            [
+                Paragraph("<b>Member</b>", body_style),
+                Paragraph("<b>Completed</b>", body_style),
+                Paragraph("<b>On Time</b>", body_style),
+                Paragraph("<b>Late</b>", body_style),
+                Paragraph("<b>Pending</b>", body_style),
+                Paragraph("<b>Overdue</b>", body_style),
+                Paragraph("<b>On-Time Rate</b>", body_style)
+            ]
+        ]
+        for m in data["member_reports"]:
+            member_table_data.append([
+                Paragraph(m["name"], bold_body),
+                Paragraph(str(m["completed"]), body_style),
+                Paragraph(str(m["on_time"]), body_style),
+                Paragraph(str(m["late"]), body_style),
+                Paragraph(str(m["pending"]), body_style),
+                Paragraph(str(m["overdue"]), body_style),
+                Paragraph(f"{m['on_time_rate']}%", body_style)
+            ])
+            
+        member_table = Table(member_table_data, colWidths=[150, 65, 65, 65, 65, 65, 65])
+        member_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#333333')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ]))
+        for i in range(7):
+            member_table_data[0][i].style.textColor = colors.white
+            
+        story.append(member_table)
+        story.append(Spacer(1, 20))
+
+        # Task Details Section
+        story.append(Paragraph("Detailed Daily Task Log", section_heading))
+        
+        if len(data["tasks"]) == 0:
+            story.append(Paragraph("No matching tasks logged for this reporting period.", body_style))
+        else:
+            task_table_data = [
+                [
+                    Paragraph("<b>Date/Member</b>", body_style),
+                    Paragraph("<b>Project & Task</b>", body_style),
+                    Paragraph("<b>Status / Late By</b>", body_style),
+                    Paragraph("<b>Due Date/Time</b>", body_style),
+                    Paragraph("<b>Completed At</b>", body_style)
+                ]
+            ]
+            for t in data["tasks"]:
+                due_str = f"{t['due_date']}"
+                if t['due_time']:
+                    due_str += f"\n{t['due_time']}"
+                
+                # Format status column showing Late status details
+                if t["status"] == "COMPLETED":
+                    if t["on_time"] == "Late":
+                        status_html = f"<b>Completed</b><br/><font color='#ef4444'>Late ({t['late_by']})</font>"
+                    else:
+                        status_html = "<b>Completed</b><br/><font color='#10b981'>On Time</font>"
+                elif t["status"] == "OVERDUE":
+                    status_html = "<b><font color='#ef4444'>Overdue</font></b>"
+                else:
+                    status_html = "Pending"
+                    
+                task_table_data.append([
+                    Paragraph(f"<b>{t['member_name']}</b><br/><font color='#666666'>{t['date']}</font>", body_style),
+                    Paragraph(f"<b>{t['task_name']}</b><br/><font color='#666666'>Project: {t['project_name']}</font>", body_style),
+                    Paragraph(status_html, body_style),
+                    Paragraph(due_str, body_style),
+                    Paragraph(t["completed_at"] or "-", body_style)
+                ])
+
+            task_table = Table(task_table_data, colWidths=[110, 190, 80, 80, 80])
+            task_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F2F2F2')),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E5E5E5')),
+                ('TOPPADDING', (0, 0), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ]))
+            story.append(task_table)
+
+        doc.build(story)
+        buffer.seek(0)
+        return buffer

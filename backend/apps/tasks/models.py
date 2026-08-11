@@ -1,7 +1,8 @@
 import uuid
 from django.db import models
 from django.conf import settings
-from apps.projects.models import Project, SubProject
+from django.utils import timezone
+from apps.projects.models import Project
 
 class Task(models.Model):
     PRIORITY_CHOICES = (
@@ -16,7 +17,6 @@ class Task(models.Model):
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     project = models.ForeignKey(Project, on_delete=models.SET_NULL, blank=True, null=True, related_name='tasks')
-    sub_project = models.ForeignKey(SubProject, on_delete=models.SET_NULL, blank=True, null=True, related_name='tasks')
     organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, related_name='tasks', null=True, blank=True)
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
@@ -46,6 +46,8 @@ class TaskAssignee(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='assignee_relationships')
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='task_assignments')
+    completed = models.BooleanField(default=False)
+    completed_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         unique_together = ('task', 'user')
@@ -77,3 +79,23 @@ class SubTask(models.Model):
 
     def __str__(self):
         return f"{self.name} (Subtask of {self.task.name})"
+
+class TaskAssignmentHistory(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='assignment_histories')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='task_assignment_histories')
+    assigned_at = models.DateTimeField(default=timezone.now)
+    unassigned_at = models.DateTimeField(null=True, blank=True)
+    completed = models.BooleanField(default=False)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['assigned_at']
+        indexes = [
+            models.Index(fields=['task', 'user']),
+            models.Index(fields=['assigned_at']),
+            models.Index(fields=['unassigned_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.user.name} was assigned to {self.task.name} ({self.assigned_at} to {self.unassigned_at})"

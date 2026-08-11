@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../../services/api';
 import type { GlobalSearchResults } from '../../types';
-import { Search as SearchIcon, Folder, CheckSquare, CornerDownRight } from 'lucide-react';
+import { Search as SearchIcon, Folder, CheckSquare } from 'lucide-react';
+import { formatLateDuration } from '../../utils/time';
 
 export const Search: React.FC = () => {
   const [query, setQuery] = useState('');
@@ -24,7 +25,6 @@ export const Search: React.FC = () => {
   // Keyboard shortcut '/' to focus
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Check if target is not input/textarea
       if (
         e.key === '/' &&
         document.activeElement?.tagName !== 'INPUT' &&
@@ -52,93 +52,133 @@ export const Search: React.FC = () => {
   const getPriorityColor = (priority: string | null) => {
     switch (priority) {
       case 'HIGH':
-        return 'text-red-600 bg-red-50';
+        return 'text-red-655 bg-red-50 dark:text-red-400 dark:bg-red-950/20';
       case 'MEDIUM':
-        return 'text-amber-600 bg-amber-50';
+        return 'text-amber-655 bg-amber-50 dark:text-amber-400 dark:bg-amber-950/20';
       case 'LOW':
-        return 'text-blue-600 bg-blue-50';
+        return 'text-blue-655 bg-blue-50 dark:text-blue-400 dark:bg-blue-950/20';
       default:
-        return 'text-zinc-600 bg-zinc-50';
+        return 'text-zinc-500 bg-zinc-100 dark:text-zinc-400 dark:bg-zinc-900';
     }
+  };
+
+  const getInitials = (name: string) => {
+    return name
+      .split(' ')
+      .map((n) => n[0])
+      .slice(0, 2)
+      .join('')
+      .toUpperCase();
+  };
+
+  const renderAssigneesList = (assignees: any[]) => {
+    if (assignees.length === 0) {
+      return (
+        <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 flex items-center gap-1 bg-zinc-50 dark:bg-zinc-950 px-2 py-0.5 rounded-full border border-zinc-200/50 dark:border-zinc-850 select-none uppercase tracking-wider">
+          👤 Unassigned
+        </span>
+      );
+    }
+    
+    // Single assignee
+    if (assignees.length === 1) {
+      const single = assignees[0];
+      return (
+        <div className="flex items-center gap-1.5 text-[11px] font-semibold text-zinc-650 dark:text-zinc-400">
+          <div className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-[9px] font-bold text-zinc-600 dark:text-zinc-400">
+            {getInitials(single.name)}
+          </div>
+          <span>{single.name}</span>
+        </div>
+      );
+    }
+
+    // Multiple assignees
+    const firstTwo = assignees.slice(0, 2);
+    const overflowCount = assignees.length - 2;
+    const tooltipText = assignees.map(a => a.name).join('\n');
+    
+    return (
+      <div 
+        className="flex items-center gap-1.5 text-[11px] font-semibold text-zinc-650 dark:text-zinc-400 cursor-help"
+        title={tooltipText}
+      >
+        <div className="flex -space-x-1.5 overflow-hidden">
+          {firstTwo.map((a) => (
+            <div
+              key={a.id}
+              className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 border border-white dark:border-zinc-950 text-[9px] font-bold text-zinc-600 dark:text-zinc-455 shrink-0"
+            >
+              {getInitials(a.name)}
+            </div>
+          ))}
+          {overflowCount > 0 && (
+            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-250 dark:bg-zinc-700 border border-white dark:border-zinc-950 text-[8px] font-bold text-zinc-700 dark:text-zinc-300 shrink-0">
+              +{overflowCount}
+            </div>
+          )}
+        </div>
+        <span>
+          {firstTwo.map(a => a.name).join(' · ')}
+          {overflowCount > 0 ? ` +${overflowCount}` : ''}
+        </span>
+      </div>
+    );
   };
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto pb-8">
       <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold tracking-tight">Global Search</h1>
-        <p className="text-sm text-zinc-500">
+        <h1 className="text-2xl font-bold tracking-tight text-black dark:text-white">Global Search</h1>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">
           Search across company tasks, descriptions, assignees, and projects.
         </p>
       </div>
 
       {/* Search Input Bar */}
       <div className="relative">
-        <SearchIcon className="absolute left-3 top-3.5 h-4 w-4 text-zinc-400" />
+        <SearchIcon className="absolute left-3 top-3 h-4 w-4 text-zinc-400 dark:text-zinc-550" />
         <input
           ref={inputRef}
           type="text"
+          placeholder="Type search terms here... (Press '/' to focus)"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Type search terms... (Press '/' to focus)"
-          className="w-full pl-10 pr-4 py-3 bg-white border border-zinc-200 rounded-xl text-sm placeholder-zinc-400 focus:outline-none focus:border-black focus:ring-1 focus:ring-black transition-colors"
+          className="w-full pl-9 pr-4 py-2.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white placeholder-zinc-400 focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white transition-all shadow-sm"
         />
       </div>
 
-      {/* Search Results Display */}
-      {isLoading ? (
-        <div className="space-y-4">
-          <div className="h-6 w-24 bg-zinc-200 animate-pulse rounded"></div>
-          <div className="space-y-2">
-            {[1, 2].map((i) => (
-              <div key={i} className="h-14 bg-zinc-100 animate-pulse rounded-lg border border-zinc-200/50"></div>
-            ))}
-          </div>
-        </div>
-      ) : debouncedQuery.trim() === '' ? (
-        <div className="flex flex-col items-center justify-center border border-dashed border-zinc-200 rounded-xl bg-white p-12 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-100 border border-zinc-200 text-zinc-400 mb-4">
-            <SearchIcon className="h-5 w-5" />
-          </div>
-          <h3 className="font-semibold text-sm">Start searching</h3>
-          <p className="text-xs text-zinc-400 mt-1 max-w-xs">
-            Enter a task name, assignee name, project title, or keyword to find items.
-          </p>
-        </div>
-      ) : (!results || (results.tasks.length === 0 && results.projects.length === 0)) ? (
-        <div className="flex flex-col items-center justify-center border border-dashed border-zinc-200 rounded-xl bg-white p-12 text-center">
-          <h3 className="font-semibold text-sm">No results found</h3>
-          <p className="text-xs text-zinc-400 mt-1">
-            We couldn't find anything matching "{debouncedQuery}".
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-8">
+      {/* Search Results */}
+      {debouncedQuery.trim() && !isLoading && results && (
+        <div className="space-y-8 animate-fade-in">
           {/* Projects Results Section */}
           {results.projects.length > 0 && (
             <div className="space-y-3">
-              <h2 className="text-xs font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-2">
+              <h2 className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest flex items-center gap-2">
                 <Folder className="h-3.5 w-3.5" />
                 Projects ({results.projects.length})
               </h2>
-              <div className="bg-white border border-zinc-200 rounded-xl divide-y divide-zinc-100 overflow-hidden">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {results.projects.map((proj) => (
                   <Link
                     key={proj.id}
                     to={`/app/projects/${proj.id}`}
-                    className="flex items-center justify-between p-4 hover:bg-zinc-50 transition-colors"
+                    className="block bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 hover:border-black dark:hover:border-white rounded-xl p-4 transition-all shadow-sm"
                   >
-                    <div>
-                      <h4 className="font-semibold text-sm text-black">{proj.name}</h4>
-                      <p className="text-xs text-zinc-500 mt-0.5 line-clamp-1">
-                        {proj.description || 'No description provided.'}
-                      </p>
-                    </div>
+                    <h3 className="font-semibold text-sm text-black dark:text-white truncate">{proj.name}</h3>
+                    <p className="text-xs text-zinc-450 dark:text-zinc-500 mt-1 line-clamp-2">{proj.description}</p>
                     {proj.progress !== null ? (
-                      <span className="text-xs font-semibold px-2 py-0.5 bg-zinc-100 rounded-full">
-                        {proj.progress}%
-                      </span>
+                      <div className="flex items-center gap-2 mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-900">
+                        <div className="w-12 h-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden shrink-0">
+                          <div
+                            className="h-full bg-black dark:bg-white rounded-full"
+                            style={{ width: `${proj.progress}%` }}
+                          ></div>
+                        </div>
+                        <span className="text-[10px] font-bold text-black dark:text-white">{proj.progress}% completed</span>
+                      </div>
                     ) : (
-                      <span className="text-xs font-medium text-zinc-400 italic">No tasks</span>
+                      <span className="text-xs font-medium text-zinc-450 dark:text-zinc-500 italic mt-3 block">No tasks</span>
                     )}
                   </Link>
                 ))}
@@ -149,67 +189,63 @@ export const Search: React.FC = () => {
           {/* Tasks Results Section */}
           {results.tasks.length > 0 && (
             <div className="space-y-3">
-              <h2 className="text-xs font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-2">
+              <h2 className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest flex items-center gap-2">
                 <CheckSquare className="h-3.5 w-3.5" />
                 Tasks ({results.tasks.length})
               </h2>
-              <div className="bg-white border border-zinc-200 rounded-xl divide-y divide-zinc-100 overflow-hidden">
+              <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl divide-y divide-zinc-100 dark:divide-zinc-800 overflow-hidden shadow-sm">
                 {results.tasks.map((task) => (
                   <Link
                     key={task.id}
                     to={`/app/tasks?task=${task.id}`}
-                    className="flex flex-col md:flex-row md:items-center justify-between p-4 gap-2 hover:bg-zinc-50 transition-colors"
+                    className="flex items-center p-4 gap-4 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors text-black dark:text-white"
                   >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h4 className="font-semibold text-sm text-black">
-                          {task.status === 'COMPLETED' ? (
-                            <span className="line-through text-zinc-400">{task.name}</span>
-                          ) : (
-                            task.name
-                          )}
-                        </h4>
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <h4 className="font-semibold text-sm">
+                        {task.status === 'COMPLETED' ? (
+                          <span className="line-through text-zinc-400 dark:text-zinc-550">{task.name}</span>
+                        ) : (
+                          task.name
+                        )}
+                      </h4>
+
+                      {task.project_detail && (
+                        <div className="text-[10px] font-bold text-zinc-450 dark:text-zinc-550 uppercase tracking-widest leading-none">
+                          {task.project_detail.name}
+                        </div>
+                      )}
+
+                      {/* Assignees block */}
+                      <div className="flex items-center gap-1.5">
+                        {renderAssigneesList(task.assignees)}
+                      </div>
+
+                      {/* Date display & Priority indicator */}
+                      <div className="flex items-center gap-3 flex-wrap text-[11px] text-zinc-450 mt-1">
+                        <span className="font-medium dark:text-zinc-400">
+                          Due: {new Date(task.due_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                        </span>
+
                         {task.priority && (
-                          <span
-                            className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${getPriorityColor(
-                              task.priority
-                            )}`}
-                          >
-                            {task.priority}
+                          <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${getPriorityColor(task.priority)}`}>
+                            {task.priority} Priority
                           </span>
                         )}
                       </div>
-                      
-                      {task.project_detail && (
-                        <div className="flex items-center gap-1 text-xs text-zinc-400 font-medium">
-                          <Folder className="h-3 w-3 shrink-0" />
-                          <span>{task.project_detail.name}</span>
-                          {task.sub_project_detail && (
-                            <>
-                              <CornerDownRight className="h-2.5 w-2.5 shrink-0" />
-                              <span>{task.sub_project_detail.name}</span>
-                            </>
+
+                      {task.status === 'COMPLETED' && task.submission_status === 'LATE' && (
+                        <div className="flex flex-col gap-0.5 mt-2 bg-red-50/50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/30 p-2 rounded-lg text-red-650 dark:text-red-400">
+                          <div className="flex items-center gap-1.5 font-bold">
+                            <span className="shrink-0 text-red-500">🔴</span>
+                            <span>Late Submission</span>
+                          </div>
+                          {task.late_by_minutes && (
+                            <div className="text-[10px] font-bold text-red-500/80 ml-5">
+                              Late by: {formatLateDuration(task.late_by_minutes)}
+                            </div>
                           )}
                         </div>
                       )}
-                    </div>
-
-                    <div className="flex items-center gap-3 self-start md:self-auto">
-                      {/* Assignee list */}
-                      <div className="flex -space-x-1 overflow-hidden">
-                        {task.assignees.map((user) => (
-                          <div
-                            key={user.id}
-                            title={user.name}
-                            className="flex h-6 w-6 items-center justify-center rounded-full bg-zinc-100 border border-white text-[9px] font-semibold text-zinc-600 shrink-0"
-                          >
-                            {user.name[0].toUpperCase()}
-                          </div>
-                        ))}
-                      </div>
-                      <span className="text-xs text-zinc-500 font-medium">
-                        Due: {new Date(task.due_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
-                      </span>
                     </div>
                   </Link>
                 ))}

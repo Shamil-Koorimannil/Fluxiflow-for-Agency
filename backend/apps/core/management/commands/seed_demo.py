@@ -3,7 +3,7 @@ from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from apps.accounts.models import Profile, Organization, Membership, Invitation, Session, OTPVerification
-from apps.projects.models import Project, ProjectMember, SubProject
+from apps.projects.models import Project
 from apps.tasks.models import Task, TaskAssignee, SubTask
 from apps.activity.models import ActivityLog
 
@@ -12,14 +12,26 @@ User = get_user_model()
 class Command(BaseCommand):
     help = 'Seeds local database with realistic Fluxiflow for Agency demo data including Organizations and Memberships'
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--no-input',
+            action='store_true',
+            help='Bypass the confirmation prompt and force database clear/seed.',
+        )
+
     def handle(self, *args, **options):
+        if not options.get('no_input'):
+            self.stdout.write(self.style.WARNING("WARNING: This script will delete ALL records in your database before seeding!"))
+            confirm = input("Are you sure you want to proceed? (yes/no): ").strip().lower()
+            if confirm not in ['yes', 'y']:
+                self.stdout.write(self.style.ERROR("Seeding aborted."))
+                return
+
         self.stdout.write('Clearing existing database records...')
         ActivityLog.objects.all().delete()
         SubTask.objects.all().delete()
         TaskAssignee.objects.all().delete()
         Task.objects.all().delete()
-        SubProject.objects.all().delete()
-        ProjectMember.objects.all().delete()
         Project.objects.all().delete()
         Profile.objects.all().delete()
         Session.objects.all().delete()
@@ -111,24 +123,12 @@ class Command(BaseCommand):
             organization=org,
             created_by=admin
         )
-        for u in [admin, member, saleel, fidha, shamil]:
-            ProjectMember.objects.create(project=p1, user=u)
-
-        sub_design = SubProject.objects.create(project=p1, name='Design', description='UI/UX Design Phase', created_by=admin)
-        sub_dev = SubProject.objects.create(project=p1, name='Development', description='Frontend & Backend Dev Phase', created_by=admin)
-        sub_deploy = SubProject.objects.create(project=p1, name='Deployment', description='Staging & Production Launch', created_by=admin)
-
         p2 = Project.objects.create(
             name='Marketing Campaign',
             description='Q3 social media and advertising campaign.',
             organization=org,
             created_by=admin
         )
-        for u in [admin, member, saleel, fidha]:
-            ProjectMember.objects.create(project=p2, user=u)
-
-        sub_strategy = SubProject.objects.create(project=p2, name='Strategy', description='Campaign Positioning & Planning', created_by=admin)
-        sub_content = SubProject.objects.create(project=p2, name='Content', description='Copywriting & Graphics Asset Creation', created_by=admin)
 
         p3 = Project.objects.create(
             name='E-Commerce Project',
@@ -136,8 +136,6 @@ class Command(BaseCommand):
             organization=org,
             created_by=admin
         )
-        for u in [admin, shamil]:
-            ProjectMember.objects.create(project=p3, user=u)
 
         self.stdout.write('Seeding tasks...')
         today = timezone.now().date()
@@ -146,7 +144,6 @@ class Command(BaseCommand):
         
         t_today1 = Task.objects.create(
             project=p1,
-            sub_project=sub_design,
             organization=org,
             name='Review website wireframes',
             description='Confirm the header layout, client logos row, and testimonials grid with the design team.',
@@ -164,7 +161,6 @@ class Command(BaseCommand):
 
         t_today2 = Task.objects.create(
             project=p2,
-            sub_project=sub_content,
             organization=org,
             name='Draft Instagram posts copy',
             description='Write captions and select hashtags for the upcoming launch campaign.',
@@ -178,7 +174,6 @@ class Command(BaseCommand):
 
         t_overdue = Task.objects.create(
             project=p1,
-            sub_project=sub_design,
             organization=org,
             name='Design hero section banner',
             description='Hero banner must follow the minimalist SaaS guidelines.',
@@ -192,7 +187,6 @@ class Command(BaseCommand):
 
         t_upcoming1 = Task.objects.create(
             project=p1,
-            sub_project=sub_dev,
             organization=org,
             name='Setup React Router & Tailwind',
             description='Set up Vite project and structure folders.',
@@ -206,7 +200,6 @@ class Command(BaseCommand):
 
         t_upcoming2 = Task.objects.create(
             project=p2,
-            sub_project=sub_strategy,
             organization=org,
             name='Q3 Content Strategy Alignment',
             description='Sync call to align Q3 editorial calendar.',
@@ -221,7 +214,6 @@ class Command(BaseCommand):
 
         t_completed1 = Task.objects.create(
             project=p1,
-            sub_project=sub_design,
             organization=org,
             name='Create style guide and colors',
             description='Select monochrome layout rules, Roboto font sizes, and button border-radii.',
@@ -233,8 +225,8 @@ class Command(BaseCommand):
             completed_by=fidha,
             completed_at=timezone.now() - datetime.timedelta(days=3)
         )
-        TaskAssignee.objects.create(task=t_completed1, user=fidha)
-        TaskAssignee.objects.create(task=t_completed1, user=saleel)
+        TaskAssignee.objects.create(task=t_completed1, user=fidha, completed=True, completed_at=timezone.now() - datetime.timedelta(days=3))
+        TaskAssignee.objects.create(task=t_completed1, user=saleel, completed=True, completed_at=timezone.now() - datetime.timedelta(days=3))
 
         SubTask.objects.create(task=t_completed1, name='Approve typography styles', status='COMPLETED', completed_by=fidha, completed_at=timezone.now() - datetime.timedelta(days=3))
         SubTask.objects.create(task=t_completed1, name='Approve border-radius variables', status='COMPLETED', completed_by=fidha, completed_at=timezone.now() - datetime.timedelta(days=3))
@@ -252,7 +244,7 @@ class Command(BaseCommand):
             completed_by=admin,
             completed_at=timezone.now() - datetime.timedelta(hours=5)
         )
-        TaskAssignee.objects.create(task=t_completed2, user=admin)
+        TaskAssignee.objects.create(task=t_completed2, user=admin, completed=True, completed_at=timezone.now() - datetime.timedelta(hours=5))
 
         self.stdout.write('Seeding activity logs...')
         ActivityLog.objects.create(
@@ -262,14 +254,6 @@ class Command(BaseCommand):
             entity_id=p1.id,
             description="Demo Admin created project 'Website Development'.",
             created_at=timezone.now() - datetime.timedelta(days=10)
-        )
-        ActivityLog.objects.create(
-            user=admin,
-            action='SUBPROJECT_CREATED',
-            entity_type='SubProject',
-            entity_id=sub_design.id,
-            description="Demo Admin created sub-project 'Design' in project 'Website Development'.",
-            created_at=timezone.now() - datetime.timedelta(days=9)
         )
         ActivityLog.objects.create(
             user=admin,
@@ -284,7 +268,7 @@ class Command(BaseCommand):
             action='TASK_ASSIGNED',
             entity_type='Task',
             entity_id=t_completed1.id,
-            description="Demo Admin assigned task 'Create style guide and colors' to Fidha and Saleel.",
+            description="Demo Admin assigned task 'Create style guide guide and colors' to Fidha and Saleel.",
             created_at=timezone.now() - datetime.timedelta(days=8)
         )
         ActivityLog.objects.create(

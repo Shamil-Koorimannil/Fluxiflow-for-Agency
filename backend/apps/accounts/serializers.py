@@ -36,8 +36,8 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'email', 'name', 'role', 'status', 'profile', 'avatar_url', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'role', 'status', 'created_at', 'updated_at']
+        fields = ['id', 'email', 'name', 'role', 'status', 'profile', 'avatar_url', 'is_active', 'deactivated_at', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'role', 'status', 'is_active', 'deactivated_at', 'created_at', 'updated_at']
 
     def get_avatar_url(self, obj):
         try:

@@ -2,6 +2,8 @@
 
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -34,14 +36,47 @@
     
     --radius: 0.5rem;
   }
+
+  html.dark {
+    --background: 0 0% 0%;
+    --foreground: 0 0% 100%;
+    
+    --card: 0 0% 0%;
+    --card-foreground: 0 0% 100%;
+    
+    --popover: 0 0% 0%;
+    --popover-foreground: 0 0% 100%;
+    
+    --primary: 0 0% 100%;
+    --primary-foreground: 0 0% 0%;
+    
+    --secondary: 0 0% 10%;
+    --secondary-foreground: 0 0% 100%;
+    
+    --muted: 0 0% 10%;
+    --muted-foreground: 240 3.8% 56.1%;
+    
+    --accent: 0 0% 10%;
+    --accent-foreground: 0 0% 100%;
+    
+    --border: 240 5.9% 15%;
+    --input: 240 5.9% 15%;
+    --ring: 0 0% 100%;
+  }
 }
 
 body {
   font-family: 'Roboto', sans-serif;
-  background-color: rgb(255, 255, 255);
-  color: rgb(10, 10, 10);
+  background-color: #ffffff;
+  color: #000000;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+html.dark body {
+  background-color: #000000;
+  color: #ffffff;
 }
 
 /* Custom scrollbar styling for minimal SaaS look */

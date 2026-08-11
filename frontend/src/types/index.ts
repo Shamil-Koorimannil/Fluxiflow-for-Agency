@@ -11,21 +11,25 @@ export interface User {
   name: string;
   role: UserRole;
   status: 'INVITED' | 'ACTIVE' | 'INACTIVE';
+  is_active?: boolean;
+  deactivated_at?: string | null;
   profile?: Profile;
   avatar_url?: string | null;
   pending_tasks_count?: number;
   today_tasks_count?: number;
   completed_tasks_count?: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface SubProject {
-  id: string;
-  project: string;
-  name: string;
-  description: string | null;
-  created_by: string;
+  health_score?: number;
+  health_status?: 'excellent' | 'healthy' | 'needs_attention' | 'at_risk' | 'critical';
+  pending_tasks?: number;
+  today_tasks?: number;
+  overdue_tasks?: number;
+  completed_this_week?: number;
+  completed_this_month?: number;
+  on_time_completion_rate?: number;
+  late_completions?: number;
+  completed?: boolean;
+  submission_status?: 'PENDING' | 'OVERDUE' | 'COMPLETED_ON_TIME' | 'LATE';
+  late_by_minutes?: number;
   created_at: string;
   updated_at: string;
 }
@@ -37,7 +41,6 @@ export interface Project {
   created_by: string;
   created_at: string;
   updated_at: string;
-  sub_projects?: SubProject[];
   members?: User[];
   progress: number | null; // null represents "No tasks yet"
   task_count?: number;
@@ -59,7 +62,6 @@ export interface SubTask {
 export interface Task {
   id: string;
   project: string | null;
-  sub_project: string | null;
   name: string;
   description: string | null;
   due_date: string;
@@ -76,7 +78,11 @@ export interface Task {
   subtasks: SubTask[];
   assignees: User[];
   project_detail?: Project | null;
-  sub_project_detail?: SubProject | null;
+  date_display: string;
+  date_color: 'red' | 'amber' | 'green' | 'gray';
+  submission_status?: 'PENDING' | 'OVERDUE' | 'COMPLETED_ON_TIME' | 'LATE';
+  late_by_minutes?: number;
+  due_datetime?: string;
 }
 
 export interface ActivityLog {
@@ -95,7 +101,6 @@ export interface ActivityLog {
     | 'PROJECT_CREATED'
     | 'PROJECT_UPDATED'
     | 'PROJECT_DELETED'
-    | 'SUBPROJECT_CREATED'
     | 'PROFILE_UPDATED';
   entity_type: string;
   entity_id: string;
@@ -108,8 +113,18 @@ export interface TeamWorkloadSummary {
   role: UserRole;
   total_pending: number;
   due_today: number;
+  overdue_tasks?: number;
   completed_this_week: number;
   completed_this_month: number;
+  health_score?: number;
+  health_status?: 'excellent' | 'healthy' | 'needs_attention' | 'at_risk' | 'critical';
+  on_time_completion_rate?: number;
+  email?: string;
+  status?: 'INVITED' | 'ACTIVE' | 'INACTIVE';
+  is_active?: boolean;
+  deactivated_at?: string | null;
+  avatar_url?: string | null;
+  late_completions?: number;
 }
 
 export interface TeamWorkload {

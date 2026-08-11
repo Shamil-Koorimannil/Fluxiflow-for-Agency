@@ -15,18 +15,24 @@ class TaskViewSet(viewsets.ModelViewSet):
         if not user.is_authenticated:
             return Task.objects.none()
         
-        # Filter based on project parameter if provided
         project_id = self.request.query_params.get('project')
         
-        if user.role == 'ADMIN':
-            queryset = Task.objects.all()
+        if self.action == 'list':
+            if project_id:
+                queryset = Task.objects.filter(project_id=project_id)
+            else:
+                # General list: only assigned tasks
+                queryset = Task.objects.filter(assignee_relationships__user=user)
         else:
-            # Member: only see tasks they are assigned to
-            queryset = Task.objects.filter(assignee_relationships__user=user)
-            
-        if project_id:
-            queryset = queryset.filter(project_id=project_id)
-            
+            # Detail requests (retrieve, update, partial_update, destroy, actions)
+            if user.role == 'ADMIN':
+                queryset = Task.objects.all()
+            else:
+                from django.db.models import Q
+                queryset = Task.objects.filter(
+                    Q(assignee_relationships__user=user) | Q(project__isnull=False)
+                )
+                
         return queryset.distinct().order_by('due_date', 'due_time', 'created_at')
 
     def check_modify_permission(self, request, task=None):
@@ -113,18 +119,103 @@ class TaskViewSet(viewsets.ModelViewSet):
         if user.role != 'ADMIN' and not is_assigned:
             return Response({"detail": "You cannot complete a task that is not assigned to you."}, status=status.HTTP_403_FORBIDDEN)
             
-        task.status = 'COMPLETED'
-        task.completed_by = user
-        task.completed_at = timezone.now()
-        task.save()
+        from apps.notifications.services import NotificationService
+
+        if is_assigned:
+            # Mark this specific assignee as completed
+            assignee = TaskAssignee.objects.get(task=task, user=user)
+            assignee.completed = True
+            assignee.completed_at = timezone.now()
+            assignee.save()
+            
+            # Check if submission is late using the centralized helper
+            from apps.tasks.helpers import calculate_submission_status, format_notification_duration
+            sub_status, late_mins = calculate_submission_status(assignee)
+            
+            if sub_status == "LATE":
+                duration_str = format_notification_duration(late_mins)
+                # Notify member: Task Completed Late
+                NotificationService.create_notification(
+                    recipient=user,
+                    notification_type='TASK_COMPLETED_LATE',
+                    title='Task Completed Late',
+                    message=f"You completed {task.name} {duration_str} after its deadline.",
+                    related_task=task,
+                    related_project=task.project,
+                    related_user=user
+                )
+                # Notify admins: Late Task Submission
+                NotificationService.notify_admins(
+                    notification_type='LATE_TASK_SUBMISSION',
+                    title='Late Task Submission',
+                    message=f"{user.name} completed {task.name} late.",
+                    related_task=task,
+                    related_project=task.project,
+                    related_user=user
+                )
+            else:
+                # Notify admins that user completed task
+                NotificationService.notify_admins(
+                    notification_type='TASK_COMPLETED',
+                    title='Task Completed',
+                    message=f"{user.name} completed {task.name}.",
+                    related_task=task,
+                    related_project=task.project,
+                    related_user=user
+                )
+
+            # Check if all assignees have completed
+            incomplete_exists = TaskAssignee.objects.filter(task=task, completed=False).exists()
+            if not incomplete_exists:
+                task.status = 'COMPLETED'
+                task.completed_by = user
+                task.completed_at = timezone.now()
+                task.save()
+                
+                # Notify admins that entire task is completed
+                NotificationService.notify_admins(
+                    notification_type='TASK_COMPLETED',
+                    title='Task Completed',
+                    message=f"{task.name} has been completed.",
+                    related_task=task,
+                    related_project=task.project,
+                    related_user=user
+                )
+        else:
+            # Admin completing the task globally
+            task.status = 'COMPLETED'
+            task.completed_by = user
+            task.completed_at = timezone.now()
+            task.save()
+            
+            # Notify admins that entire task is completed
+            NotificationService.notify_admins(
+                notification_type='TASK_COMPLETED',
+                title='Task Completed',
+                message=f"{task.name} has been completed.",
+                related_task=task,
+                related_project=task.project,
+                related_user=user
+            )
         
         # Log activity
+        desc = f"{user.name} completed task '{task.name}'."
+        if is_assigned:
+            from apps.tasks.helpers import calculate_submission_status
+            try:
+                assignee = TaskAssignee.objects.get(task=task, user=user)
+                sub_status, _ = calculate_submission_status(assignee)
+                if sub_status == "LATE":
+                    desc = f"{user.name} completed task '{task.name}' late."
+            except TaskAssignee.DoesNotExist:
+                pass
+                
         ActivityLog.objects.create(
             user=user,
             action='TASK_COMPLETED',
             entity_type='Task',
             entity_id=task.id,
-            description=f"{user.name} completed task '{task.name}'."
+            description=desc
         )
         
         serializer = self.get_serializer(task)
@@ -140,10 +231,31 @@ class TaskViewSet(viewsets.ModelViewSet):
         if user.role != 'ADMIN' and not is_assigned:
             return Response({"detail": "You cannot reopen a task that is not assigned to you."}, status=status.HTTP_403_FORBIDDEN)
             
+        from apps.notifications.services import NotificationService
+
+        if is_assigned:
+            # Mark this specific assignee as not completed
+            assignee = TaskAssignee.objects.get(task=task, user=user)
+            assignee.completed = False
+            assignee.completed_at = None
+            assignee.save()
+            
         task.status = 'PENDING'
         task.completed_by = None
         task.completed_at = None
         task.save()
+
+        # Notify relevant assignees
+        for assignee_rel in task.assignee_relationships.all():
+            NotificationService.create_notification(
+                recipient=assignee_rel.user,
+                notification_type='TASK_REOPENED',
+                title='Task Reopened',
+                message=f'"{task.name}" was reopened.',
+                related_task=task,
+                related_project=task.project,
+                related_user=user
+            )
         
         # Log activity
         ActivityLog.objects.create(
