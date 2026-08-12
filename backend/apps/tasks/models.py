@@ -73,6 +73,8 @@ class SubTask(models.Model):
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='subtasks')
     name = models.CharField(max_length=255)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    due_date = models.DateField(null=True, blank=True)
+    due_time = models.TimeField(null=True, blank=True)
     completed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, blank=True, null=True, related_name='completed_subtasks')
     completed_at = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -84,9 +86,27 @@ class SubTask(models.Model):
     def __str__(self):
         return f"{self.name} (Subtask of {self.task.name})"
 
+class SubTaskAssignee(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    subtask = models.ForeignKey(SubTask, on_delete=models.CASCADE, related_name='assignee_relationships')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='subtask_assignments')
+    completed = models.BooleanField(default=False)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('subtask', 'user')
+        indexes = [
+            models.Index(fields=['subtask']),
+            models.Index(fields=['user']),
+        ]
+
+    def __str__(self):
+        return f"{self.user.name} assigned to subtask {self.subtask.name}"
+
 class TaskAssignmentHistory(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='assignment_histories')
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, null=True, blank=True, related_name='assignment_histories')
+    subtask = models.ForeignKey(SubTask, on_delete=models.CASCADE, null=True, blank=True, related_name='assignment_histories')
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='task_assignment_histories')
     assigned_at = models.DateTimeField(default=timezone.now)
     unassigned_at = models.DateTimeField(null=True, blank=True)
@@ -97,9 +117,20 @@ class TaskAssignmentHistory(models.Model):
         ordering = ['assigned_at']
         indexes = [
             models.Index(fields=['task', 'user']),
+            models.Index(fields=['subtask', 'user']),
             models.Index(fields=['assigned_at']),
             models.Index(fields=['unassigned_at']),
         ]
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    models.Q(task__isnull=False, subtask__isnull=True) |
+                    models.Q(task__isnull=True, subtask__isnull=False)
+                ),
+                name='history_exactly_one_work_item'
+            )
+        ]
 
     def __str__(self):
-        return f"{self.user.name} was assigned to {self.task.name} ({self.assigned_at} to {self.unassigned_at})"
+        item_name = self.task.name if self.task else (self.subtask.name if self.subtask else "None")
+        return f"{self.user.name} was assigned to {item_name} ({self.assigned_at} to {self.unassigned_at})"

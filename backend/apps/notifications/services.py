@@ -56,7 +56,7 @@ class NotificationService:
 
     @staticmethod
     def check_and_create_deadline_notifications(user):
-        from apps.tasks.models import TaskAssignee
+        from apps.tasks.models import TaskAssignee, SubTaskAssignee
         from datetime import datetime, time, timedelta
 
         # Only check active users
@@ -140,6 +140,75 @@ class NotificationService:
                         related_project=task.project
                     )
 
+        # Find incomplete subtask assignments for this user
+        active_subtask_assignments = SubTaskAssignee.objects.filter(
+            user=user,
+            completed=False,
+            subtask__status='PENDING'
+        ).select_related('subtask', 'subtask__task', 'subtask__task__project')
+
+        for sa in active_subtask_assignments:
+            subtask = sa.subtask
+            if not subtask.due_date:
+                continue
+            due_date = subtask.due_date
+            due_time = subtask.due_time or time(23, 59, 59)
+            
+            due_dt = timezone.make_aware(
+                datetime.combine(due_date, due_time),
+                timezone.get_current_timezone()
+            )
+            due_dt = timezone.localtime(due_dt)
+
+            if due_dt < now:
+                exists = Notification.objects.filter(
+                    recipient=user,
+                    type='TASK_OVERDUE',
+                    related_task=subtask.task
+                ).filter(message__icontains=subtask.name).exists()
+                if not exists:
+                    NotificationService.create_notification(
+                        recipient=user,
+                        notification_type='TASK_OVERDUE',
+                        title='Subtask Overdue',
+                        message=f'Subtask "{subtask.name}" is overdue.',
+                        related_task=subtask.task,
+                        related_project=subtask.task.project
+                    )
+            elif due_date == today:
+                exists = Notification.objects.filter(
+                    recipient=user,
+                    type='TASK_DUE_TODAY',
+                    related_task=subtask.task,
+                    created_at__date=today
+                ).filter(message__icontains=subtask.name).exists()
+                if not exists:
+                    NotificationService.create_notification(
+                        recipient=user,
+                        notification_type='TASK_DUE_TODAY',
+                        title='Subtask Due Today',
+                        message=f'Subtask "{subtask.name}" is due today.',
+                        related_task=subtask.task,
+                        related_project=subtask.task.project
+                    )
+            elif now < due_dt <= now + timedelta(hours=24):
+                exists = Notification.objects.filter(
+                    recipient=user,
+                    type='TASK_DUE_SOON',
+                    related_task=subtask.task,
+                    created_at__gte=now - timedelta(hours=24)
+                ).filter(message__icontains=subtask.name).exists()
+                if not exists:
+                    due_time_str = due_dt.strftime('%I:%M %p').lstrip('0')
+                    NotificationService.create_notification(
+                        recipient=user,
+                        notification_type='TASK_DUE_SOON',
+                        title='Subtask Due Soon',
+                        message=f'Subtask "{subtask.name}" is due tomorrow at {due_time_str}.' if due_date == today + timedelta(days=1) else f'Subtask "{subtask.name}" is due soon.',
+                        related_task=subtask.task,
+                        related_project=subtask.task.project
+                    )
+
     @staticmethod
     def handle_task_assignment_notifications(task, previous_assignees, current_assignees, actor):
         prev_ids = {u.id for u in previous_assignees}
@@ -177,5 +246,43 @@ class NotificationService:
                 message=message,
                 related_task=task,
                 related_project=task.project,
+                related_user=actor
+            )
+
+    @staticmethod
+    def handle_subtask_assignment_notifications(subtask, previous_assignees, current_assignees, actor):
+        prev_ids = {u.id for u in previous_assignees}
+        curr_ids = {u.id for u in current_assignees}
+
+        added = [u for u in current_assignees if u.id not in prev_ids]
+        removed = [u for u in previous_assignees if u.id not in curr_ids]
+
+        is_reassignment = len(added) > 0 and len(removed) > 0
+
+        for user in added:
+            notification_type = 'TASK_REASSIGNED' if is_reassignment else 'TASK_ASSIGNED'
+            title = 'Subtask Reassigned' if is_reassignment else 'Subtask Assigned'
+            message = f'"{subtask.name}" was assigned to you under task "{subtask.task.name}".'
+            NotificationService.create_notification(
+                recipient=user,
+                notification_type=notification_type,
+                title=title,
+                message=message,
+                related_task=subtask.task,
+                related_project=subtask.task.project,
+                related_user=actor
+            )
+
+        for user in removed:
+            notification_type = 'TASK_REASSIGNED' if is_reassignment else 'TASK_UNASSIGNED'
+            title = 'Subtask Reassigned' if is_reassignment else 'Subtask Unassigned'
+            message = f'You are no longer assigned to subtask "{subtask.name}" under task "{subtask.task.name}".'
+            NotificationService.create_notification(
+                recipient=user,
+                notification_type=notification_type,
+                title=title,
+                message=message,
+                related_task=subtask.task,
+                related_project=subtask.task.project,
                 related_user=actor
             )

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
-import type { Task } from '../../types';
+import type { Task, User } from '../../types';
 import { useAuth } from '../auth/AuthContext';
 import { X, CheckSquare, Calendar, Clock, AlertCircle, Trash2, Edit, CheckCircle2, Circle, AlertTriangle } from 'lucide-react';
 import { formatLateDuration } from '../../utils/time';
@@ -21,9 +21,20 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
 
-  // Local state for subtask form
-  const [subTaskName, setSubTaskName] = useState('');
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+
+  // Local state for subtask creation/editing
+  const [showAddSubForm, setShowAddSubForm] = useState(false);
+  const [newSubName, setNewSubName] = useState('');
+  const [newSubDueDate, setNewSubDueDate] = useState('');
+  const [newSubDueTime, setNewSubDueTime] = useState('');
+  const [newSubAssigneeIds, setNewSubAssigneeIds] = useState<string[]>([]);
+
+  const [editingSubTaskId, setEditingSubTaskId] = useState<string | null>(null);
+  const [editSubName, setEditSubName] = useState('');
+  const [editSubDueDate, setEditSubDueDate] = useState('');
+  const [editSubDueTime, setEditSubDueTime] = useState('');
+  const [editSubAssigneeIds, setEditSubAssigneeIds] = useState<string[]>([]);
 
   // Fetch individual Task details
   const { data: task, isLoading, error } = useQuery<Task>({
@@ -85,19 +96,58 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
     },
   });
 
+  // Fetch team list for assignee picker
+  const { data: teamMembers } = useQuery<User[]>({
+    queryKey: ['team'],
+    queryFn: async () => {
+      const response = await api.get('/team/');
+      return response.data;
+    },
+    enabled: !!taskId,
+  });
+
   // Create Subtask Mutation
   const createSubTaskMutation = useMutation({
-    mutationFn: async (name: string) => {
+    mutationFn: async (data: { name: string; due_date: string | null; due_time: string | null; assignee_ids: string[] }) => {
       const response = await api.post(`/subtasks/`, {
         task: taskId,
-        name,
+        ...data,
       });
       return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['task', taskId] });
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      setSubTaskName('');
+      setNewSubName('');
+      setNewSubDueDate('');
+      setNewSubDueTime('');
+      setNewSubAssigneeIds([]);
+      setShowAddSubForm(false);
+    },
+  });
+
+  // Update Subtask Mutation
+  const updateSubTaskMutation = useMutation({
+    mutationFn: async (data: { id: string; name: string; due_date: string | null; due_time: string | null; assignee_ids: string[] }) => {
+      const { id, ...payload } = data;
+      const response = await api.patch(`/subtasks/${id}/`, payload);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['task', taskId] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      setEditingSubTaskId(null);
+    },
+  });
+
+  // Delete Subtask Mutation
+  const deleteSubTaskMutation = useMutation({
+    mutationFn: async (subTaskId: string) => {
+      await api.delete(`/subtasks/${subTaskId}/`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['task', taskId] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
     },
   });
 
@@ -134,12 +184,6 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
       .slice(0, 2)
       .join('')
       .toUpperCase();
-  };
-
-  const handleSubTaskSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!subTaskName.trim()) return;
-    createSubTaskMutation.mutate(subTaskName.trim());
   };
 
   const isAssigned = task?.assignees.some((a) => a.id === user?.id) || false;
@@ -362,59 +406,351 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                 {/* Subtasks lists */}
                 {task.subtasks.length > 0 && (
                   <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg divide-y divide-zinc-100 dark:divide-zinc-850 overflow-hidden bg-white dark:bg-black text-black dark:text-white">
-                    {task.subtasks.map((sub) => (
-                      <div
-                        key={sub.id}
-                        className="flex items-center justify-between p-3 hover:bg-zinc-50/50 dark:hover:bg-white/10 transition-colors text-xs"
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <button
-                            type="button"
-                            disabled={!canComplete || completeSubTaskMutation.isPending || reopenSubTaskMutation.isPending}
-                            onClick={() => {
-                              if (sub.status === 'COMPLETED') {
-                                reopenSubTaskMutation.mutate(sub.id);
-                              } else {
-                                completeSubTaskMutation.mutate(sub.id);
-                              }
-                            }}
-                            className="text-zinc-400 hover:text-black dark:hover:text-white shrink-0 disabled:opacity-50 transition-all duration-200 active:scale-90 hover:scale-110"
-                          >
-                            {sub.status === 'COMPLETED' ? (
-                              <CheckCircle2 className="h-4.5 w-4.5 text-zinc-400 dark:text-zinc-550 animate-pop" />
-                            ) : (
-                              <Circle className="h-4.5 w-4.5 transition-transform duration-200" />
+                    {task.subtasks.map((sub) => {
+                      const myAssignee = sub.assignees?.find((a) => a.user.id === user?.id);
+                      const isMyCompleted = myAssignee ? myAssignee.completed : (sub.status === 'COMPLETED');
+                      const isSubtaskAssignedToMe = !!myAssignee;
+                      const subCanComplete = isAdmin || isSubtaskAssignedToMe;
+
+                      if (editingSubTaskId === sub.id) {
+                        return (
+                          <div key={sub.id} className="p-3 bg-zinc-50/50 dark:bg-zinc-900/40 text-xs space-y-3">
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase">Subtask Name</label>
+                              <input
+                                type="text"
+                                value={editSubName}
+                                onChange={(e) => setEditSubName(e.target.value)}
+                                className="w-full px-2.5 py-1.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-850 rounded-lg text-xs text-black dark:text-white focus:outline-none"
+                              />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase">Due Date</label>
+                                <input
+                                  type="date"
+                                  value={editSubDueDate}
+                                  onChange={(e) => setEditSubDueDate(e.target.value)}
+                                  className="w-full px-2.5 py-1.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-850 rounded-lg text-xs text-black dark:text-white focus:outline-none"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase">Due Time</label>
+                                <input
+                                  type="time"
+                                  value={editSubDueTime}
+                                  onChange={(e) => setEditSubDueTime(e.target.value)}
+                                  className="w-full px-2.5 py-1.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-850 rounded-lg text-xs text-black dark:text-white focus:outline-none"
+                                />
+                              </div>
+                            </div>
+
+                            {/* Assignee Checkboxes */}
+                            {teamMembers && teamMembers.length > 0 && (
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase">Assignees</label>
+                                <div className="max-h-28 overflow-y-auto border border-zinc-250 dark:border-zinc-800 rounded-lg p-2 space-y-1 bg-white dark:bg-black">
+                                  {teamMembers.map((member) => {
+                                    const isChecked = editSubAssigneeIds.includes(member.id);
+                                    return (
+                                      <label key={member.id} className="flex items-center gap-2 cursor-pointer py-0.5 select-none text-zinc-700 dark:text-zinc-300">
+                                        <input
+                                          type="checkbox"
+                                          checked={isChecked}
+                                          onChange={() => {
+                                            if (isChecked) {
+                                              setEditSubAssigneeIds(editSubAssigneeIds.filter(id => id !== member.id));
+                                            } else {
+                                              setEditSubAssigneeIds([...editSubAssigneeIds, member.id]);
+                                            }
+                                          }}
+                                          className="rounded text-black dark:text-white border-zinc-300 focus:ring-0 shrink-0"
+                                        />
+                                        <span className="truncate">{member.name}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </div>
                             )}
-                          </button>
-                          
-                          <span className={`${sub.status === 'COMPLETED' ? 'strike-through-anim text-zinc-400 dark:text-zinc-500' : 'text-zinc-850 dark:text-zinc-300'}`}>
-                            {sub.name}
-                          </span>
+
+                            <div className="flex gap-2 justify-end pt-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (window.confirm("Are you sure you want to delete this subtask?")) {
+                                    deleteSubTaskMutation.mutate(sub.id);
+                                    setEditingSubTaskId(null);
+                                  }
+                                }}
+                                className="mr-auto px-2.5 py-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 font-semibold rounded-lg"
+                              >
+                                Delete
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingSubTaskId(null)}
+                                className="px-2.5 py-1.5 border border-zinc-200 dark:border-zinc-850 rounded-lg font-semibold hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                disabled={updateSubTaskMutation.isPending}
+                                onClick={() => {
+                                  updateSubTaskMutation.mutate({
+                                    id: sub.id,
+                                    name: editSubName.trim(),
+                                    due_date: editSubDueDate || null,
+                                    due_time: editSubDueTime || null,
+                                    assignee_ids: editSubAssigneeIds
+                                  });
+                                }}
+                                className="px-2.5 py-1.5 bg-black dark:bg-white text-white dark:text-black font-semibold rounded-lg hover:opacity-90 transition-opacity"
+                              >
+                                Save
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div
+                          key={sub.id}
+                          className="flex flex-col gap-2 p-3 hover:bg-zinc-550/20 dark:hover:bg-white/5 transition-colors text-xs"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-start gap-2.5 min-w-0">
+                              <button
+                                type="button"
+                                disabled={!subCanComplete || completeSubTaskMutation.isPending || reopenSubTaskMutation.isPending}
+                                onClick={() => {
+                                  if (isMyCompleted) {
+                                    reopenSubTaskMutation.mutate(sub.id);
+                                  } else {
+                                    completeSubTaskMutation.mutate(sub.id);
+                                  }
+                                }}
+                                className="text-zinc-400 hover:text-black dark:hover:text-white shrink-0 disabled:opacity-50 transition-all duration-200 active:scale-90 hover:scale-110 mt-0.5"
+                              >
+                                {isMyCompleted ? (
+                                  <CheckCircle2 className="h-4.5 w-4.5 text-green-550 dark:text-green-400" />
+                                ) : (
+                                  <Circle className="h-4.5 w-4.5" />
+                                )}
+                              </button>
+
+                              <div className="space-y-1 min-w-0">
+                                <span className={`block font-medium ${sub.status === 'COMPLETED' ? 'line-through text-zinc-400 dark:text-zinc-500' : 'text-zinc-800 dark:text-zinc-200'}`}>
+                                  {sub.name}
+                                </span>
+
+                                {(sub.due_date || sub.due_time) && (
+                                  <div className="flex items-center gap-2.5 text-[10px] text-zinc-400 dark:text-zinc-500 font-medium">
+                                    {sub.due_date && (
+                                      <span className="flex items-center gap-1">
+                                        <Calendar className="h-3 w-3" />
+                                        {sub.due_date}
+                                      </span>
+                                    )}
+                                    {sub.due_time && (
+                                      <span className="flex items-center gap-1">
+                                        <Clock className="h-3 w-3" />
+                                        {sub.due_time.substring(0, 5)}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              {sub.due_date && (
+                                <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                                  sub.status === 'COMPLETED'
+                                    ? sub.submission_status === 'LATE'
+                                      ? 'bg-red-50 dark:bg-red-950/20 text-red-650 dark:text-red-400'
+                                      : 'bg-green-50 dark:bg-green-950/20 text-green-650 dark:text-green-400'
+                                    : sub.submission_status === 'OVERDUE'
+                                      ? 'bg-red-50 dark:bg-red-950/20 text-red-650 dark:text-red-400'
+                                      : 'bg-zinc-100 dark:bg-zinc-850 text-zinc-500 dark:text-zinc-400'
+                                }`}>
+                                  {sub.status === 'COMPLETED'
+                                    ? sub.submission_status === 'LATE'
+                                      ? `Late`
+                                      : 'On Time'
+                                    : sub.submission_status === 'OVERDUE'
+                                      ? 'Overdue'
+                                      : 'Pending'}
+                                </span>
+                              )}
+
+                              {isAdmin && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingSubTaskId(sub.id);
+                                    setEditSubName(sub.name);
+                                    setEditSubDueDate(sub.due_date || '');
+                                    setEditSubDueTime(sub.due_time ? sub.due_time.substring(0, 5) : '');
+                                    setEditSubAssigneeIds(sub.assignees?.map(a => a.user.id) || []);
+                                  }}
+                                  className="p-1 border border-zinc-100 dark:border-zinc-850 hover:border-zinc-300 dark:hover:border-zinc-650 text-zinc-400 hover:text-black dark:hover:text-white rounded transition-colors"
+                                >
+                                  <Edit className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {sub.assignees && sub.assignees.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 pl-7 mt-0.5 pb-1">
+                              {sub.assignees.map((rel) => {
+                                const member = rel.user;
+                                return (
+                                  <div
+                                    key={member.id}
+                                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[9px] font-medium transition-all ${
+                                      rel.completed
+                                        ? 'bg-green-50/50 dark:bg-green-950/10 border-green-200 dark:border-green-900/30 text-green-600 dark:text-green-400'
+                                        : rel.submission_status === 'OVERDUE'
+                                          ? 'bg-red-50/50 dark:bg-red-950/10 border-red-200 dark:border-red-900/30 text-red-650 dark:text-red-400'
+                                          : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400'
+                                    }`}
+                                  >
+                                    {member.avatar_url ? (
+                                      <img
+                                        src={member.avatar_url}
+                                        alt={member.name}
+                                        className="h-3.5 w-3.5 rounded-full object-cover shrink-0"
+                                      />
+                                    ) : (
+                                      <div className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-800 text-[7px] font-extrabold shrink-0">
+                                        {getInitials(member.name)}
+                                      </div>
+                                    )}
+                                    <span>{member.name}</span>
+                                    {rel.completed && <span className="text-[8px]">✓</span>}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
 
-                {/* Add Subtask Inline Form */}
+                {/* Add Subtask Form / Toggle */}
                 {canComplete && (
-                  <form onSubmit={handleSubTaskSubmit} className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="Add a new checklist subtask..."
-                      value={subTaskName}
-                      onChange={(e) => setSubTaskName(e.target.value)}
-                      disabled={createSubTaskMutation.isPending}
-                      className="flex-1 px-3 py-1.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white transition-colors"
-                    />
-                    <button
-                      type="submit"
-                      disabled={createSubTaskMutation.isPending || !subTaskName.trim()}
-                      className="px-3 py-1.5 bg-black hover:bg-zinc-850 dark:bg-white dark:hover:bg-zinc-100 text-white dark:text-black font-semibold rounded-lg text-xs transition-colors shrink-0 disabled:opacity-50"
-                    >
-                      Add
-                    </button>
-                  </form>
+                  <div className="space-y-3 border border-zinc-200 dark:border-zinc-800 rounded-lg p-3 bg-zinc-50/20 dark:bg-black">
+                    {!showAddSubForm ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowAddSubForm(true)}
+                        className="w-full text-left text-zinc-400 dark:text-zinc-500 hover:text-black dark:hover:text-white text-xs font-medium transition-colors"
+                      >
+                        + Add a detailed subtask...
+                      </button>
+                    ) : (
+                      <div className="space-y-3 text-xs">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase">Subtask Name</label>
+                          <input
+                            type="text"
+                            placeholder="Design wireframes..."
+                            value={newSubName}
+                            onChange={(e) => setNewSubName(e.target.value)}
+                            className="w-full px-2.5 py-1.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-850 rounded-lg text-xs text-black dark:text-white focus:outline-none"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase">Due Date</label>
+                            <input
+                              type="date"
+                              value={newSubDueDate}
+                              onChange={(e) => setNewSubDueDate(e.target.value)}
+                              className="w-full px-2.5 py-1.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-850 rounded-lg text-xs text-black dark:text-white focus:outline-none"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase">Due Time</label>
+                            <input
+                              type="time"
+                              value={newSubDueTime}
+                              onChange={(e) => setNewSubDueTime(e.target.value)}
+                              className="w-full px-2.5 py-1.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-850 rounded-lg text-xs text-black dark:text-white focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Assignee Checkboxes */}
+                        {teamMembers && teamMembers.length > 0 && (
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase">Assignees</label>
+                            <div className="max-h-28 overflow-y-auto border border-zinc-200 dark:border-zinc-800 rounded-lg p-2 space-y-1 bg-white dark:bg-black">
+                              {teamMembers.map((member) => {
+                                const isChecked = newSubAssigneeIds.includes(member.id);
+                                return (
+                                  <label key={member.id} className="flex items-center gap-2 cursor-pointer py-0.5 select-none text-zinc-700 dark:text-zinc-300">
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => {
+                                        if (isChecked) {
+                                          setNewSubAssigneeIds(newSubAssigneeIds.filter(id => id !== member.id));
+                                        } else {
+                                          setNewSubAssigneeIds([...newSubAssigneeIds, member.id]);
+                                        }
+                                      }}
+                                      className="rounded text-black dark:text-white border-zinc-300 focus:ring-0 shrink-0"
+                                    />
+                                    <span className="truncate">{member.name}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowAddSubForm(false);
+                              setNewSubName('');
+                              setNewSubDueDate('');
+                              setNewSubDueTime('');
+                              setNewSubAssigneeIds([]);
+                            }}
+                            className="px-2.5 py-1.5 border border-zinc-200 dark:border-zinc-850 rounded-lg font-semibold hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            disabled={createSubTaskMutation.isPending || !newSubName.trim()}
+                            onClick={() => {
+                              createSubTaskMutation.mutate({
+                                name: newSubName.trim(),
+                                due_date: newSubDueDate || null,
+                                due_time: newSubDueTime || null,
+                                assignee_ids: newSubAssigneeIds
+                              });
+                            }}
+                            className="px-2.5 py-1.5 bg-black dark:bg-white text-white dark:text-black font-semibold rounded-lg hover:opacity-90 disabled:opacity-50"
+                          >
+                            Add Subtask
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             </div>

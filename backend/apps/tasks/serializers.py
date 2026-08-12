@@ -1,20 +1,178 @@
 from rest_framework import serializers
-from django.contrib.auth import get_user_model
 from django.utils import timezone
-from .models import Task, TaskAssignee, SubTask
+from apps.accounts.models import CustomUser as User
 from apps.accounts.serializers import UserSerializer
 from apps.projects.models import Project
 from apps.projects.serializers import ProjectSerializer
+from .models import Task, TaskAssignee, SubTask, SubTaskAssignee
 
-User = get_user_model()
+class SubTaskAssigneeSerializer(serializers.ModelSerializer):
+    user = UserSerializer(read_only=True)
+    submission_status = serializers.SerializerMethodField()
+    late_by_minutes = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SubTaskAssignee
+        fields = ['user', 'completed', 'completed_at', 'submission_status', 'late_by_minutes']
+
+    def get_submission_status(self, obj):
+        from apps.tasks.helpers import calculate_assignee_submission_status
+        status_str, _ = calculate_assignee_submission_status(obj, obj.subtask.due_date, obj.subtask.due_time)
+        return status_str
+
+    def get_late_by_minutes(self, obj):
+        from apps.tasks.helpers import calculate_assignee_submission_status
+        _, late_mins = calculate_assignee_submission_status(obj, obj.subtask.due_date, obj.subtask.due_time)
+        return late_mins
 
 class SubTaskSerializer(serializers.ModelSerializer):
     completed_by_detail = UserSerializer(source='completed_by', read_only=True)
+    assignees = SubTaskAssigneeSerializer(source='assignee_relationships', many=True, read_only=True)
+    assignee_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        write_only=True,
+        required=False
+    )
+    submission_status = serializers.SerializerMethodField()
+    late_by_minutes = serializers.SerializerMethodField()
+    due_datetime = serializers.SerializerMethodField()
 
     class Meta:
         model = SubTask
-        fields = ['id', 'task', 'name', 'status', 'completed_by', 'completed_by_detail', 'completed_at', 'created_at', 'updated_at']
+        fields = [
+            'id', 'task', 'name', 'status', 'due_date', 'due_time', 'due_datetime',
+            'completed_by', 'completed_by_detail', 'completed_at',
+            'created_at', 'updated_at', 'assignees', 'assignee_ids',
+            'submission_status', 'late_by_minutes'
+        ]
         read_only_fields = ['id', 'completed_by', 'completed_at', 'created_at', 'updated_at']
+
+    def get_due_datetime(self, obj):
+        if not obj.due_date:
+            return None
+        from apps.tasks.helpers import get_task_due_datetime
+        return get_task_due_datetime(obj.due_date, obj.due_time).isoformat()
+
+    def get_submission_status(self, obj):
+        if not obj.due_date:
+            return "COMPLETED_ON_TIME" if obj.status == "COMPLETED" else "PENDING"
+        from apps.tasks.helpers import get_task_due_datetime
+        due_dt = get_task_due_datetime(obj.due_date, obj.due_time)
+        if obj.status == "COMPLETED":
+            completed_at = obj.completed_at or timezone.now()
+            if completed_at > due_dt:
+                return "LATE"
+            return "COMPLETED_ON_TIME"
+        else:
+            now = timezone.now()
+            if due_dt < now:
+                return "OVERDUE"
+            return "PENDING"
+
+    def get_late_by_minutes(self, obj):
+        if not obj.due_date or obj.status != "COMPLETED":
+            return 0
+        from apps.tasks.helpers import get_task_due_datetime
+        due_dt = get_task_due_datetime(obj.due_date, obj.due_time)
+        completed_at = obj.completed_at or timezone.now()
+        if completed_at > due_dt:
+            return int((completed_at - due_dt).total_seconds() // 60)
+        return 0
+
+    def validate_assignee_ids(self, value):
+        if not value:
+            return value
+        inactive_users = User.objects.filter(id__in=value, is_active=False)
+        is_create = self.instance is None
+        if is_create:
+            if inactive_users.exists():
+                names = ", ".join([u.name for u in inactive_users])
+                raise serializers.ValidationError(f"Cannot assign subtask to deactivated member(s): {names}")
+        else:
+            existing_assignee_ids = set(
+                SubTaskAssignee.objects.filter(subtask=self.instance).values_list('user_id', flat=True)
+            )
+            newly_added_inactive_users = [u for u in inactive_users if u.id not in existing_assignee_ids]
+            if newly_added_inactive_users:
+                names = ", ".join([u.name for u in newly_added_inactive_users])
+                raise serializers.ValidationError(f"Cannot assign subtask to deactivated member(s): {names}")
+        return value
+
+    def create(self, validated_data):
+        assignee_ids = validated_data.pop('assignee_ids', [])
+        subtask = SubTask.objects.create(**validated_data)
+        
+        from apps.notifications.services import NotificationService
+        
+        current_assignees = []
+        for uid in assignee_ids:
+            try:
+                user = User.objects.get(id=uid)
+                SubTaskAssignee.objects.get_or_create(subtask=subtask, user=user)
+                current_assignees.append(user)
+            except User.DoesNotExist:
+                pass
+                
+        if current_assignees:
+            request = self.context.get('request')
+            actor = request.user if (request and request.user.is_authenticated) else subtask.task.created_by
+            NotificationService.handle_subtask_assignment_notifications(
+                subtask=subtask,
+                previous_assignees=[],
+                current_assignees=current_assignees,
+                actor=actor
+            )
+        return subtask
+
+    def update(self, instance, validated_data):
+        assignee_ids = validated_data.pop('assignee_ids', None)
+        
+        due_date_changed = 'due_date' in validated_data and validated_data['due_date'] != instance.due_date
+        due_time_changed = 'due_time' in validated_data and validated_data['due_time'] != instance.due_time
+        
+        instance = super().update(instance, validated_data)
+        
+        if assignee_ids is not None:
+            from apps.notifications.services import NotificationService
+            request = self.context.get('request')
+            previous_assignees = [rel.user for rel in SubTaskAssignee.objects.filter(subtask=instance).select_related('user')]
+            
+            SubTaskAssignee.objects.filter(subtask=instance).exclude(user_id__in=assignee_ids).delete()
+            
+            current_assignees = []
+            for uid in assignee_ids:
+                try:
+                    user = User.objects.get(id=uid)
+                    SubTaskAssignee.objects.get_or_create(subtask=instance, user=user)
+                    current_assignees.append(user)
+                except User.DoesNotExist:
+                    pass
+                    
+            actor = request.user if (request and request.user.is_authenticated) else instance.task.created_by
+            NotificationService.handle_subtask_assignment_notifications(
+                subtask=instance,
+                previous_assignees=previous_assignees,
+                current_assignees=current_assignees,
+                actor=actor
+            )
+        
+        if (due_date_changed or due_time_changed):
+            from apps.notifications.services import NotificationService
+            request = self.context.get('request')
+            actor = request.user if (request and request.user.is_authenticated) else instance.task.created_by
+            current_assignees = [rel.user for rel in SubTaskAssignee.objects.filter(subtask=instance).select_related('user')]
+            for user in current_assignees:
+                NotificationService.create_notification(
+                    recipient=user,
+                    notification_type='TASK_DUE_SOON',
+                    title='Subtask Deadline Changed',
+                    message=f'The due date for subtask "{instance.name}" under task "{instance.task.name}" was changed.',
+                    related_task=instance.task,
+                    related_project=instance.task.project,
+                    related_user=actor
+                )
+                
+        return instance
 
 class TaskSerializer(serializers.ModelSerializer):
     subtasks = SubTaskSerializer(many=True, read_only=True)

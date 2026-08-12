@@ -47,16 +47,30 @@ export interface Project {
   completed_task_count?: number;
 }
 
+export interface SubTaskAssignee {
+  user: User;
+  completed: boolean;
+  completed_at: string | null;
+  submission_status: 'PENDING' | 'OVERDUE' | 'COMPLETED_ON_TIME' | 'LATE';
+  late_by_minutes: number;
+}
+
 export interface SubTask {
   id: string;
   task: string;
   name: string;
   status: 'PENDING' | 'COMPLETED';
+  due_date: string | null;
+  due_time: string | null;
+  due_datetime: string | null;
   completed_by: string | null;
   completed_by_detail?: User | null;
   completed_at: string | null;
   created_at: string;
   updated_at: string;
+  assignees: SubTaskAssignee[];
+  submission_status: 'PENDING' | 'OVERDUE' | 'COMPLETED_ON_TIME' | 'LATE';
+  late_by_minutes: number;
 }
 
 export interface Task {

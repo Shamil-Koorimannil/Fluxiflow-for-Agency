@@ -1,12 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAppTheme } from '../context/ThemeContext';
 import { FluxiflowLogo } from '../components/common/FluxiflowLogo';
+import { FluxiflowNavbar } from '../components/common/FluxiflowNavbar';
 import { 
-  Sun, 
-  Moon, 
-  Menu, 
-  X, 
   ArrowRight, 
   Check, 
   TrendingUp, 
@@ -30,12 +26,13 @@ import {
   Tab, 
   Card,
   LinearProgress,
-  Divider,
-  Drawer,
-  List,
-  ListItem,
-  ListItemButton
+  Divider
 } from '@mui/material';
+
+import { initSmoothScroll } from '../lib/animations/smoothScroll';
+import { playHeroEntrance, initMagneticButtons } from '../lib/animations/heroAnimations';
+import { initSectionAnimations } from '../lib/animations/sectionAnimations';
+import { gsap } from 'gsap';
 
 // ── SUB-COMPONENT: Futuristic 3D Sculptural Ribbon/Torus SVG ──
 const FuturisticSculpture: React.FC<{ colorTheme?: 'light' | 'dark'; size?: number }> = ({ colorTheme = 'light', size = 300 }) => {
@@ -127,11 +124,13 @@ const FuturisticSculpture: React.FC<{ colorTheme?: 'light' | 'dark'; size?: numb
 
 export const Landing: React.FC = () => {
   const navigate = useNavigate();
-  const { isDark, setThemeMode } = useAppTheme();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const isDark = false;
   const [taskTab, setTaskTab] = useState(0);
 
-  // Dynamic Document Title and SEO configuration
+  const containerRef = useRef<HTMLDivElement>(null);
+  const navbarRef = useRef<HTMLDivElement>(null);
+
+  // Dynamic Document Title and SEO configuration + Animation Initializations
   useEffect(() => {
     document.title = "Fluxiflow for Agency — Project Management for Modern Agencies";
     const metaDescription = document.querySelector('meta[name="description"]');
@@ -144,15 +143,48 @@ export const Landing: React.FC = () => {
       meta.content = descContent;
       document.head.appendChild(meta);
     }
+
+    // 1. Initialize Lenis Smooth Scroll
+    const { destroy: destroyScroll } = initSmoothScroll();
+
+    // 2. Play Hero entrance
+    const heroCtx = playHeroEntrance(containerRef, navbarRef);
+
+    // 3. Initialize desktop magnetic buttons
+    const destroyMagnetic = initMagneticButtons();
+
+    // 4. Initialize ScrollTrigger animations for all sections
+    const destroySections = initSectionAnimations(containerRef);
+
+    // 5. Navbar Scroll response
+    const navbarCtx = gsap.context(() => {
+      gsap.to('.navbar-box', {
+        scrollTrigger: {
+          trigger: 'body',
+          start: 'top+=50 top',
+          toggleActions: 'play none none reverse',
+        },
+        paddingTop: '8px',
+        paddingBottom: '8px',
+        backgroundColor: 'rgba(255, 255, 255, 0.96)',
+        borderColor: 'rgba(0, 0, 0, 0.12)',
+        boxShadow: '0 10px 30px rgba(0, 0, 0, 0.06)',
+        duration: 0.3,
+        ease: 'power2.out'
+      });
+    }, containerRef);
+
+    return () => {
+      destroyScroll();
+      heroCtx.revert();
+      destroyMagnetic();
+      destroySections();
+      navbarCtx.revert();
+    };
   }, []);
 
   const handleNav = (path: string) => {
-    setMobileMenuOpen(false);
     navigate(path);
-  };
-
-  const toggleTheme = () => {
-    setThemeMode(isDark ? 'light' : 'dark');
   };
 
   // Mock task data structured for landing demonstration
@@ -184,13 +216,14 @@ export const Landing: React.FC = () => {
 
   return (
     <Box 
+      ref={containerRef}
       sx={{ 
         bgcolor: 'background.default', 
         color: 'text.primary', 
         minHeight: '100vh', 
         transition: 'background-color 0.3s cubic-bezier(0.16, 1, 0.3, 1), color 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
         position: 'relative',
-        overflow: 'hidden'
+        overflowX: 'hidden'
       }}
     >
       
@@ -212,177 +245,52 @@ export const Landing: React.FC = () => {
         }}
       />
 
-      {/* ── FLOATING LIGHTWEIGHT NAVIGATION ── */}
-      <Box sx={{ position: 'sticky', top: 20, zIndex: 1000, px: 2, display: 'flex', justifyContent: 'center' }}>
-        <Box 
-          sx={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'space-between', 
-            width: '100%', 
-            maxWidth: '1200px', 
-            py: 1.5, 
-            px: { xs: 2.5, md: 4 }, 
-            bgcolor: isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.75)', 
-            backdropFilter: 'blur(30px) saturate(190%)',
-            borderRadius: '100px',
-            border: '1px solid',
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
-            boxShadow: isDark ? '0 15px 35px rgba(0,0,0,0.6)' : '0 15px 35px rgba(0,0,0,0.03)'
-          }}
-        >
-          {/* Logo */}
-          <Box sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }} onClick={() => navigate('/')}>
-            <FluxiflowLogo height={36} />
-          </Box>
+      {/* Shared Navigation Bar */}
+      <FluxiflowNavbar navbarRef={navbarRef} />
 
-          {/* Links - Desktop */}
-          <Box sx={{ display: { xs: 'none', md: 'flex' }, gap: 4.5, alignItems: 'center' }}>
-            <Typography component="a" href="#features" sx={{ fontSize: '13.5px', fontWeight: 600, color: 'text.secondary', textDecoration: 'none', transition: 'color 0.2s', '&:hover': { color: 'text.primary' } }}>Features</Typography>
-            <Typography component="a" href="#how-it-works" sx={{ fontSize: '13.5px', fontWeight: 600, color: 'text.secondary', textDecoration: 'none', transition: 'color 0.2s', '&:hover': { color: 'text.primary' } }}>How It Works</Typography>
-            <Typography component="a" href="#team" sx={{ fontSize: '13.5px', fontWeight: 600, color: 'text.secondary', textDecoration: 'none', transition: 'color 0.2s', '&:hover': { color: 'text.primary' } }}>Team</Typography>
-            <Typography component="a" href="#reports" sx={{ fontSize: '13.5px', fontWeight: 600, color: 'text.secondary', textDecoration: 'none', transition: 'color 0.2s', '&:hover': { color: 'text.primary' } }}>Reports</Typography>
-          </Box>
 
-          {/* Actions & Controls */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5 }}>
-            <IconButton onClick={toggleTheme} sx={{ color: 'text.primary', p: 1 }}>
-              {isDark ? <Sun size={17} /> : <Moon size={17} />}
-            </IconButton>
-
-            {/* Desktop Buttons */}
-            <Box sx={{ display: { xs: 'none', sm: 'flex' }, gap: 2, alignItems: 'center' }}>
-              <Button 
-                onClick={() => handleNav('/login')} 
-                sx={{ 
-                  textTransform: 'none', 
-                  fontWeight: 700, 
-                  fontSize: '13.5px',
-                  color: 'text.primary',
-                  px: 2
-                }}
-              >
-                Log In
-              </Button>
-              <Button 
-                onClick={() => handleNav('/login')} 
-                variant="contained"
-                sx={{ 
-                  textTransform: 'none', 
-                  fontWeight: 700, 
-                  fontSize: '13.5px',
-                  bgcolor: isDark ? '#ffffff' : '#000000',
-                  color: isDark ? '#000000' : '#ffffff',
-                  borderRadius: '100px',
-                  px: 3.5,
-                  py: 1,
-                  boxShadow: 'none',
-                  '&:hover': {
-                    bgcolor: isDark ? '#e4e4e7' : '#27272a',
-                    boxShadow: 'none'
-                  }
-                }}
-              >
-                Get Started
-              </Button>
-            </Box>
-
-            {/* Mobile hamburger menu */}
-            <IconButton 
-              onClick={() => setMobileMenuOpen(true)} 
-              sx={{ display: { xs: 'flex', md: 'none' }, color: 'text.primary', p: 1 }}
-            >
-              <Menu size={19} />
-            </IconButton>
-          </Box>
-        </Box>
-      </Box>
-
-      {/* ── MOBILE NAVIGATION SIDEBAR DRAWER ── */}
-      <Drawer
-        anchor="right"
-        open={mobileMenuOpen}
-        onClose={() => setMobileMenuOpen(false)}
-        slotProps={{
-          paper: {
-            sx: {
-              width: '280px',
-              bgcolor: isDark ? '#000000' : '#ffffff',
-              backgroundImage: 'none',
-              borderLeft: '1px solid',
-              borderColor: isDark ? '#27272a' : '#e4e4e7',
-              p: 3
-            }
-          }
+      {/* ── SECTION 1: HERO (Clean Minimal Editorial) ── */}
+      <Container 
+        maxWidth="lg" 
+        sx={{ 
+          pt: { xs: 12, md: 20 }, 
+          pb: { xs: 12, md: 20 }, 
+          px: 3, 
+          position: 'relative', 
+          zIndex: 1, 
+          display: 'flex', 
+          flexDirection: 'column', 
+          alignItems: 'center' 
         }}
       >
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 5 }}>
-          <FluxiflowLogo height={32} />
-          <IconButton onClick={() => setMobileMenuOpen(false)} sx={{ color: 'text.primary', p: 1 }}>
-            <X size={19} />
-          </IconButton>
-        </Box>
-
-        <List sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <ListItem disablePadding>
-            <ListItemButton component="a" href="#features" onClick={() => setMobileMenuOpen(false)} sx={{ borderRadius: '8px' }}>
-              <Typography sx={{ fontWeight: 700, fontSize: '15px' }}>Features</Typography>
-            </ListItemButton>
-          </ListItem>
-          <ListItem disablePadding>
-            <ListItemButton component="a" href="#how-it-works" onClick={() => setMobileMenuOpen(false)} sx={{ borderRadius: '8px' }}>
-              <Typography sx={{ fontWeight: 700, fontSize: '15px' }}>How It Works</Typography>
-            </ListItemButton>
-          </ListItem>
-          <ListItem disablePadding>
-            <ListItemButton component="a" href="#team" onClick={() => setMobileMenuOpen(false)} sx={{ borderRadius: '8px' }}>
-              <Typography sx={{ fontWeight: 700, fontSize: '15px' }}>Team</Typography>
-            </ListItemButton>
-          </ListItem>
-          <ListItem disablePadding>
-            <ListItemButton component="a" href="#reports" onClick={() => setMobileMenuOpen(false)} sx={{ borderRadius: '8px' }}>
-              <Typography sx={{ fontWeight: 700, fontSize: '15px' }}>Reporting</Typography>
-            </ListItemButton>
-          </ListItem>
-        </List>
-
-        <Divider sx={{ my: 4 }} />
-
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-          <Button 
-            fullWidth 
-            onClick={() => handleNav('/login')} 
-            sx={{ textTransform: 'none', fontWeight: 700, py: 1.2, color: 'text.primary' }}
-          >
-            Log In
-          </Button>
-          <Button 
-            fullWidth 
-            variant="contained" 
-            onClick={() => handleNav('/login')} 
+        <Box 
+          className="hero-container"
+          sx={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'center', 
+            textAlign: 'center', 
+            mb: { xs: 10, md: 14 },
+            maxWidth: '960px'
+          }}
+        >
+          {/* Eyebrow / Pill */}
+          <Box 
+            className="hero-eyebrow"
             sx={{ 
-              textTransform: 'none', 
-              fontWeight: 700, 
-              py: 1.4,
-              bgcolor: isDark ? '#ffffff' : '#000000',
-              color: isDark ? '#000000' : '#ffffff',
-              borderRadius: '100px',
-              boxShadow: 'none',
-              '&:hover': { bgcolor: isDark ? '#e4e4e7' : '#27272a', boxShadow: 'none' }
+              display: 'inline-flex', 
+              alignItems: 'center', 
+              gap: 1, 
+              mb: 4, 
+              px: 2.5, 
+              py: 1, 
+              borderRadius: '100px', 
+              border: '1px solid', 
+              borderColor: 'rgba(0,0,0,0.08)', 
+              bgcolor: 'rgba(0,0,0,0.02)' 
             }}
           >
-            Get Started
-          </Button>
-        </Box>
-      </Drawer>
-
-
-      {/* ── SECTION 1: HERO (Atmospheric Futuristic Showroom) ── */}
-      <Container maxWidth="lg" sx={{ pt: { xs: 8, md: 14 }, pb: { xs: 8, md: 14 }, px: 3, position: 'relative', zIndex: 1 }}>
-        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', mb: { xs: 8, md: 12 } }}>
-          
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3.5, px: 2.5, py: 1, borderRadius: '100px', border: '1px solid', borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', bgcolor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)' }}>
-            <Sparkles size={13} style={{ color: isDark ? '#93c5fd' : '#3b82f6' }} />
+            <Sparkles size={13} style={{ color: '#3b82f6' }} />
             <Typography 
               variant="caption" 
               sx={{ 
@@ -397,49 +305,64 @@ export const Landing: React.FC = () => {
             </Typography>
           </Box>
           
+          {/* Headline */}
           <Typography 
             variant="h1" 
+            className="hero-headline"
             sx={{ 
               fontWeight: 900, 
-              fontSize: { xs: '44px', sm: '64px', md: '92px' }, 
+              fontSize: { xs: '48px', sm: '68px', md: '94px' }, 
               lineHeight: 1.05,
               letterSpacing: '-3.5px',
               color: 'text.primary',
-              maxWidth: '960px',
-              mb: 3.5
+              maxWidth: '920px',
+              mb: 4
             }}
           >
             Your agency's work,<br />finally in one flow.
           </Typography>
 
+          {/* Description */}
           <Typography 
             variant="body1" 
+            className="hero-description"
             sx={{ 
-              fontSize: { xs: '16px', sm: '19px', md: '21px' }, 
+              fontSize: { xs: '16px', sm: '20px', md: '22px' }, 
               color: 'text.secondary',
-              maxWidth: '680px',
-              lineHeight: 1.55,
-              mb: 5.5,
+              maxWidth: '720px',
+              lineHeight: 1.6,
+              mb: 6,
               fontWeight: 500
             }}
           >
             Fluxiflow brings projects, tasks, people, progress, and reporting into one simple workspace built for agency teams.
           </Typography>
 
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 2.5 }}>
+          {/* CTA Buttons */}
+          <Box 
+            className="hero-cta-group"
+            sx={{ 
+              display: 'flex', 
+              flexWrap: 'wrap', 
+              justifyContent: 'center', 
+              gap: 3 
+            }}
+          >
             <Button 
               onClick={() => handleNav('/login')}
               variant="contained"
+              className="magnetic-btn-primary"
               sx={{ 
-                py: 2, 
-                px: 5, 
-                fontSize: '14.5px', 
+                py: 2.2, 
+                px: 5.5, 
+                fontSize: '15px', 
                 fontWeight: 700, 
                 borderRadius: '100px',
-                bgcolor: isDark ? '#ffffff' : '#000000',
-                color: isDark ? '#000000' : '#ffffff',
+                bgcolor: '#000000',
+                color: '#ffffff',
                 boxShadow: 'none',
-                '&:hover': { bgcolor: isDark ? '#e4e4e7' : '#27272a', boxShadow: 'none' }
+                transition: 'background-color 0.2s, transform 0.1s',
+                '&:hover': { bgcolor: '#27272a', boxShadow: 'none' }
               }}
             >
               Get Started
@@ -447,15 +370,17 @@ export const Landing: React.FC = () => {
             <Button 
               onClick={() => handleNav('/login')}
               variant="outlined"
+              className="magnetic-btn-secondary"
               sx={{ 
-                py: 2, 
-                px: 5, 
-                fontSize: '14.5px', 
+                py: 2.2, 
+                px: 5.5, 
+                fontSize: '15px', 
                 fontWeight: 700, 
                 borderRadius: '100px',
-                borderColor: 'divider',
-                color: 'text.primary',
-                '&:hover': { borderColor: 'text.primary', bgcolor: 'transparent' }
+                borderColor: 'rgba(0, 0, 0, 0.15)',
+                color: '#000000',
+                transition: 'border-color 0.2s, background-color 0.2s, transform 0.1s',
+                '&:hover': { borderColor: '#000000', bgcolor: 'transparent' }
               }}
             >
               Log In
@@ -463,335 +388,132 @@ export const Landing: React.FC = () => {
           </Box>
         </Box>
 
-        {/* ── HERO PRODUCT VISUAL: Integrated inside Futuristic Architecture ── */}
+        {/* Dashboard Visual Frame: Centered, Flat, Crisp, Softly Elevated */}
         <Box 
+          className="hero-dashboard"
           sx={{ 
-            position: 'relative',
-            borderRadius: '32px',
-            border: '1px solid',
-            borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-            bgcolor: isDark ? '#000000' : '#ffffff',
-            p: { xs: 2, sm: 4, md: 7 },
-            pb: { xs: 4, sm: 7, md: 10 },
-            boxShadow: isDark ? '0 50px 100px rgba(0,0,0,0.95)' : '0 50px 100px rgba(0,0,0,0.06)',
+            position: 'relative', 
+            zIndex: 1, 
+            width: '100%',
+            maxWidth: '1080px',
+            border: '1px solid', 
+            borderColor: 'rgba(0,0,0,0.08)', 
+            borderRadius: '24px', 
             overflow: 'hidden',
-            perspective: '1400px', // Add perspective to parent container for realistic 3D depth
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center'
+            bgcolor: '#ffffff',
+            boxShadow: '0 45px 90px rgba(0,0,0,0.06), 0 0 40px rgba(0,0,0,0.02)',
+            transition: 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.5s',
+            '&:hover': {
+              transform: 'translateY(-6px)',
+              boxShadow: '0 55px 110px rgba(0,0,0,0.09), 0 0 50px rgba(0,0,0,0.03)'
+            }
           }}
         >
-          {/* Futuristic Arch/Podium background simulator (Reference-inspired) */}
-          <Box 
-            sx={{ 
-              position: 'absolute', 
-              top: 0, 
-              left: 0, 
-              right: 0, 
-              bottom: 0, 
-              background: isDark
-                ? 'linear-gradient(to bottom, #000000 0%, #080808 60%, #111112 100%)'
-                : 'linear-gradient(to bottom, #ffffff 0%, #f4f8fd 60%, #eef5fc 100%)',
-              zIndex: 0,
-              pointerEvents: 'none'
-            }}
-          />
-
-          {/* Sculptural architectural curves, horizon sky and 3D metallic podium (Reference 1 inspired) */}
-          <Box 
-            sx={{ 
-              position: 'absolute', 
-              top: 0, 
-              left: 0,
-              width: '100%', 
-              height: '100%',
-              opacity: 1, 
-              zIndex: 0,
-              pointerEvents: 'none'
-            }}
-          >
-            <svg width="100%" height="100%" viewBox="0 0 1000 600" preserveAspectRatio="none" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                {/* Soft horizon sky lighting glow */}
-                <radialGradient id="skyGlow" cx="50%" cy="50%" r="50%">
-                  <stop offset="0%" stopColor={isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(147, 197, 253, 0.32)'} />
-                  <stop offset="60%" stopColor={isDark ? '#08080a' : '#f0f5fc'} />
-                  <stop offset="100%" stopColor={isDark ? '#000000' : '#ffffff'} stopOpacity="0" />
-                </radialGradient>
-                
-                {/* Wall concrete/ceramic shading for architectural curves */}
-                <linearGradient id="wallShadeLeft" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor={isDark ? '#1a1a1a' : '#ffffff'} />
-                  <stop offset="40%" stopColor={isDark ? '#111111' : '#f3f7fc'} />
-                  <stop offset="80%" stopColor={isDark ? '#050505' : '#e2ecf7'} />
-                  <stop offset="100%" stopColor={isDark ? '#000000' : '#c8daee'} />
-                </linearGradient>
-
-                <linearGradient id="wallShadeRight" x1="100%" y1="0%" x2="0%" y2="100%">
-                  <stop offset="0%" stopColor={isDark ? '#1f1f1f' : '#ffffff'} />
-                  <stop offset="50%" stopColor={isDark ? '#141414' : '#fafbfe'} />
-                  <stop offset="100%" stopColor={isDark ? '#08080a' : '#dee9f6'} />
-                </linearGradient>
-
-                {/* 3D floating object gradients */}
-                <linearGradient id="torusMetal" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor={isDark ? '#ffffff' : '#000000'} />
-                  <stop offset="50%" stopColor={isDark ? '#a1a1aa' : '#71717a'} />
-                  <stop offset="100%" stopColor={isDark ? '#000000' : '#dbeafe'} />
-                </linearGradient>
-                
-                <radialGradient id="sphereShade" cx="30%" cy="30%" r="70%">
-                  <stop offset="0%" stopColor="#ffffff" />
-                  <stop offset="50%" stopColor={isDark ? '#71717a' : '#cbd5e1'} />
-                  <stop offset="100%" stopColor={isDark ? '#18181b' : '#475569'} />
-                </radialGradient>
-
-                <radialGradient id="glassSphere" cx="35%" cy="35%" r="65%">
-                  <stop offset="0%" stopColor="rgba(255, 255, 255, 0.65)" />
-                  <stop offset="40%" stopColor="rgba(255, 255, 255, 0.2)" />
-                  <stop offset="100%" stopColor={isDark ? 'rgba(37,99,235,0.06)' : 'rgba(147,197,253,0.1)'} />
-                </radialGradient>
-
-                {/* Podium metal bezel layers */}
-                <linearGradient id="podiumMetal" x1="0%" y1="0%" x2="0%" y2="100%">
-                  <stop offset="0%" stopColor={isDark ? '#71717a' : '#ffffff'} />
-                  <stop offset="30%" stopColor={isDark ? '#3f3f46' : '#d4d4d8'} />
-                  <stop offset="70%" stopColor={isDark ? '#18181b' : '#8e9aaf'} />
-                  <stop offset="100%" stopColor={isDark ? '#09090b' : '#5c677d'} />
-                </linearGradient>
-
-                <radialGradient id="podiumFace" cx="50%" cy="30%" r="50%">
-                  <stop offset="0%" stopColor={isDark ? '#2b2b30' : '#ffffff'} />
-                  <stop offset="80%" stopColor={isDark ? '#121214' : '#edf2f8'} />
-                  <stop offset="100%" stopColor={isDark ? '#050506' : '#d5e2f2'} />
-                </radialGradient>
-
-                {/* Soft drop shadow filters */}
-                <filter id="archShadow" x="-10%" y="-10%" width="120%" height="120%">
-                  <feDropShadow dx="0" dy="16" stdDeviation="20" floodColor="#000000" floodOpacity={isDark ? '0.75' : '0.12'} />
-                </filter>
-                
-                <filter id="podiumShadow" x="-20%" y="-20%" width="140%" height="140%">
-                  <feGaussianBlur stdDeviation="10" result="blur" />
-                  <feColorMatrix type="matrix" values="0 0 0 0 0   0 0 0 0 0   0 0 0 0 0  0 0 0 0.45 0" />
-                </filter>
-              </defs>
-
-              {/* Sky background */}
-              <rect width="1000" height="600" fill="url(#skyGlow)" />
-
-              {/* Dynamic Sweeping Curves 1 (Left wall arch) */}
-              <path 
-                d="M -100 -50 C 200 80, 500 50, 450 600 L -100 600 Z" 
-                fill="url(#wallShadeLeft)" 
-                filter="url(#archShadow)" 
-              />
-
-              {/* Dynamic Sweeping Curves 2 (Right canopy arch) */}
-              <path 
-                d="M 1100 -50 C 800 60, 650 150, 700 600 L 1100 600 Z" 
-                fill="url(#wallShadeRight)" 
-                filter="url(#archShadow)" 
-              />
-
-              {/* ── FLOATING 3D GEOMETRIC SCULPTURES (Reference 2 & 3 inspired) ── */}
-              {/* Torus Loop floating on Left */}
-              <g style={{ animation: 'floatTorus 14s ease-in-out infinite', transformOrigin: '230px 160px' }}>
-                <ellipse cx="230" cy="160" rx="38" ry="14" stroke="url(#torusMetal)" strokeWidth="10" fill="none" style={{ opacity: 0.85 }} />
-                <ellipse cx="230" cy="160" rx="22" ry="7" stroke={isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.06)'} strokeWidth="1.5" fill="none" />
-              </g>
-
-              {/* Ceramic Highlight Sphere floating on Left */}
-              <g style={{ animation: 'floatSphereLeft 11s ease-in-out infinite', transformOrigin: '160px 290px' }}>
-                <circle cx="160" cy="290" r="20" fill="url(#sphereShade)" />
-                <circle cx="160" cy="290" r="20" fill="none" stroke={isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.04)'} strokeWidth="1" />
-              </g>
-
-              {/* Frosted Glass Bubble floating on Right */}
-              <g style={{ animation: 'floatSphereRight 9s ease-in-out infinite', transformOrigin: '810px 240px' }}>
-                <circle cx="810" cy="240" r="26" fill="url(#glassSphere)" />
-                <circle cx="810" cy="240" r="26" fill="none" stroke={isDark ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.45)'} strokeWidth="1.5" />
-                <ellipse cx="802" cy="230" rx="5" ry="2.5" fill="rgba(255,255,255,0.55)" />
-              </g>
-
-              {/* Horizon Floor (Platform base) */}
-              <path 
-                d="M 0 450 Q 500 420, 1000 450 L 1000 600 L 0 600 Z" 
-                fill={isDark ? '#030303' : '#fafbfc'} 
-                style={{ opacity: 0.95 }} 
-              />
-
-              {/* Keyframe animation declarations */}
-              <style>{`
-                @keyframes floatTorus {
-                  0%, 100% { transform: translateY(0px) rotate(0deg); }
-                  50% { transform: translateY(-15px) rotate(10deg); }
-                }
-                @keyframes floatSphereLeft {
-                  0%, 100% { transform: translateY(0px) translateX(0px); }
-                  50% { transform: translateY(-20px) translateX(6px); }
-                }
-                @keyframes floatSphereRight {
-                  0%, 100% { transform: translateY(0px) translateX(0px); }
-                  50% { transform: translateY(-12px) translateX(-5px); }
-                }
-              `}</style>
-
-              {/* ── Concentric 3D Metallic Podium Base (Reference 1 inspired) ── */}
-              {/* Contact shadow */}
-              <ellipse cx="500" cy="520" rx="240" ry="35" fill="rgba(0,0,0,0.4)" filter="url(#podiumShadow)" />
-
-              {/* Lower bezel layer */}
-              <ellipse cx="500" cy="505" rx="230" ry="32" fill="url(#podiumMetal)" />
-              <path d="M 270 505 A 230 32 0 0 0 730 505 L 730 520 A 230 32 0 0 1 270 520 Z" fill="url(#podiumMetal)" />
-
-              {/* Middle step ring */}
-              <ellipse cx="500" cy="500" rx="220" ry="29" fill={isDark ? '#27272a' : '#e4e4e7'} />
-              <ellipse cx="500" cy="497" rx="216" ry="27" fill="url(#podiumMetal)" />
-              <path d="M 284 497 A 216 27 0 0 0 716 497 L 716 506 A 216 27 0 0 1 284 506 Z" fill="url(#podiumMetal)" />
-
-              {/* Top bezel ring */}
-              <ellipse cx="500" cy="493" rx="204" ry="24" fill={isDark ? '#52525b' : '#ffffff'} />
-              <ellipse cx="500" cy="491" rx="200" ry="22" fill="url(#podiumFace)" />
-
-              {/* Radial reflection light glow ring */}
-              <ellipse cx="500" cy="490" rx="180" ry="17" stroke={isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.5)'} strokeWidth="1.5" fill="none" />
-            </svg>
+          {/* Window controls bar */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+            <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#ef4444' }} />
+            <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#eab308' }} />
+            <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#22c55e' }} />
+            <Box sx={{ flexGrow: 1, bgcolor: '#f4f4f5', py: 0.5, px: 2, borderRadius: '6px', display: 'flex', alignItems: 'center', ml: 2, maxWidth: '280px' }}>
+              <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', fontSize: '10px' }}>fluxiflow.agency/app/dashboard</Typography>
+            </Box>
           </Box>
 
-          {/* Actual Dashboard UI Mockup Frame: Floating slightly above podium with 3D rotation */}
-          <Box 
-            sx={{ 
-              position: 'relative', 
-              zIndex: 1, 
-              width: '100%',
-              maxWidth: '920px',
-              border: '1px solid', 
-              borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)', 
-              borderRadius: '20px', 
-              overflow: 'hidden',
-              bgcolor: isDark ? 'rgba(8, 8, 8, 0.94)' : 'rgba(255, 255, 255, 0.94)',
-              backdropFilter: 'blur(10px)',
-              boxShadow: isDark 
-                ? '0 40px 90px rgba(0,0,0,0.9), 0 0 50px rgba(255,255,255,0.02)' 
-                : '0 45px 90px rgba(0,0,0,0.15), 0 0 40px rgba(0,0,0,0.02)',
-              transform: { xs: 'none', md: 'rotateX(8deg) rotateY(-6deg) rotateZ(1deg)' },
-              transformStyle: 'preserve-3d',
-              transition: 'transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.6s',
-              '&:hover': {
-                transform: { xs: 'none', md: 'rotateX(4deg) rotateY(-3deg) rotateZ(0.5deg) translateY(-10px)' },
-                boxShadow: isDark 
-                  ? '0 50px 110px rgba(0,0,0,0.95), 0 0 60px rgba(255,255,255,0.03)' 
-                  : '0 55px 110px rgba(0,0,0,0.18), 0 0 50px rgba(0,0,0,0.03)'
-              }
-            }}
-          >
-            {/* Window controls bar */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-              <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#ef4444' }} />
-              <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#eab308' }} />
-              <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#22c55e' }} />
-              <Box sx={{ flexGrow: 1, bgcolor: isDark ? '#121212' : '#f4f4f5', py: 0.5, px: 2, borderRadius: '6px', display: 'flex', alignItems: 'center', ml: 2, maxWidth: '280px' }}>
-                <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', fontSize: '10px' }}>fluxiflow.agency/app/dashboard</Typography>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '220px 1fr' }, gap: { xs: 2, md: 3 }, p: { xs: 1.5, sm: 3 }, textAlign: 'left' }}>
+            {/* Sidebar */}
+            <Box sx={{ display: { xs: 'none', md: 'flex' }, flexDirection: 'column', gap: 2.5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 1.5, bgcolor: '#ffffff', borderRadius: '12px', border: '1px solid', borderColor: 'divider' }}>
+                <Box sx={{ width: 34, height: 34, borderRadius: '50%', bgcolor: '#f4f4f5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '12px' }}>MS</Box>
+                <Box>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 800, fontSize: '12.5px' }}>Muhammed Shamil</Typography>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', textTransform: 'uppercase', fontSize: '8px', fontWeight: 800 }}>Admin/Manager</Typography>
+                </Box>
+              </Box>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 1.5, bgcolor: '#f4f4f5', borderRadius: '8px' }}>
+                  <TrendingUp size={15} />
+                  <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '13px' }}>Tasks</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 1.5, color: 'text.secondary', borderRadius: '8px' }}>
+                  <Folder size={15} />
+                  <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '13px' }}>Projects</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 1.5, color: 'text.secondary', borderRadius: '8px' }}>
+                  <Users size={15} />
+                  <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '13px' }}>Team Health</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 1.5, color: 'text.secondary', borderRadius: '8px' }}>
+                  <FileSpreadsheet size={15} />
+                  <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '13px' }}>Reports</Typography>
+                </Box>
               </Box>
             </Box>
 
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '220px 1fr' }, gap: 3, p: 3 }}>
-              {/* Sidebar */}
-              <Box sx={{ display: { xs: 'none', md: 'flex' }, flexDirection: 'column', gap: 2.5 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 1.5, bgcolor: isDark ? '#121212' : '#ffffff', borderRadius: '12px', border: '1px solid', borderColor: 'divider' }}>
-                  <Box sx={{ width: 34, height: 34, borderRadius: '50%', bgcolor: isDark ? '#27272a' : '#f4f4f5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '12px' }}>MS</Box>
-                  <Box>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 800, fontSize: '12.5px' }}>Muhammed Shamil</Typography>
-                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', textTransform: 'uppercase', fontSize: '8px', fontWeight: 800 }}>Admin/Manager</Typography>
-                  </Box>
+            {/* Workspace Mock Content */}
+            <Box>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 2, mb: 3.5 }}>
+                <Box>
+                  <Typography variant="h6" sx={{ fontWeight: 900 }}>Workspace Overview</Typography>
+                  <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '13px' }}>Fictional summary of active client deliverables.</Typography>
                 </Box>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 1.5, bgcolor: isDark ? '#1c1c1e' : '#f4f4f5', borderRadius: '8px' }}>
-                    <TrendingUp size={15} />
-                    <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '13px' }}>Tasks</Typography>
+                <Box sx={{ display: 'flex', gap: 1.5 }}>
+                  <Box sx={{ px: 2, py: 0.8, border: '1px solid', borderColor: 'divider', borderRadius: '8px', textAlign: 'center' }}>
+                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase' }}>Projects</Typography>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>3 Active</Typography>
                   </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 1.5, color: 'text.secondary', borderRadius: '8px' }}>
-                    <Folder size={15} />
-                    <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '13px' }}>Projects</Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 1.5, color: 'text.secondary', borderRadius: '8px' }}>
-                    <Users size={15} />
-                    <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '13px' }}>Team Health</Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 1.5, color: 'text.secondary', borderRadius: '8px' }}>
-                    <FileSpreadsheet size={15} />
-                    <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '13px' }}>Reports</Typography>
+                  <Box sx={{ px: 2, py: 0.8, border: '1px solid', borderColor: 'divider', borderRadius: '8px', textAlign: 'center' }}>
+                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase' }}>Tasks Done</Typography>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 900, color: '#22c55e' }}>28 Completed</Typography>
                   </Box>
                 </Box>
               </Box>
 
-              {/* Workspace Mock Content */}
-              <Box>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 2, mb: 3.5 }}>
-                  <Box>
-                    <Typography variant="h6" sx={{ fontWeight: 900 }}>Workspace Overview</Typography>
-                    <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '13px' }}>Fictional summary of active client deliverables.</Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', gap: 1.5 }}>
-                    <Box sx={{ px: 2, py: 0.8, border: '1px solid', borderColor: 'divider', borderRadius: '8px', textAlign: 'center' }}>
-                      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase' }}>Projects</Typography>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>3 Active</Typography>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1.1fr 0.9fr' }, gap: 3 }}>
+                {/* Left: Workload */}
+                <Box>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 2, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '1px', fontSize: '10px' }}>Team Health & Workload</Typography>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.8 }}>
+                    <Box sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: '12px' }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '13px' }}>Sarah Thomas</Typography>
+                        <Typography variant="caption" sx={{ color: '#22c55e', fontWeight: 800, fontSize: '11px' }}>92% Healthy</Typography>
+                      </Box>
+                      <LinearProgress variant="determinate" value={92} sx={{ height: 5, borderRadius: 3, bgcolor: '#e4e4e7', '& .MuiLinearProgress-bar': { bgcolor: '#22c55e' } }} />
                     </Box>
-                    <Box sx={{ px: 2, py: 0.8, border: '1px solid', borderColor: 'divider', borderRadius: '8px', textAlign: 'center' }}>
-                      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase' }}>Tasks Done</Typography>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 900, color: '#22c55e' }}>28 Completed</Typography>
+                    <Box sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: '12px' }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '13px' }}>Ahmed Ali</Typography>
+                        <Typography variant="caption" sx={{ color: '#22c55e', fontWeight: 800, fontSize: '11px' }}>87% Healthy</Typography>
+                      </Box>
+                      <LinearProgress variant="determinate" value={87} sx={{ height: 5, borderRadius: 3, bgcolor: '#e4e4e7', '& .MuiLinearProgress-bar': { bgcolor: '#22c55e' } }} />
+                    </Box>
+                    <Box sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: '12px' }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '13px' }}>Maya Lin</Typography>
+                        <Typography variant="caption" sx={{ color: '#eab308', fontWeight: 800, fontSize: '11px' }}>68% Heavy Load</Typography>
+                      </Box>
+                      <LinearProgress variant="determinate" value={68} sx={{ height: 5, borderRadius: 3, bgcolor: '#e4e4e7', '& .MuiLinearProgress-bar': { bgcolor: '#eab308' } }} />
                     </Box>
                   </Box>
                 </Box>
 
-                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1.1fr 0.9fr' }, gap: 3 }}>
-                  {/* Left: Workload */}
-                  <Box>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 2, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '1px', fontSize: '10px' }}>Team Health & Workload</Typography>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.8 }}>
-                      <Box sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: '12px' }}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '13px' }}>Sarah Thomas</Typography>
-                          <Typography variant="caption" sx={{ color: '#22c55e', fontWeight: 800, fontSize: '11px' }}>92% Healthy</Typography>
-                        </Box>
-                        <LinearProgress variant="determinate" value={92} sx={{ height: 5, borderRadius: 3, bgcolor: isDark ? '#27272a' : '#e4e4e7', '& .MuiLinearProgress-bar': { bgcolor: '#22c55e' } }} />
+                {/* Right: Tasks */}
+                <Box>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 2, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '1px', fontSize: '10px' }}>Current Priorities</Typography>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 1.5, bgcolor: 'rgba(0,0,0,0.02)', borderRadius: '10px', borderLeft: '3px solid #ef4444' }}>
+                      <Box>
+                        <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '12.5px' }}>Design hero section banner</Typography>
+                        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '11px' }}>Website Redesign • Due Yesterday</Typography>
                       </Box>
-                      <Box sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: '12px' }}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '13px' }}>Ahmed Ali</Typography>
-                          <Typography variant="caption" sx={{ color: '#22c55e', fontWeight: 800, fontSize: '11px' }}>87% Healthy</Typography>
-                        </Box>
-                        <LinearProgress variant="determinate" value={87} sx={{ height: 5, borderRadius: 3, bgcolor: isDark ? '#27272a' : '#e4e4e7', '& .MuiLinearProgress-bar': { bgcolor: '#22c55e' } }} />
-                      </Box>
-                      <Box sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: '12px' }}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '13px' }}>Maya Lin</Typography>
-                          <Typography variant="caption" sx={{ color: '#eab308', fontWeight: 800, fontSize: '11px' }}>68% Heavy Load</Typography>
-                        </Box>
-                        <LinearProgress variant="determinate" value={68} sx={{ height: 5, borderRadius: 3, bgcolor: isDark ? '#27272a' : '#e4e4e7', '& .MuiLinearProgress-bar': { bgcolor: '#eab308' } }} />
-                      </Box>
+                      <Typography variant="caption" sx={{ color: '#ef4444', fontWeight: 800, textTransform: 'uppercase', fontSize: '8px' }}>Overdue</Typography>
                     </Box>
-                  </Box>
-
-                  {/* Right: Tasks */}
-                  <Box>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 2, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '1px', fontSize: '10px' }}>Current Priorities</Typography>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 1.5, bgcolor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)', borderRadius: '10px', borderLeft: '3px solid #ef4444' }}>
-                        <Box>
-                          <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '12.5px' }}>Design hero section banner</Typography>
-                          <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '11px' }}>Website Redesign • Due Yesterday</Typography>
-                        </Box>
-                        <Typography variant="caption" sx={{ color: '#ef4444', fontWeight: 800, textTransform: 'uppercase', fontSize: '8px' }}>Overdue</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 1.5, bgcolor: 'rgba(0,0,0,0.02)', borderRadius: '10px', borderLeft: '3px solid #eab308' }}>
+                      <Box>
+                        <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '12.5px' }}>Review website wireframes</Typography>
+                        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '11px' }}>Website Redesign • Due Today</Typography>
                       </Box>
-                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 1.5, bgcolor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)', borderRadius: '10px', borderLeft: '3px solid #eab308' }}>
-                        <Box>
-                          <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '12.5px' }}>Review website wireframes</Typography>
-                          <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '11px' }}>Website Redesign • Due Today</Typography>
-                        </Box>
-                        <Typography variant="caption" sx={{ color: '#eab308', fontWeight: 800, textTransform: 'uppercase', fontSize: '8px' }}>Today</Typography>
-                      </Box>
+                      <Typography variant="caption" sx={{ color: '#eab308', fontWeight: 800, textTransform: 'uppercase', fontSize: '8px' }}>Today</Typography>
                     </Box>
                   </Box>
                 </Box>
@@ -807,7 +529,7 @@ export const Landing: React.FC = () => {
         <Container maxWidth="lg" sx={{ px: 3 }}>
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '6fr 6fr' }, gap: { xs: 6, md: 10 }, alignItems: 'center' }}>
             
-            <Box>
+            <Box className="why-fluxiflow-text">
               <Typography 
                 variant="caption" 
                 sx={{ 
@@ -865,7 +587,7 @@ export const Landing: React.FC = () => {
             </Box>
 
             {/* Futuristic 3D Sculptural Visual Side composition */}
-            <Box sx={{ display: 'flex', justifyContent: 'center', position: 'relative' }}>
+            <Box className="why-fluxiflow-sculpture" sx={{ display: 'flex', justifyContent: 'center', position: 'relative' }}>
               {/* Back ambient lighting plate */}
               <Box sx={{ position: 'absolute', width: 280, height: 280, borderRadius: '50%', background: isDark ? 'radial-gradient(circle, rgba(37,99,235,0.06) 0%, transparent 70%)' : 'radial-gradient(circle, rgba(147,197,253,0.15) 0%, transparent 70%)', filter: 'blur(30px)' }} />
               <FuturisticSculpture colorTheme={isDark ? 'dark' : 'light'} size={320} />
@@ -875,7 +597,7 @@ export const Landing: React.FC = () => {
           {/* Three Core Ideas Cards */}
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 1fr' }, gap: 4, mt: { xs: 10, md: 14 } }}>
             {/* Card 1 */}
-            <Card sx={{ p: 5, borderRadius: '24px', border: '1px solid', borderColor: 'divider', bgcolor: 'transparent', boxShadow: 'none', display: 'flex', flexDirection: 'column', gap: 3.5 }}>
+            <Card className="core-idea-card" sx={{ p: { xs: 3, md: 5 }, borderRadius: '24px', border: '1px solid', borderColor: 'divider', bgcolor: 'transparent', boxShadow: 'none', display: 'flex', flexDirection: 'column', gap: 3.5 }}>
               <Typography variant="h3" sx={{ fontWeight: 900, fontSize: '32px', color: 'text.secondary', opacity: 0.15 }}>01</Typography>
               <Box>
                 <Typography variant="h5" sx={{ fontWeight: 800, mb: 1.5, letterSpacing: '-0.5px' }}>Everything in Flow</Typography>
@@ -885,7 +607,7 @@ export const Landing: React.FC = () => {
               </Box>
             </Card>
             {/* Card 2 */}
-            <Card sx={{ p: 5, borderRadius: '24px', border: '1px solid', borderColor: 'divider', bgcolor: 'transparent', boxShadow: 'none', display: 'flex', flexDirection: 'column', gap: 3.5 }}>
+            <Card className="core-idea-card" sx={{ p: { xs: 3, md: 5 }, borderRadius: '24px', border: '1px solid', borderColor: 'divider', bgcolor: 'transparent', boxShadow: 'none', display: 'flex', flexDirection: 'column', gap: 3.5 }}>
               <Typography variant="h3" sx={{ fontWeight: 900, fontSize: '32px', color: 'text.secondary', opacity: 0.15 }}>02</Typography>
               <Box>
                 <Typography variant="h5" sx={{ fontWeight: 800, mb: 1.5, letterSpacing: '-0.5px' }}>Clear Ownership</Typography>
@@ -895,7 +617,7 @@ export const Landing: React.FC = () => {
               </Box>
             </Card>
             {/* Card 3 */}
-            <Card sx={{ p: 5, borderRadius: '24px', border: '1px solid', borderColor: 'divider', bgcolor: 'transparent', boxShadow: 'none', display: 'flex', flexDirection: 'column', gap: 3.5 }}>
+            <Card className="core-idea-card" sx={{ p: { xs: 3, md: 5 }, borderRadius: '24px', border: '1px solid', borderColor: 'divider', bgcolor: 'transparent', boxShadow: 'none', display: 'flex', flexDirection: 'column', gap: 3.5 }}>
               <Typography variant="h3" sx={{ fontWeight: 900, fontSize: '32px', color: 'text.secondary', opacity: 0.15 }}>03</Typography>
               <Box>
                 <Typography variant="h5" sx={{ fontWeight: 800, mb: 1.5, letterSpacing: '-0.5px' }}>Visible Progress</Typography>
@@ -916,12 +638,12 @@ export const Landing: React.FC = () => {
             <Typography variant="caption" sx={{ fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: 'text.secondary', mb: 2, display: 'block' }}>
               TASKS
             </Typography>
-            <Typography variant="h2" sx={{ fontWeight: 900, fontSize: { xs: '34px', sm: '46px', md: '58px' }, letterSpacing: '-2px', color: 'text.primary', mb: 3 }}>
+            <Typography variant="h2" className="tasks-heading" sx={{ fontWeight: 900, fontSize: { xs: '34px', sm: '46px', md: '58px' }, letterSpacing: '-2px', color: 'text.primary', mb: 3 }}>
               From what's next to what's done.
             </Typography>
           </Box>
 
-          <Card sx={{ border: '1px solid', borderColor: 'divider', borderRadius: '32px', p: { xs: 3, md: 5 }, bgcolor: 'transparent', boxShadow: 'none', position: 'relative', overflow: 'hidden' }}>
+          <Card className="tasks-card-container" sx={{ border: '1px solid', borderColor: 'divider', borderRadius: '32px', p: { xs: 2, sm: 3, md: 5 }, bgcolor: 'transparent', boxShadow: 'none', position: 'relative', overflow: 'hidden' }}>
             {/* Background design glow */}
             <Box sx={{ position: 'absolute', top: -100, right: -100, width: 300, height: 300, borderRadius: '50%', background: isDark ? 'radial-gradient(circle, rgba(37,99,235,0.05) 0%, transparent 70%)' : 'radial-gradient(circle, rgba(147,197,253,0.12) 0%, transparent 70%)', pointerEvents: 'none' }} />
 
@@ -930,6 +652,9 @@ export const Landing: React.FC = () => {
                 value={taskTab} 
                 onChange={(_, val) => setTaskTab(val)}
                 textColor="inherit"
+                variant="scrollable"
+                scrollButtons="auto"
+                allowScrollButtonsMobile
                 sx={{
                   '& .MuiTabs-indicator': {
                     backgroundColor: isDark ? '#ffffff' : '#000000',
@@ -963,9 +688,11 @@ export const Landing: React.FC = () => {
                   key={index} 
                   sx={{ 
                     display: 'flex', 
-                    alignItems: 'center', 
+                    flexDirection: { xs: 'column', sm: 'row' },
+                    alignItems: { xs: 'flex-start', sm: 'center' }, 
                     justifyContent: 'space-between', 
-                    p: 2.8, 
+                    p: { xs: 2, md: 2.8 }, 
+                    gap: { xs: 2.5, sm: 0 },
                     border: '1px solid', 
                     borderColor: 'divider', 
                     borderRadius: '16px',
@@ -978,7 +705,7 @@ export const Landing: React.FC = () => {
                     }
                   }}
                 >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 3.5 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 2, sm: 3.5 } }}>
                     <IconButton 
                       size="small" 
                       disabled 
@@ -1034,8 +761,9 @@ export const Landing: React.FC = () => {
             
             {/* Visual Panel */}
             <Box 
+              className="project-visual-card"
               sx={{ 
-                p: { xs: 4, md: 5 }, 
+                p: { xs: 2.5, md: 5 }, 
                 border: '1px solid', 
                 borderColor: 'divider', 
                 borderRadius: '32px', 
@@ -1060,20 +788,20 @@ export const Landing: React.FC = () => {
                 </Box>
               </Box>
 
-              <Box sx={{ mb: 4.5 }}>
+              <Box className="project-progress-container" sx={{ mb: 4.5 }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1.2 }}>
                   <Typography variant="body2" sx={{ fontWeight: 800, fontSize: '13.5px' }}>Overall Progress</Typography>
                   <Typography variant="body2" sx={{ fontWeight: 800, fontSize: '13.5px' }}>68% Complete</Typography>
                 </Box>
-                <LinearProgress variant="determinate" value={68} sx={{ height: 6, borderRadius: 3, bgcolor: isDark ? '#27272a' : '#e4e4e7', '& .MuiLinearProgress-bar': { bgcolor: isDark ? '#ffffff' : '#000000' } }} />
+                <LinearProgress className="project-progress-bar" variant="determinate" value={68} sx={{ height: 6, borderRadius: 3, bgcolor: isDark ? '#27272a' : '#e4e4e7', '& .MuiLinearProgress-bar': { bgcolor: isDark ? '#ffffff' : '#000000' } }} />
               </Box>
 
-              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2.5 }}>
-                <Box sx={{ p: 2.5, border: '1px solid', borderColor: 'divider', borderRadius: '16px', bgcolor: isDark ? '#121212' : '#ffffff' }}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2.5 }}>
+                <Box sx={{ p: { xs: 2, md: 2.5 }, border: '1px solid', borderColor: 'divider', borderRadius: '16px', bgcolor: isDark ? '#121212' : '#ffffff' }}>
                   <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '10.5px', fontWeight: 600 }}>Completed Tasks</Typography>
                   <Typography variant="h4" sx={{ fontWeight: 900, mt: 0.5 }}>14</Typography>
                 </Box>
-                <Box sx={{ p: 2.5, border: '1px solid', borderColor: 'divider', borderRadius: '16px', bgcolor: isDark ? '#121212' : '#ffffff' }}>
+                <Box sx={{ p: { xs: 2, md: 2.5 }, border: '1px solid', borderColor: 'divider', borderRadius: '16px', bgcolor: isDark ? '#121212' : '#ffffff' }}>
                   <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '10.5px', fontWeight: 600 }}>Pending Tasks</Typography>
                   <Typography variant="h4" sx={{ fontWeight: 900, mt: 0.5 }}>6</Typography>
                 </Box>
@@ -1118,10 +846,10 @@ export const Landing: React.FC = () => {
             </Box>
 
             {/* Right Stack */}
-            <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: '32px', p: { xs: 3, md: 5 }, bgcolor: isDark ? '#050505' : '#fafafa' }}>
+            <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: '32px', p: { xs: 2, sm: 3, md: 5 }, bgcolor: isDark ? '#050505' : '#fafafa' }}>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {/* Sarah */}
-                <Box sx={{ p: 3, border: '1px solid', borderColor: 'divider', borderRadius: '18px', bgcolor: isDark ? '#121212' : '#ffffff' }}>
+                <Box className="team-member-card" sx={{ p: { xs: 2, md: 3 }, border: '1px solid', borderColor: 'divider', borderRadius: '18px', bgcolor: isDark ? '#121212' : '#ffffff' }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2.5 }}>
                     <Box>
                       <Typography variant="subtitle1" sx={{ fontWeight: 850, fontSize: '16px' }}>Sarah Thomas</Typography>
@@ -1131,8 +859,8 @@ export const Landing: React.FC = () => {
                       <Typography variant="caption" sx={{ fontWeight: 800, fontSize: '11px' }}>92% Healthy</Typography>
                     </Box>
                   </Box>
-                  <LinearProgress variant="determinate" value={92} sx={{ height: 5, borderRadius: 3, mb: 2.5, bgcolor: isDark ? '#27272a' : '#e4e4e7', '& .MuiLinearProgress-bar': { bgcolor: '#22c55e' } }} />
-                  <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 2 }}>
+                  <LinearProgress className="team-health-bar" aria-valuenow={92} variant="determinate" value={92} sx={{ height: 5, borderRadius: 3, mb: 2.5, bgcolor: isDark ? '#27272a' : '#e4e4e7', '& .MuiLinearProgress-bar': { bgcolor: '#22c55e' } }} />
+                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: '1fr 1fr 1fr' }, gap: 2 }}>
                     <Box>
                       <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '10.5px' }}>Completed</Typography>
                       <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>12</Typography>
@@ -1141,7 +869,7 @@ export const Landing: React.FC = () => {
                       <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '10.5px' }}>Today</Typography>
                       <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>2</Typography>
                     </Box>
-                    <Box>
+                    <Box sx={{ gridColumn: { xs: 'span 2', sm: 'auto' } }}>
                       <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '10.5px' }}>Overdue</Typography>
                       <Typography variant="subtitle2" sx={{ fontWeight: 800, color: 'text.secondary' }}>0</Typography>
                     </Box>
@@ -1149,7 +877,7 @@ export const Landing: React.FC = () => {
                 </Box>
 
                 {/* Ahmed */}
-                <Box sx={{ p: 3, border: '1px solid', borderColor: 'divider', borderRadius: '18px', bgcolor: isDark ? '#121212' : '#ffffff' }}>
+                <Box className="team-member-card" sx={{ p: { xs: 2, md: 3 }, border: '1px solid', borderColor: 'divider', borderRadius: '18px', bgcolor: isDark ? '#121212' : '#ffffff' }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2.5 }}>
                     <Box>
                       <Typography variant="subtitle1" sx={{ fontWeight: 850, fontSize: '16px' }}>Ahmed Ali</Typography>
@@ -1159,8 +887,8 @@ export const Landing: React.FC = () => {
                       <Typography variant="caption" sx={{ fontWeight: 800, fontSize: '11px' }}>84% Healthy</Typography>
                     </Box>
                   </Box>
-                  <LinearProgress variant="determinate" value={84} sx={{ height: 5, borderRadius: 3, mb: 2.5, bgcolor: isDark ? '#27272a' : '#e4e4e7', '& .MuiLinearProgress-bar': { bgcolor: '#22c55e' } }} />
-                  <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 2 }}>
+                  <LinearProgress className="team-health-bar" aria-valuenow={84} variant="determinate" value={84} sx={{ height: 5, borderRadius: 3, mb: 2.5, bgcolor: isDark ? '#27272a' : '#e4e4e7', '& .MuiLinearProgress-bar': { bgcolor: '#22c55e' } }} />
+                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: '1fr 1fr 1fr' }, gap: 2 }}>
                     <Box>
                       <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '10.5px' }}>Completed</Typography>
                       <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>8</Typography>
@@ -1169,7 +897,7 @@ export const Landing: React.FC = () => {
                       <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '10.5px' }}>Today</Typography>
                       <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>1</Typography>
                     </Box>
-                    <Box>
+                    <Box sx={{ gridColumn: { xs: 'span 2', sm: 'auto' } }}>
                       <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '10.5px' }}>Overdue</Typography>
                       <Typography variant="subtitle2" sx={{ fontWeight: 800, color: 'text.secondary' }}>0</Typography>
                     </Box>
@@ -1177,7 +905,7 @@ export const Landing: React.FC = () => {
                 </Box>
 
                 {/* Maya */}
-                <Box sx={{ p: 3, border: '1px solid', borderColor: 'divider', borderRadius: '18px', bgcolor: isDark ? '#121212' : '#ffffff' }}>
+                <Box className="team-member-card" sx={{ p: { xs: 2, md: 3 }, border: '1px solid', borderColor: 'divider', borderRadius: '18px', bgcolor: isDark ? '#121212' : '#ffffff' }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2.5 }}>
                     <Box>
                       <Typography variant="subtitle1" sx={{ fontWeight: 850, fontSize: '16px' }}>Maya Lin</Typography>
@@ -1187,8 +915,8 @@ export const Landing: React.FC = () => {
                       <Typography variant="caption" sx={{ fontWeight: 800, fontSize: '11px' }}>68% Needs Attention</Typography>
                     </Box>
                   </Box>
-                  <LinearProgress variant="determinate" value={68} sx={{ height: 5, borderRadius: 3, mb: 2.5, bgcolor: isDark ? '#27272a' : '#e4e4e7', '& .MuiLinearProgress-bar': { bgcolor: '#eab308' } }} />
-                  <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 2 }}>
+                  <LinearProgress className="team-health-bar" aria-valuenow={68} variant="determinate" value={68} sx={{ height: 5, borderRadius: 3, mb: 2.5, bgcolor: isDark ? '#27272a' : '#e4e4e7', '& .MuiLinearProgress-bar': { bgcolor: '#eab308' } }} />
+                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: '1fr 1fr 1fr' }, gap: 2 }}>
                     <Box>
                       <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '10.5px' }}>Completed</Typography>
                       <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>5</Typography>
@@ -1197,7 +925,7 @@ export const Landing: React.FC = () => {
                       <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '10.5px' }}>Today</Typography>
                       <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>3</Typography>
                     </Box>
-                    <Box>
+                    <Box sx={{ gridColumn: { xs: 'span 2', sm: 'auto' } }}>
                       <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '10.5px' }}>Overdue</Typography>
                       <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#ef4444' }}>2</Typography>
                     </Box>
@@ -1215,11 +943,11 @@ export const Landing: React.FC = () => {
         <Container maxWidth="lg" sx={{ px: 3 }}>
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 6, alignItems: 'center' }}>
             {/* Visual preview */}
-            <Box sx={{ p: 4.5, border: '1px solid', borderColor: 'divider', borderRadius: '28px', bgcolor: isDark ? '#050505' : '#ffffff', display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+            <Box sx={{ p: { xs: 2.5, md: 4.5 }, border: '1px solid', borderColor: 'divider', borderRadius: '28px', bgcolor: isDark ? '#050505' : '#ffffff', display: 'flex', flexDirection: 'column', gap: 2.5 }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
                 <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 800, letterSpacing: '0.5px' }}>TASK: homepage-redesign-v2</Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: 'rgba(239,68,68,0.08)', px: 2, py: 0.5, borderRadius: '100px', border: '1px solid rgba(239,68,68,0.15)' }}>
-                  <AlertTriangle size={12} color="#ef4444" />
+                  <AlertTriangle className="compliance-warning-icon" size={12} color="#ef4444" />
                   <Typography variant="caption" sx={{ fontWeight: 800, color: '#ef4444', fontSize: '10px' }}>LATE SUBMISSION</Typography>
                 </Box>
               </Box>
@@ -1287,8 +1015,8 @@ export const Landing: React.FC = () => {
             </Box>
 
             {/* Right Mockup */}
-            <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: '32px', p: 4, bgcolor: isDark ? '#050505' : '#fafafa' }}>
-              <Box sx={{ bgcolor: isDark ? 'rgba(8, 8, 8, 0.95)' : 'rgba(255, 255, 255, 0.95)', p: 3, borderRadius: '20px', border: '1px solid', borderColor: 'divider' }}>
+            <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: '32px', p: { xs: 2, md: 4 }, bgcolor: isDark ? '#050505' : '#fafafa' }}>
+              <Box sx={{ bgcolor: isDark ? 'rgba(8, 8, 8, 0.95)' : 'rgba(255, 255, 255, 0.95)', p: { xs: 2, md: 3 }, borderRadius: '20px', border: '1px solid', borderColor: 'divider' }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2, mb: 4 }}>
                   <Typography variant="subtitle1" sx={{ fontWeight: 800, fontSize: '15px' }}>Agency Performance Report</Typography>
                   <Box sx={{ display: 'flex', gap: 1 }}>
@@ -1311,15 +1039,15 @@ export const Landing: React.FC = () => {
                 </Box>
 
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+                  <Box className="report-row" sx={{ display: 'flex', justifyContent: 'space-between', p: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
                     <Typography variant="body2" sx={{ fontWeight: 700 }}>Total Completed Tasks</Typography>
                     <Typography variant="body2" sx={{ fontWeight: 800, color: '#22c55e' }}>48</Typography>
                   </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+                  <Box className="report-row" sx={{ display: 'flex', justifyContent: 'space-between', p: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
                     <Typography variant="body2" sx={{ fontWeight: 700 }}>Tasks Submitted Late</Typography>
                     <Typography variant="body2" sx={{ fontWeight: 800, color: '#ef4444' }}>4</Typography>
                   </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+                  <Box className="report-row" sx={{ display: 'flex', justifyContent: 'space-between', p: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
                     <Typography variant="body2" sx={{ fontWeight: 700 }}>Active Projects</Typography>
                     <Typography variant="body2" sx={{ fontWeight: 800 }}>3</Typography>
                   </Box>
@@ -1336,7 +1064,7 @@ export const Landing: React.FC = () => {
         <Container maxWidth="lg" sx={{ px: 3 }}>
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 4 }}>
             {/* Activity */}
-            <Box sx={{ p: 5.5, border: '1px solid', borderColor: 'divider', borderRadius: '28px', bgcolor: isDark ? '#050505' : '#ffffff' }}>
+            <Box className="activity-log-box" sx={{ p: { xs: 2.5, sm: 4, md: 5.5 }, border: '1px solid', borderColor: 'divider', borderRadius: '28px', bgcolor: isDark ? '#050505' : '#ffffff' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.8, mb: 3 }}>
                 <Activity size={18} />
                 <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Live Activity Log</Typography>
@@ -1360,7 +1088,7 @@ export const Landing: React.FC = () => {
             </Box>
 
             {/* Notifications */}
-            <Box sx={{ p: 5.5, border: '1px solid', borderColor: 'divider', borderRadius: '28px', bgcolor: isDark ? '#050505' : '#ffffff' }}>
+            <Box className="notifications-box" sx={{ p: { xs: 2.5, sm: 4, md: 5.5 }, border: '1px solid', borderColor: 'divider', borderRadius: '28px', bgcolor: isDark ? '#050505' : '#ffffff' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.8, mb: 3 }}>
                 <Bell size={18} />
                 <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Instant Notifications</Typography>
@@ -1403,31 +1131,31 @@ export const Landing: React.FC = () => {
 
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr 1fr 1fr' }, gap: 4, position: 'relative' }}>
             {/* Step 1 */}
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Box className="how-it-works-step" sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <Typography variant="h3" sx={{ fontWeight: 900, fontSize: '56px', color: 'text.secondary', opacity: 0.15, lineHeight: 1 }}>01</Typography>
               <Typography variant="subtitle1" sx={{ fontWeight: 800, letterSpacing: '-0.5px' }}>CREATE PROJECT</Typography>
               <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '13px', lineHeight: 1.5 }}>Organize client deliverables into clear pipelines.</Typography>
             </Box>
             {/* Step 2 */}
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Box className="how-it-works-step" sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <Typography variant="h3" sx={{ fontWeight: 900, fontSize: '56px', color: 'text.secondary', opacity: 0.15, lineHeight: 1 }}>02</Typography>
               <Typography variant="subtitle1" sx={{ fontWeight: 800, letterSpacing: '-0.5px' }}>ADD TASKS</Typography>
               <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '13px', lineHeight: 1.5 }}>Detail requirements and configure precise due dates.</Typography>
             </Box>
             {/* Step 3 */}
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Box className="how-it-works-step" sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <Typography variant="h3" sx={{ fontWeight: 900, fontSize: '56px', color: 'text.secondary', opacity: 0.15, lineHeight: 1 }}>03</Typography>
               <Typography variant="subtitle1" sx={{ fontWeight: 800, letterSpacing: '-0.5px' }}>ASSIGN WORK</Typography>
               <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '13px', lineHeight: 1.5 }}>Distribute tasks among multiple assignees cleanly.</Typography>
             </Box>
             {/* Step 4 */}
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Box className="how-it-works-step" sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <Typography variant="h3" sx={{ fontWeight: 900, fontSize: '56px', color: 'text.secondary', opacity: 0.15, lineHeight: 1 }}>04</Typography>
               <Typography variant="subtitle1" sx={{ fontWeight: 800, letterSpacing: '-0.5px' }}>TRACK PROGRESS</Typography>
               <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '13px', lineHeight: 1.5 }}>Monitor execution metrics and late submission logs.</Typography>
             </Box>
             {/* Step 5 */}
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Box className="how-it-works-step" sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <Typography variant="h3" sx={{ fontWeight: 900, fontSize: '56px', color: 'text.secondary', opacity: 0.15, lineHeight: 1 }}>05</Typography>
               <Typography variant="subtitle1" sx={{ fontWeight: 800, letterSpacing: '-0.5px' }}>REVIEW RESULTS</Typography>
               <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '13px', lineHeight: 1.5 }}>Evaluate daily performance metrics and pull audit reports.</Typography>
@@ -1449,7 +1177,7 @@ export const Landing: React.FC = () => {
 
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 4 }}>
             {/* Managers */}
-            <Box sx={{ p: 5.5, border: '1px solid', borderColor: 'divider', borderRadius: '28px', bgcolor: isDark ? '#050505' : '#ffffff' }}>
+            <Box sx={{ p: { xs: 3, md: 5.5 }, border: '1px solid', borderColor: 'divider', borderRadius: '28px', bgcolor: isDark ? '#050505' : '#ffffff' }}>
               <Typography variant="h5" sx={{ fontWeight: 850, mb: 4, letterSpacing: '-0.5px' }}>Managers & Admins</Typography>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.8 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -1472,7 +1200,7 @@ export const Landing: React.FC = () => {
             </Box>
 
             {/* Members */}
-            <Box sx={{ p: 5.5, border: '1px solid', borderColor: 'divider', borderRadius: '28px', bgcolor: isDark ? '#050505' : '#ffffff' }}>
+            <Box sx={{ p: { xs: 3, md: 5.5 }, border: '1px solid', borderColor: 'divider', borderRadius: '28px', bgcolor: isDark ? '#050505' : '#ffffff' }}>
               <Typography variant="h5" sx={{ fontWeight: 850, mb: 4, letterSpacing: '-0.5px' }}>Team Members</Typography>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.8 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -1509,15 +1237,15 @@ export const Landing: React.FC = () => {
             Enter your email, verify your code directly, and get straight to work. No credentials to remember or lose.
           </Typography>
           
-          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 2.5, flexWrap: 'wrap' }}>
+          <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, justifyContent: 'center', alignItems: 'center', gap: 2.5 }}>
             <Box sx={{ px: 2.5, py: 1, border: '1px solid', borderColor: 'divider', borderRadius: '100px', bgcolor: 'transparent' }}>
               <Typography variant="caption" sx={{ fontWeight: 750 }}>Enter Email</Typography>
             </Box>
-            <Typography variant="caption" sx={{ color: 'text.secondary' }}>→</Typography>
+            <Typography variant="caption" sx={{ color: 'text.secondary', display: { xs: 'none', sm: 'block' } }}>→</Typography>
             <Box sx={{ px: 2.5, py: 1, border: '1px solid', borderColor: 'divider', borderRadius: '100px', bgcolor: 'transparent' }}>
               <Typography variant="caption" sx={{ fontWeight: 750 }}>Verify Code</Typography>
             </Box>
-            <Typography variant="caption" sx={{ color: 'text.secondary' }}>→</Typography>
+            <Typography variant="caption" sx={{ color: 'text.secondary', display: { xs: 'none', sm: 'block' } }}>→</Typography>
             <Box sx={{ px: 2.5, py: 1, border: '1px solid', borderColor: 'divider', borderRadius: '100px', bgcolor: isDark ? '#ffffff' : '#000000', color: isDark ? '#000000' : '#ffffff' }}>
               <Typography variant="caption" sx={{ fontWeight: 800 }}>Workspace</Typography>
             </Box>
@@ -1531,6 +1259,7 @@ export const Landing: React.FC = () => {
         <Container maxWidth="lg" sx={{ px: 3, textAlign: 'center' }}>
           <Typography 
             variant="h2" 
+            className="editorial-statement-title"
             sx={{ 
               fontWeight: 900, 
               fontSize: { xs: '38px', sm: '58px', md: '78px' }, 
@@ -1563,7 +1292,7 @@ export const Landing: React.FC = () => {
       <Container maxWidth="lg" sx={{ py: { xs: 10, md: 16 }, px: 3 }}>
         <Box 
           sx={{ 
-            p: { xs: 6, md: 10 }, 
+            p: { xs: 3.5, sm: 6, md: 10 }, 
             borderRadius: '40px', 
             bgcolor: isDark ? '#ffffff' : '#000000', 
             color: isDark ? '#000000' : '#ffffff',
@@ -1662,7 +1391,7 @@ export const Landing: React.FC = () => {
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '2fr 1fr 1fr' }, gap: 5, mb: 7 }}>
             <Box>
               <Box sx={{ mb: 2.5 }}>
-                <FluxiflowLogo height={34} />
+                <FluxiflowLogo height={42} />
               </Box>
               <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 500 }}>Project management for modern agencies.</Typography>
             </Box>

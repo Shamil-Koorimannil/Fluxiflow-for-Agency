@@ -71,8 +71,6 @@ DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<database_name>
 ## Seeding Development Demo Accounts
 By running `python manage.py seed_demo`, you create:
 - **Admin/Manager**: `muhammedshamil251@gmail.com`
-- **Demo Member**: `member@demo.com`
-- **Members**: `saleel@demo.com`, `fidha@demo.com`, `shamil@demo.com`
 *Note: In development, generated OTP codes log directly to the Django server terminal.*
 
 ---

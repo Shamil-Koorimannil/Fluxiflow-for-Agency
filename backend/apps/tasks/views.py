@@ -2,10 +2,11 @@ from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.utils import timezone
-from .models import Task, TaskAssignee, SubTask
+from .models import Task, TaskAssignee, SubTask, SubTaskAssignee
 from .serializers import TaskSerializer, SubTaskSerializer
 from apps.core.permissions import IsAdminOrReadOnlyMember
 from apps.activity.models import ActivityLog
+from apps.accounts.models import CustomUser as User
 
 class TaskViewSet(viewsets.ModelViewSet):
     serializer_class = TaskSerializer
@@ -315,25 +316,98 @@ class SubTaskViewSet(viewsets.ModelViewSet):
         subtask = self.get_object()
         user = request.user
         
-        # Check permission: Admin, or Member assigned to the parent task
-        is_assigned = TaskAssignee.objects.filter(task=subtask.task, user=user).exists()
-        if user.role != 'ADMIN' and not is_assigned:
-            return Response({"detail": "You cannot complete subtasks for tasks not assigned to you."}, status=status.HTTP_403_FORBIDDEN)
+        # Check if user is assigned to this subtask
+        is_assigned = SubTaskAssignee.objects.filter(subtask=subtask, user=user).exists()
+        
+        # Determine if Admin is completing a specific member's assignment
+        target_user_id = request.data.get('user_id')
+        if target_user_id and user.role != 'ADMIN':
+            return Response({"detail": "You cannot complete subtasks for other users."}, status=status.HTTP_403_FORBIDDEN)
             
-        subtask.status = 'COMPLETED'
-        subtask.completed_by = user
-        subtask.completed_at = timezone.now()
-        subtask.save()
-        
-        # Log activity
-        ActivityLog.objects.create(
-            user=user,
-            action='SUBTASK_COMPLETED',
-            entity_type='SubTask',
-            entity_id=subtask.id,
-            description=f"{user.name} completed subtask '{subtask.name}'."
-        )
-        
+        if user.role == 'ADMIN' and target_user_id:
+            try:
+                target_user = User.objects.get(id=target_user_id)
+                is_assigned = SubTaskAssignee.objects.filter(subtask=subtask, user=target_user).exists()
+                if is_assigned:
+                    user = target_user  # Complete for the target user
+            except User.DoesNotExist:
+                return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if user.role != 'ADMIN' and not is_assigned:
+            return Response({"detail": "You cannot complete subtasks not assigned to you."}, status=status.HTTP_403_FORBIDDEN)
+            
+        from apps.notifications.services import NotificationService
+        from apps.tasks.helpers import calculate_assignee_submission_status, format_notification_duration
+
+        if is_assigned:
+            assignee = SubTaskAssignee.objects.get(subtask=subtask, user=user)
+            assignee.completed = True
+            assignee.completed_at = timezone.now()
+            assignee.save()
+            
+            sub_status, late_mins = calculate_assignee_submission_status(assignee, subtask.due_date, subtask.due_time)
+            
+            if sub_status == "LATE":
+                duration_str = format_notification_duration(late_mins)
+                NotificationService.create_notification(
+                    recipient=user,
+                    notification_type='TASK_COMPLETED_LATE',
+                    title='Subtask Completed Late',
+                    message=f'You completed subtask "{subtask.name}" under task "{subtask.task.name}" {duration_str} after its deadline.',
+                    related_task=subtask.task,
+                    related_project=subtask.task.project,
+                    related_user=request.user
+                )
+                
+                # Notify Admins about late submission
+                NotificationService.notify_admins(
+                    notification_type='TASK_COMPLETED_LATE',
+                    title='Subtask Completed Late',
+                    message=f'{user.name} completed subtask "{subtask.name}" under task "{subtask.task.name}" {duration_str} late.',
+                    related_task=subtask.task,
+                    related_project=subtask.task.project,
+                    related_user=user
+                )
+            
+            # Log assignee completion
+            ActivityLog.objects.create(
+                user=request.user,
+                action='SUBTASK_COMPLETED',
+                entity_type='SubTask',
+                entity_id=subtask.id,
+                description=f"{request.user.name} marked subtask '{subtask.name}' as completed for {user.name}." if request.user != user else f"{user.name} completed subtask '{subtask.name}'."
+            )
+            
+            # Check if all assignees have completed
+            incomplete_exists = SubTaskAssignee.objects.filter(subtask=subtask, completed=False).exists()
+            if not incomplete_exists:
+                subtask.status = 'COMPLETED'
+                subtask.completed_by = request.user
+                subtask.completed_at = timezone.now()
+                subtask.save()
+        else:
+            # Admin completing the subtask globally
+            # When completing globally, mark all assignees completed
+            assignees = SubTaskAssignee.objects.filter(subtask=subtask)
+            for assignee in assignees:
+                if not assignee.completed:
+                    assignee.completed = True
+                    assignee.completed_at = timezone.now()
+                    assignee.save()
+                    
+            subtask.status = 'COMPLETED'
+            subtask.completed_by = request.user
+            subtask.completed_at = timezone.now()
+            subtask.save()
+            
+            ActivityLog.objects.create(
+                user=request.user,
+                action='SUBTASK_COMPLETED',
+                entity_type='SubTask',
+                entity_id=subtask.id,
+                description=f"{request.user.name} completed subtask '{subtask.name}' globally."
+            )
+            
         serializer = self.get_serializer(subtask)
         return Response(serializer.data)
 
@@ -342,24 +416,60 @@ class SubTaskViewSet(viewsets.ModelViewSet):
         subtask = self.get_object()
         user = request.user
         
-        # Check permission: Admin, or Member assigned to the parent task
-        is_assigned = TaskAssignee.objects.filter(task=subtask.task, user=user).exists()
-        if user.role != 'ADMIN' and not is_assigned:
-            return Response({"detail": "You cannot reopen subtasks for tasks not assigned to you."}, status=status.HTTP_403_FORBIDDEN)
+        # Check if user is assigned to this subtask
+        is_assigned = SubTaskAssignee.objects.filter(subtask=subtask, user=user).exists()
+        
+        # Determine if Admin is reopening a specific member's assignment
+        target_user_id = request.data.get('user_id')
+        if target_user_id and user.role != 'ADMIN':
+            return Response({"detail": "You cannot reopen subtasks for other users."}, status=status.HTTP_403_FORBIDDEN)
             
+        if user.role == 'ADMIN' and target_user_id:
+            try:
+                target_user = User.objects.get(id=target_user_id)
+                is_assigned = SubTaskAssignee.objects.filter(subtask=subtask, user=target_user).exists()
+                if is_assigned:
+                    user = target_user
+            except User.DoesNotExist:
+                return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if user.role != 'ADMIN' and not is_assigned:
+            return Response({"detail": "You cannot reopen subtasks not assigned to you."}, status=status.HTTP_403_FORBIDDEN)
+            
+        if is_assigned:
+            assignee = SubTaskAssignee.objects.get(subtask=subtask, user=user)
+            assignee.completed = False
+            assignee.completed_at = None
+            assignee.save()
+            
+            ActivityLog.objects.create(
+                user=request.user,
+                action='SUBTASK_REOPENED',
+                entity_type='SubTask',
+                entity_id=subtask.id,
+                description=f"{request.user.name} reopened subtask '{subtask.name}' for {user.name}." if request.user != user else f"{user.name} reopened subtask '{subtask.name}'."
+            )
+        else:
+            # Admin reopening globally: mark all assignees as incomplete
+            assignees = SubTaskAssignee.objects.filter(subtask=subtask)
+            for assignee in assignees:
+                assignee.completed = False
+                assignee.completed_at = None
+                assignee.save()
+                
+            ActivityLog.objects.create(
+                user=request.user,
+                action='SUBTASK_REOPENED',
+                entity_type='SubTask',
+                entity_id=subtask.id,
+                description=f"{request.user.name} reopened subtask '{subtask.name}' globally."
+            )
+
+        # In both cases, overall subtask becomes PENDING
         subtask.status = 'PENDING'
         subtask.completed_by = None
         subtask.completed_at = None
         subtask.save()
-        
-        # Log activity
-        ActivityLog.objects.create(
-            user=user,
-            action='SUBTASK_COMPLETED',
-            entity_type='SubTask',
-            entity_id=subtask.id,
-            description=f"{user.name} reopened subtask '{subtask.name}'."
-        )
         
         serializer = self.get_serializer(subtask)
         return Response(serializer.data)

@@ -6,8 +6,9 @@ import type { Project, Task } from '../../types';
 import { useAuth } from '../auth/AuthContext';
 import { TaskDetailPanel } from '../tasks/TaskDetailPanel';
 import { TaskFormModal } from '../tasks/TaskFormModal';
-import { ArrowLeft, Plus, Trash2, CheckSquare, CheckCircle2, Circle } from 'lucide-react';
+import { ArrowLeft, Plus, Upload, Trash2, CheckSquare, CheckCircle2, Circle } from 'lucide-react';
 import { formatLateDuration } from '../../utils/time';
+import { BulkUploadModal } from './BulkUploadModal';
 
 type ProjectFilterType = 'all' | 'today' | 'pending' | 'upcoming' | 'completed' | 'assigned_to_me';
 
@@ -22,6 +23,7 @@ export const ProjectDetail: React.FC = () => {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [taskToEdit, setTaskToEdit] = useState<Task | null>(null);
   const [activeFilter, setActiveFilter] = useState<ProjectFilterType>('all');
+  const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
 
   // Fetch Project details
   const { data: project, isLoading: isProjectLoading, error: projectError } = useQuery<Project>({
@@ -290,6 +292,12 @@ export const ProjectDetail: React.FC = () => {
                   {task.priority} Priority
                 </span>
               )}
+
+              {task.subtasks && task.subtasks.length > 0 && (
+                <span className="text-zinc-450 dark:text-zinc-400 font-medium">
+                  📋 {task.subtasks.filter(s => s.status === 'COMPLETED').length}/{task.subtasks.length} subtasks
+                </span>
+              )}
             </div>
 
             {task.status === 'COMPLETED' && task.submission_status === 'LATE' && (
@@ -376,18 +384,27 @@ export const ProjectDetail: React.FC = () => {
             Project Tasks ({filteredTasks.length})
           </h3>
           {isAdmin && (
-            <button
-              onClick={() => {
-                setTaskToEdit(null);
-                setIsDeleteProjModalOpen(false);
-                setSelectedTaskId(null);
-                navigate(`/app/tasks?create_project_id=${project.id}`);
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-white/10 text-xs font-semibold rounded-lg transition-colors text-black dark:text-white"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add Task
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsBulkUploadOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-white/10 text-xs font-semibold rounded-lg transition-colors text-black dark:text-white"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Bulk Upload
+              </button>
+              <button
+                onClick={() => {
+                  setTaskToEdit(null);
+                  setIsDeleteProjModalOpen(false);
+                  setSelectedTaskId(null);
+                  navigate(`/app/tasks?create_project_id=${project.id}`);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-white/10 text-xs font-semibold rounded-lg transition-colors text-black dark:text-white"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add Task
+              </button>
+            </div>
           )}
         </div>
 
@@ -485,6 +502,14 @@ export const ProjectDetail: React.FC = () => {
           defaultProjectId={project.id}
         />
       )}
+
+      {/* BULK UPLOAD MODAL */}
+      <BulkUploadModal
+        isOpen={isBulkUploadOpen}
+        onClose={() => setIsBulkUploadOpen(false)}
+        projectId={project.id}
+        projectName={project.name}
+      />
     </div>
   );
 };

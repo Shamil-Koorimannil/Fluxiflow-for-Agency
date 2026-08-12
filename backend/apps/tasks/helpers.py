@@ -12,28 +12,40 @@ def get_task_due_datetime(due_date, due_time):
         return make_aware(due_dt)
     return due_dt
 
-def calculate_submission_status(task_assignee):
+def calculate_assignee_submission_status(assignee_obj, due_date, due_time):
     """
     Returns (status_str, late_by_minutes)
     status_str: PENDING, OVERDUE, COMPLETED_ON_TIME, LATE
     """
-    task = task_assignee.task
-    due_dt = get_task_due_datetime(task.due_date, task.due_time)
+    if not due_date:
+        if not assignee_obj.completed:
+            return "PENDING", 0
+        else:
+            return "COMPLETED_ON_TIME", 0
+
+    due_dt = get_task_due_datetime(due_date, due_time)
     
-    if not task_assignee.completed:
+    if not assignee_obj.completed:
         now = timezone.now()
         if due_dt < now:
             return "OVERDUE", 0
         else:
             return "PENDING", 0
     else:
-        completed_at = task_assignee.completed_at or timezone.now()
+        completed_at = assignee_obj.completed_at or timezone.now()
         if completed_at > due_dt:
             diff = completed_at - due_dt
             late_by_minutes = int(diff.total_seconds() // 60)
             return "LATE", late_by_minutes
         else:
             return "COMPLETED_ON_TIME", 0
+
+def calculate_submission_status(task_assignee):
+    """
+    Returns (status_str, late_by_minutes)
+    status_str: PENDING, OVERDUE, COMPLETED_ON_TIME, LATE
+    """
+    return calculate_assignee_submission_status(task_assignee, task_assignee.task.due_date, task_assignee.task.due_time)
 
 def format_late_duration(minutes):
     if not minutes or minutes <= 0:

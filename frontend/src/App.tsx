@@ -8,6 +8,7 @@ import { ProtectedRoute } from './components/common/ProtectedRoute';
 import { MainLayout } from './layouts/MainLayout';
 import { Login } from './features/auth/Login';
 import { Landing } from './pages/Landing';
+import { Home } from './pages/Home';
 import { Tasks } from './features/tasks/Tasks';
 import { Projects } from './features/projects/Projects';
 import { ProjectDetail } from './features/projects/ProjectDetail';
@@ -175,7 +176,8 @@ function App() {
                 </Route>
 
                 {/* Public Marketing Landing Page */}
-                <Route path="/" element={<Landing />} />
+                <Route path="/" element={<Home />} />
+                <Route path="/landing" element={<Landing />} />
 
                 {/* Fallback Redirects */}
                 <Route path="*" element={<Navigate to="/" replace />} />

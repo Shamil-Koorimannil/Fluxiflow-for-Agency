@@ -38,18 +38,24 @@ def calculate_user_health_metrics(user):
     start_date = now - timedelta(days=30)
     today_date = now.date()
     
+    # pyrefly: ignore [missing-import]
+    from apps.tasks.models import TaskAssignee, SubTaskAssignee
+    
     # Get all TaskAssignee records for this user
     assignments = TaskAssignee.objects.filter(user=user).select_related('task')
+    
+    # Get all SubTaskAssignee records for this user
+    subtask_assignments = SubTaskAssignee.objects.filter(user=user).select_related('subtask', 'subtask__task')
     
     # 1. Current Workload penalties (disjoint definitions)
     overdue_pending_tasks = 0
     today_pending_tasks = 0
     
-    # We only count workload issues if the overall task is still PENDING
+    # We only count workload issues if the overall task/subtask is still PENDING
     pending_assignments = [a for a in assignments if not a.completed and a.task.status == 'PENDING']
+    pending_subtask_assignments = [sa for sa in subtask_assignments if not sa.completed and sa.subtask.status == 'PENDING']
     
-    # pyrefly: ignore [missing-import]
-    from apps.tasks.helpers import calculate_submission_status
+    from apps.tasks.helpers import calculate_submission_status, calculate_assignee_submission_status
     for a in pending_assignments:
         sub_status, _ = calculate_submission_status(a)
         if sub_status == "OVERDUE":
@@ -57,18 +63,36 @@ def calculate_user_health_metrics(user):
         elif a.task.due_date == today_date:
             today_pending_tasks += 1
 
-    # 2. Historical Performance: Completed tasks in the last 30 days
+    for sa in pending_subtask_assignments:
+        sub_status, _ = calculate_assignee_submission_status(sa, sa.subtask.due_date, sa.subtask.due_time)
+        if sub_status == "OVERDUE":
+            overdue_pending_tasks += 1
+        elif sa.subtask.due_date == today_date:
+            today_pending_tasks += 1
+
+    # 2. Historical Performance: Completed tasks/subtasks in the last 30 days
     completed_assignments_30 = [
         a for a in assignments 
         if a.completed and a.completed_at and a.completed_at >= start_date
     ]
+    completed_subtask_assignments_30 = [
+        sa for sa in subtask_assignments
+        if sa.completed and sa.completed_at and sa.completed_at >= start_date
+    ]
     
-    total_completed_tasks = len(completed_assignments_30)
+    total_completed_tasks = len(completed_assignments_30) + len(completed_subtask_assignments_30)
     on_time_completed_tasks = 0
     late_completed_tasks_in_last_30_days = 0
     
     for a in completed_assignments_30:
         sub_status, _ = calculate_submission_status(a)
+        if sub_status == "LATE":
+            late_completed_tasks_in_last_30_days += 1
+        else:
+            on_time_completed_tasks += 1
+            
+    for sa in completed_subtask_assignments_30:
+        sub_status, _ = calculate_assignee_submission_status(sa, sa.subtask.due_date, sa.subtask.due_time)
         if sub_status == "LATE":
             late_completed_tasks_in_last_30_days += 1
         else:
@@ -122,15 +146,27 @@ def calculate_user_health_metrics(user):
             if a.completed_at >= start_of_month:
                 completed_this_month += 1
                 
+    for sa in subtask_assignments:
+        if sa.completed and sa.completed_at:
+            if sa.completed_at >= start_of_week:
+                completed_this_week += 1
+            if sa.completed_at >= start_of_month:
+                completed_this_month += 1
+                
     return {
         "health_score": health_score,
         "health_status": health_status,
-        "pending_tasks": len(pending_assignments),
+        "pending_tasks": len(pending_assignments) + len(pending_subtask_assignments),
         "today_tasks": TaskAssignee.objects.filter(
             user=user, 
             completed=False, 
             task__due_date=today_date,
             task__status='PENDING'
+        ).count() + SubTaskAssignee.objects.filter(
+            user=user,
+            completed=False,
+            subtask__due_date=today_date,
+            subtask__status='PENDING'
         ).count(),
         "overdue_tasks": overdue_pending_tasks,
         "completed_this_week": completed_this_week,

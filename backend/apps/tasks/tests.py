@@ -5,9 +5,11 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework import status
 from apps.projects.models import Project
-from apps.tasks.models import Task, TaskAssignee, SubTask, TaskAssignmentHistory
+from apps.tasks.models import Task, TaskAssignee, SubTask, TaskAssignmentHistory, SubTaskAssignee
 from apps.activity.models import ActivityLog
 import datetime
+import io
+import openpyxl
 from rest_framework_simplejwt.tokens import RefreshToken
 
 User = get_user_model()
@@ -577,3 +579,481 @@ class FluxiflowHealthAPITests(TestCase):
         refresh['name'] = user.name
         refresh['role'] = user.role
         return str(refresh.access_token)
+
+
+class BulkTaskImportTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_superuser(
+            email='admin_import@test.com',
+            name='Import Admin',
+            password='password123'
+        )
+        self.member = User.objects.create_user(
+            email='member_import@test.com',
+            name='Import Member',
+            password='password123',
+            role='MEMBER'
+        )
+        self.inactive_member = User.objects.create_user(
+            email='deactivated_import@test.com',
+            name='Deactivated Member',
+            password='password123',
+            role='MEMBER',
+            is_active=False
+        )
+        self.project = Project.objects.create(
+            name='Import Test Project',
+            description='Project to test bulk import',
+            created_by=self.admin
+        )
+        
+        self.admin_token = self.get_jwt_token(self.admin.email)
+        self.member_token = self.get_jwt_token(self.member.email)
+
+    def get_jwt_token(self, email):
+        user = User.objects.get(email=email)
+        refresh = RefreshToken.for_user(user)
+        refresh['email'] = user.email
+        refresh['name'] = user.name
+        refresh['role'] = user.role
+        return str(refresh.access_token)
+
+    def set_auth(self, token):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+    def create_mock_excel(self, rows_data):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        assert ws is not None
+        ws.title = "Tasks"
+        
+        headers = ["Import Key", "Title", "Description", "Priority", "Status", "Due Date", "Due Time", "Assignee Emails", "Parent Key"]
+        ws.append(headers)
+        
+        for row in rows_data:
+            ws.append(row)
+            
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        return SimpleUploadedFile("template.xlsx", output.read(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    def test_non_admin_rejection(self):
+        self.set_auth(self.member_token)
+        
+        # 1. Rejects Template Download
+        url = reverse('project-bulk-template', args=[self.project.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        
+        # 2. Rejects Validate
+        url = reverse('project-bulk-import-validate', args=[self.project.id])
+        excel_file = self.create_mock_excel([["T001", "Task 1", "Desc", "High", "Pending", "2026-08-12", "12:00", "", ""]])
+        response = self.client.post(url, {'file': excel_file}, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        
+        # 3. Rejects Confirm
+        url = reverse('project-bulk-import-confirm', args=[self.project.id])
+        response = self.client.post(url, {'tasks': []}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_template_download(self):
+        self.set_auth(self.admin_token)
+        url = reverse('project-bulk-template', args=[self.project.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response['Content-Type'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+    def test_validation_errors(self):
+        self.set_auth(self.admin_token)
+        url = reverse('project-bulk-import-validate', args=[self.project.id])
+        
+        # Scenario A: Missing Title & Invalid Priority / Status
+        excel_file = self.create_mock_excel([
+            ["T001", "", "Desc", "Critical", "In-Progress", "2026-08-12", "12:00", "", ""]
+        ])
+        response = self.client.post(url, {'file': excel_file}, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data['success'])
+        errors = response.data['errors']
+        fields = [e['field'] for e in errors]
+        self.assertIn("Title", fields)
+        self.assertIn("Priority", fields)
+        self.assertIn("Status", fields)
+        
+        # Scenario B: Duplicate Import Key
+        excel_file = self.create_mock_excel([
+            ["T001", "Task 1", "Desc", "High", "Pending", "2026-08-12", "12:00", "", ""],
+            ["T001", "Task 2", "Desc", "Medium", "Pending", "2026-08-12", "12:00", "", ""]
+        ])
+        response = self.client.post(url, {'file': excel_file}, format='multipart')
+        self.assertFalse(response.data['success'])
+        errors = response.data['errors']
+        self.assertTrue(any("Duplicate Import Key" in e['message'] for e in errors))
+
+        # Scenario C: Invalid Parent Key
+        excel_file = self.create_mock_excel([
+            ["T001", "Subtask 1", "Desc", "High", "Pending", "", "", "", "T999"]
+        ])
+        response = self.client.post(url, {'file': excel_file}, format='multipart')
+        self.assertFalse(response.data['success'])
+        errors = response.data['errors']
+        self.assertTrue(any("does not exist" in e['message'] for e in errors))
+
+        # Scenario D: Nested Subtasks (unsupported)
+        excel_file = self.create_mock_excel([
+            ["T001", "Parent", "Desc", "High", "Pending", "2026-08-12", "12:00", "", ""],
+            ["T002", "Subtask 1", "Desc", "Medium", "Pending", "", "", "", "T001"],
+            ["T003", "Sub-subtask", "Desc", "Low", "Pending", "", "", "", "T002"]
+        ])
+        response = self.client.post(url, {'file': excel_file}, format='multipart')
+        self.assertFalse(response.data['success'])
+        errors = response.data['errors']
+        self.assertTrue(any("itself a subtask" in e['message'] for e in errors))
+
+        # Scenario E: Self Parent
+        excel_file = self.create_mock_excel([
+            ["T001", "Task 1", "Desc", "High", "Pending", "", "", "", "T001"]
+        ])
+        response = self.client.post(url, {'file': excel_file}, format='multipart')
+        self.assertFalse(response.data['success'])
+        errors = response.data['errors']
+        self.assertTrue(any("its own parent" in e['message'] for e in errors))
+
+        # Scenario F: Invalid Assignee Email / Inactive Assignee
+        excel_file = self.create_mock_excel([
+            ["T001", "Task 1", "Desc", "High", "Pending", "2026-08-12", "12:00", "nonexistent@test.com", ""],
+            ["T002", "Task 2", "Desc", "Medium", "Pending", "2026-08-12", "12:00", "deactivated_import@test.com", ""]
+        ])
+        response = self.client.post(url, {'file': excel_file}, format='multipart')
+        self.assertFalse(response.data['success'])
+        errors = response.data['errors']
+        messages = [e['message'] for e in errors]
+        self.assertTrue(any("not a member" in m for m in messages))
+        self.assertTrue(any("deactivated" in m for m in messages))
+
+    def test_import_confirm_rollback_and_success(self):
+        self.set_auth(self.admin_token)
+        url_confirm = reverse('project-bulk-import-confirm', args=[self.project.id])
+        
+        # 1. Test Rollback on payload validation error (e.g. invalid date format)
+        bad_payload = {
+            "tasks": [
+                {
+                    "row_number": 2,
+                    "import_key": "T001",
+                    "title": "Rollback Parent",
+                    "description": "Desc",
+                    "priority": "HIGH",
+                    "status": "PENDING",
+                    "due_date": "invalid-date",
+                    "due_time": "12:00",
+                    "assignee_emails_str": "",
+                    "parent_key": ""
+                }
+            ]
+        }
+        response = self.client.post(url_confirm, bad_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Task.objects.filter(name="Rollback Parent").exists())
+
+        # 2. Test Success Import (1 Parent, 3 Subtasks, Assignee and Completed states)
+        success_payload = {
+            "tasks": [
+                {
+                    "row_number": 2,
+                    "import_key": "T001",
+                    "title": "Website Redesign",
+                    "description": "Corporate site redesign",
+                    "priority": "HIGH",
+                    "status": "PENDING",
+                    "due_date": "2026-08-15",
+                    "due_time": "18:00",
+                    "assignee_emails_str": "member_import@test.com",
+                    "parent_key": ""
+                },
+                {
+                    "row_number": 3,
+                    "import_key": "T002",
+                    "title": "Homepage Design",
+                    "description": "Wireframe first",
+                    "priority": "MEDIUM",
+                    "status": "COMPLETED",
+                    "due_date": "",
+                    "due_time": "",
+                    "assignee_emails_str": "",
+                    "parent_key": "T001"
+                },
+                {
+                    "row_number": 4,
+                    "import_key": "T003",
+                    "title": "About Page",
+                    "description": "About page details",
+                    "priority": "LOW",
+                    "status": "PENDING",
+                    "due_date": "",
+                    "due_time": "",
+                    "assignee_emails_str": "",
+                    "parent_key": "T001"
+                },
+                {
+                    "row_number": 5,
+                    "import_key": "T004",
+                    "title": "Mobile Design",
+                    "description": "Mobile screen wireframes",
+                    "priority": "HIGH",
+                    "status": "PENDING",
+                    "due_date": "",
+                    "due_time": "",
+                    "assignee_emails_str": "",
+                    "parent_key": "T001"
+                }
+            ]
+        }
+        
+        response = self.client.post(url_confirm, success_payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['tasks_created'], 1)
+        self.assertEqual(response.data['subtasks_created'], 3)
+        
+        # Verify database structures
+        parent_task = Task.objects.get(name="Website Redesign", project=self.project)
+        self.assertEqual(parent_task.priority, "HIGH")
+        self.assertEqual(parent_task.status, "PENDING")
+        self.assertEqual(str(parent_task.due_date), "2026-08-15")
+        
+        # Check subtasks count and names
+        self.assertEqual(parent_task.subtasks.count(), 3)
+        sub_completed = parent_task.subtasks.get(name="Homepage Design")
+        self.assertEqual(sub_completed.status, "COMPLETED")
+        self.assertIsNotNone(sub_completed.completed_at)
+        self.assertEqual(sub_completed.completed_by, self.admin)
+        
+        sub_pending = parent_task.subtasks.get(name="About Page")
+        self.assertEqual(sub_pending.status, "PENDING")
+        
+        # Check assignee creation
+        self.assertTrue(TaskAssignee.objects.filter(task=parent_task, user=self.member).exists())
+        
+        # Check assignment history
+        self.assertTrue(TaskAssignmentHistory.objects.filter(task=parent_task, user=self.member, unassigned_at__isnull=True).exists())
+        
+        # Check ActivityLog entry
+        self.assertTrue(ActivityLog.objects.filter(
+            user=self.admin,
+            action='TASK_IMPORTED',
+            entity_type='Project',
+            entity_id=self.project.id
+        ).exists())
+
+
+class SubTaskIndependentWorkItemTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_superuser(
+            email='admin_sub@test.com',
+            name='Sub Admin',
+            password='password123'
+        )
+        self.member1 = User.objects.create_user(
+            email='member1_sub@test.com',
+            name='Member 1',
+            password='password123',
+            role='MEMBER',
+            status='ACTIVE'
+        )
+        self.member2 = User.objects.create_user(
+            email='member2_sub@test.com',
+            name='Member 2',
+            password='password123',
+            role='MEMBER',
+            status='ACTIVE'
+        )
+        self.project = Project.objects.create(
+            name='Sub Project',
+            created_by=self.admin
+        )
+        self.task = Task.objects.create(
+            project=self.project,
+            name='Parent Task',
+            due_date=timezone.now().date() + datetime.timedelta(days=10),
+            created_by=self.admin
+        )
+        self.admin_token = self.get_jwt_token(self.admin.email)
+        self.member1_token = self.get_jwt_token(self.member1.email)
+        self.member2_token = self.get_jwt_token(self.member2.email)
+
+    def get_jwt_token(self, email):
+        user = User.objects.get(email=email)
+        refresh = RefreshToken.for_user(user)
+        refresh['email'] = user.email
+        refresh['name'] = user.name
+        refresh['role'] = user.role
+        return str(refresh.access_token)
+
+    def set_auth(self, token):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+    def test_subtask_crud_and_assignees(self):
+        # 1. Admin creates subtask with due date/time and assignees
+        self.set_auth(self.admin_token)
+        url = reverse('subtask-list')
+        data = {
+            'task': str(self.task.id),
+            'name': 'Homepage subtask',
+            'due_date': str(timezone.now().date() + datetime.timedelta(days=2)),
+            'due_time': '15:00',
+            'assignee_ids': [str(self.member1.id), str(self.member2.id)]
+        }
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        subtask_id = response.data['id']
+        
+        # Verify subtask database fields
+        subtask = SubTask.objects.get(id=subtask_id)
+        self.assertEqual(subtask.name, 'Homepage subtask')
+        self.assertEqual(str(subtask.due_date), data['due_date'])
+        self.assertEqual(subtask.due_time.strftime('%H:%M'), '15:00')
+        self.assertEqual(subtask.status, 'PENDING')
+        
+        # Check subtask assignees
+        self.assertEqual(SubTaskAssignee.objects.filter(subtask=subtask).count(), 2)
+        
+        # Check history constraint integrity (exactly one of task or subtask is set)
+        histories = TaskAssignmentHistory.objects.filter(subtask=subtask)
+        self.assertEqual(histories.count(), 2)
+        for h in histories:
+            self.assertIsNone(h.task)
+            self.assertIsNotNone(h.subtask)
+            self.assertEqual(h.unassigned_at, None)
+
+        # 2. Member cannot edit/delete subtasks
+        self.set_auth(self.member1_token)
+        detail_url = reverse('subtask-detail', args=[subtask_id])
+        edit_response = self.client.put(detail_url, {'name': 'hacked'}, format='json')
+        self.assertEqual(edit_response.status_code, status.HTTP_403_FORBIDDEN)
+        
+        delete_response = self.client.delete(detail_url)
+        self.assertEqual(delete_response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_independent_completion_and_reopen(self):
+        # Admin creates subtask with two assignees
+        subtask = SubTask.objects.create(
+            task=self.task,
+            name='Homepage Design',
+            due_date=timezone.now().date() - datetime.timedelta(days=1), # Yesterday (overdue)
+            due_time=datetime.time(12, 0)
+        )
+        sa1 = SubTaskAssignee.objects.create(subtask=subtask, user=self.member1)
+        sa2 = SubTaskAssignee.objects.create(subtask=subtask, user=self.member2)
+        
+        # 1. Member 1 completes their assignment
+        self.set_auth(self.member1_token)
+        complete_url = reverse('subtask-complete', args=[subtask.id])
+        response = self.client.post(complete_url, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # Verify Member 1 assignee completed, but Subtask itself remains PENDING
+        sa1.refresh_from_db()
+        sa2.refresh_from_db()
+        subtask.refresh_from_db()
+        self.assertTrue(sa1.completed)
+        self.assertFalse(sa2.completed)
+        self.assertEqual(subtask.status, 'PENDING')
+        
+        # Check that assignment history for Member 1 has unassigned_at = completed_at
+        h1 = TaskAssignmentHistory.objects.get(subtask=subtask, user=self.member1, completed=True)
+        self.assertEqual(h1.unassigned_at, sa1.completed_at)
+        
+        # 2. Member 1 tries to complete again or complete for Member 2 -> 403
+        response = self.client.post(complete_url, {'user_id': str(self.member2.id)}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 3. Member 2 completes their assignment late
+        self.set_auth(self.member2_token)
+        response = self.client.post(complete_url, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # Verify subtask is now COMPLETED
+        sa2.refresh_from_db()
+        subtask.refresh_from_db()
+        self.assertTrue(sa2.completed)
+        self.assertEqual(subtask.status, 'COMPLETED')
+        self.assertEqual(subtask.completed_by, self.member2)
+        self.assertIsNotNone(subtask.completed_at)
+        
+        # 4. Member 1 reopens their assignment
+        self.set_auth(self.member1_token)
+        reopen_url = reverse('subtask-reopen', args=[subtask.id])
+        response = self.client.post(reopen_url, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # Verify subtask goes back to PENDING and Member 1 assignee is incomplete
+        sa1.refresh_from_db()
+        subtask.refresh_from_db()
+        self.assertFalse(sa1.completed)
+        self.assertEqual(subtask.status, 'PENDING')
+        self.assertIsNone(subtask.completed_at)
+        
+        # Verify new active assignment history record created for Member 1
+        self.assertTrue(TaskAssignmentHistory.objects.filter(subtask=subtask, user=self.member1, unassigned_at__isnull=True).exists())
+
+    def test_health_metrics_and_workload(self):
+        # Make parent task overdue
+        self.task.due_date = timezone.now().date() - datetime.timedelta(days=5)
+        self.task.save()
+
+        # Member 1 is assigned to parent task AND subtask
+        TaskAssignee.objects.create(task=self.task, user=self.member1)
+        subtask = SubTask.objects.create(
+            task=self.task,
+            name='Sarah subtask',
+            due_date=timezone.now().date() - datetime.timedelta(days=2),
+            due_time=datetime.time(12, 0)
+        )
+        SubTaskAssignee.objects.create(subtask=subtask, user=self.member1)
+        
+        # Both are overdue! Check health metrics for Member 1
+        from apps.accounts.views import calculate_user_health_metrics
+        metrics = calculate_user_health_metrics(self.member1)
+        
+        self.assertEqual(metrics['pending_tasks'], 2)
+        self.assertEqual(metrics['overdue_tasks'], 2)
+        self.assertEqual(metrics['health_score'], 94)
+
+    def test_reports_compilation_and_export(self):
+        # Admin creates subtask assignment
+        subtask = SubTask.objects.create(
+            task=self.task,
+            name='Report subtask',
+            due_date=timezone.now().date() - datetime.timedelta(days=1),
+            due_time=datetime.time(12, 0)
+        )
+        SubTaskAssignee.objects.create(subtask=subtask, user=self.member1)
+        
+        # Member 1 completes it
+        self.set_auth(self.member1_token)
+        complete_url = reverse('subtask-complete', args=[subtask.id])
+        self.client.post(complete_url, format='json')
+        
+        # Compile report data
+        from apps.reports.services import ReportGenerator
+        today = str(timezone.now().date())
+        data = ReportGenerator.compile_report_data(today, today, member_id=str(self.member1.id))
+        tasks = data['tasks']
+        subtask_log = next((t for t in tasks if t['subtask_name'] == 'Report subtask'), None)
+        self.assertIsNotNone(subtask_log)
+        self.assertEqual(subtask_log['task_name'], 'Parent Task')
+        self.assertEqual(subtask_log['on_time'], 'Late')
+        
+        # Verify Excel, CSV, PDF exports run successfully
+        csv_data = ReportGenerator.export_csv(today, today)
+        self.assertIn(b"Subtask", csv_data)
+        self.assertIn(b"Report subtask", csv_data)
+        
+        pdf_file = ReportGenerator.export_pdf(today, today)
+        self.assertIsNotNone(pdf_file.read())
+
+
