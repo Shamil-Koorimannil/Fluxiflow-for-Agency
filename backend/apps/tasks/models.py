@@ -30,6 +30,8 @@ class Task(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    objects = models.Manager()
+
     class Meta:
         ordering = ['due_date', 'due_time', 'created_at']
         indexes = [
@@ -48,6 +50,8 @@ class TaskAssignee(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='task_assignments')
     completed = models.BooleanField(default=False)
     completed_at = models.DateTimeField(blank=True, null=True)
+
+    objects = models.Manager()
 
     class Meta:
         unique_together = ('task', 'user')

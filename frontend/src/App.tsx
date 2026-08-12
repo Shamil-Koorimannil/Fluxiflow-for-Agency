@@ -7,6 +7,7 @@ import { AuthProvider } from './features/auth/AuthContext';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
 import { MainLayout } from './layouts/MainLayout';
 import { Login } from './features/auth/Login';
+import { Landing } from './pages/Landing';
 import { Tasks } from './features/tasks/Tasks';
 import { Projects } from './features/projects/Projects';
 import { ProjectDetail } from './features/projects/ProjectDetail';
@@ -173,9 +174,11 @@ function App() {
                   />
                 </Route>
 
+                {/* Public Marketing Landing Page */}
+                <Route path="/" element={<Landing />} />
+
                 {/* Fallback Redirects */}
-                <Route path="/" element={<Navigate to="/app/tasks" replace />} />
-                <Route path="*" element={<Navigate to="/app/tasks" replace />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </BrowserRouter>
           </ThemeContainer>

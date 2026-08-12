@@ -34,8 +34,16 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     if (isDark) {
       document.documentElement.classList.add('dark');
+      const link = document.querySelector("link[rel*='icon']");
+      if (link) {
+        link.setAttribute('href', '/Fluxiflow%20logo%20white.png');
+      }
     } else {
       document.documentElement.classList.remove('dark');
+      const link = document.querySelector("link[rel*='icon']");
+      if (link) {
+        link.setAttribute('href', '/Fluxiflow%20logo%20black.png');
+      }
     }
   }, [isDark]);
 

@@ -7,6 +7,8 @@ class Organization(models.Model):
     name = models.CharField(max_length=255)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    objects = models.Manager()
+
     def __str__(self):
         return self.name
 
@@ -44,7 +46,7 @@ class CustomUser(AbstractUser):
         ('ACTIVE', 'Active'),
         ('INACTIVE', 'Inactive'),
     )
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)  # type: ignore
     email = models.EmailField(unique=True)
     name = models.CharField(max_length=255)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='MEMBER')
@@ -53,7 +55,7 @@ class CustomUser(AbstractUser):
     updated_at = models.DateTimeField(auto_now=True)
     deactivated_at = models.DateTimeField(null=True, blank=True)
 
-    objects = CustomUserManager()
+    objects = CustomUserManager()  # type: ignore
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['name']
@@ -67,6 +69,8 @@ class Membership(models.Model):
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='memberships')
     created_at = models.DateTimeField(auto_now_add=True)
 
+    objects = models.Manager()
+
     class Meta:
         unique_together = ('organization', 'user')
 
@@ -77,6 +81,8 @@ class Profile(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='profile')
     avatar = models.ImageField(upload_to='avatars/', null=True, blank=True)
+    
+    objects = models.Manager()
     
     def __str__(self):
         return f"Profile of {self.user.name}"
@@ -98,6 +104,8 @@ class Invitation(models.Model):
     expires_at = models.DateTimeField()
     accepted_at = models.DateTimeField(null=True, blank=True)
 
+    objects = models.Manager()
+
     class Meta:
         unique_together = ('organization', 'email')
 
@@ -114,6 +122,8 @@ class OTPVerification(models.Model):
     verified_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    objects = models.Manager()
+
     def __str__(self):
         return f"OTP for {self.email} ({self.purpose})"
 
@@ -125,6 +135,8 @@ class Session(models.Model):
     expires_at = models.DateTimeField()
     revoked_at = models.DateTimeField(null=True, blank=True)
     last_used_at = models.DateTimeField(auto_now=True)
+
+    objects = models.Manager()
 
     def __str__(self):
         status_str = "Revoked" if self.revoked_at else "Active"

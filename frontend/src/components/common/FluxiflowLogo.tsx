@@ -9,8 +9,8 @@ interface FluxiflowLogoProps {
 /**
  * Theme-aware Fluxiflow logo.
  *
- * - Light theme  → /Fluxiflow logo white.png
- * - Dark theme   → /Fluxiflow logo black.png
+ * - Light theme  → /Fluxiflow logo black.png
+ * - Dark theme   → /Fluxiflow logo white.png
  * - System theme → resolved automatically via ThemeContext
  *
  * Uses files from frontend/public/ via Vite's public asset path.
@@ -19,8 +19,8 @@ interface FluxiflowLogoProps {
 export const FluxiflowLogo: React.FC<FluxiflowLogoProps> = ({ height = 60 }) => {
   const { isDark } = useAppTheme();
   const src = isDark
-    ? '/Fluxiflow logo black.png'
-    : '/Fluxiflow logo white.png';
+    ? '/Fluxiflow%20logo%20white.png'
+    : '/Fluxiflow%20logo%20black.png';
   return (
     <img
       src={src}
