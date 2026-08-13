@@ -227,16 +227,28 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
             </div>
           ) : (
             <div className="space-y-6">
-              {/* Task Title heading */}
               <div className="space-y-2">
                 <h3 className={`text-lg font-bold ${task.status === 'COMPLETED' ? 'line-through text-zinc-400 dark:text-zinc-500' : 'text-black dark:text-white'}`}>
                   {task.name}
                 </h3>
-                {task.priority && (
-                  <span className={`inline-block text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${getPriorityColor(task.priority)}`}>
-                    {task.priority} Priority
-                  </span>
-                )}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {task.priority && (
+                    <span className={`inline-block text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${getPriorityColor(task.priority)}`}>
+                      {task.priority} Priority
+                    </span>
+                  )}
+                  {task.overall_status && (
+                    <span className={`inline-block text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${
+                      task.overall_status === 'COMPLETED'
+                        ? 'bg-green-100 dark:bg-green-950/40 text-green-800 dark:text-green-300'
+                        : task.overall_status === 'IN_PROGRESS'
+                        ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300'
+                        : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500'
+                    }`}>
+                      {task.overall_status === 'IN_PROGRESS' ? 'In Progress' : task.overall_status}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Scope/Due Dates Panel Grid */}
@@ -328,7 +340,11 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                       return (
                         <div
                           key={assignee.id}
-                          className="flex items-center justify-between w-full gap-3 px-2.5 py-1.5 border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-black rounded-lg text-xs text-black dark:text-white"
+                          className={`flex items-center justify-between w-full gap-3 px-2.5 py-1.5 border rounded-lg text-xs transition-colors ${
+                            assignee.completed
+                              ? 'border-green-200 dark:border-green-950/30 bg-green-50/10 dark:bg-green-950/5 text-green-850 dark:text-green-300'
+                              : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-black text-black dark:text-white'
+                          }`}
                         >
                           <div className="flex items-center gap-2">
                             {assignee.avatar_url ? (
@@ -343,14 +359,15 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                               </div>
                             )}
                             <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-                              <span className="font-medium text-zinc-850 dark:text-zinc-300 truncate">
+                              <span className="font-semibold truncate flex items-center gap-1">
                                 {assignee.name} {isDeactivated && <span className="text-red-500 font-semibold ml-1">(Deactivated)</span>}
+                                {assignee.completed && <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0 inline" />}
                               </span>
                               {assignee.completed ? (
                                 <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold shrink-0 ${
                                   assignee.submission_status === 'LATE'
                                     ? 'bg-red-50 dark:bg-red-950/20 text-red-650 dark:text-red-400'
-                                    : 'bg-green-50 dark:bg-green-950/20 text-green-650 dark:text-green-400'
+                                    : 'bg-green-105 dark:bg-green-950/30 text-green-750 dark:text-green-400'
                                 }`}>
                                   {assignee.submission_status === 'LATE'
                                     ? `Late by ${formatLateDuration(assignee.late_by_minutes)}`

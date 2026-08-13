@@ -432,17 +432,19 @@ export const Team: React.FC = () => {
           }}
           sx={{
             py: 1,
-            px: 2.5,
+            px: { xs: 1.5, md: 2.5 },
             bgcolor: 'text.primary',
             color: 'background.paper',
             fontWeight: 600,
             textTransform: 'none',
             borderRadius: '8px',
             boxShadow: 'none',
+            fontSize: { xs: '12px', md: '14px' },
             '&:hover': { bgcolor: 'text.secondary', boxShadow: 'none' },
           }}
         >
-          Add Member
+          <Box component="span" sx={{ display: { xs: 'none', md: 'inline' } }}>Add Member</Box>
+          <Box component="span" sx={{ display: { xs: 'inline', md: 'none' } }}>Member</Box>
         </Button>
       </Box>
 

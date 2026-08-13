@@ -12,6 +12,8 @@ import {
   CircularProgress,
   InputAdornment,
   IconButton,
+  Checkbox,
+  FormControlLabel,
 } from '@mui/material';
 import { Mail, AlertCircle, ArrowLeft, KeyRound, CheckCircle2 } from 'lucide-react';
 
@@ -24,6 +26,7 @@ export const Login: React.FC = () => {
   const [step, setStep] = useState<1 | 2>(1);
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   
   const [resendCountdown, setResendCountdown] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -86,7 +89,7 @@ export const Login: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      await login(email.trim().toLowerCase(), otp.trim());
+      await login(email.trim().toLowerCase(), otp.trim(), rememberMe);
       navigate(from, { replace: true });
     } catch (err: any) {
       if (err.response?.data?.detail) {
@@ -239,6 +242,27 @@ export const Login: React.FC = () => {
                       '&.Mui-focused fieldset': { borderColor: 'text.primary', borderWidth: '1.5px' },
                     },
                   }}
+                />
+
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      sx={{
+                        color: 'text.secondary',
+                        '&.Mui-checked': {
+                          color: 'text.primary',
+                        },
+                      }}
+                    />
+                  }
+                  label={
+                    <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 500 }}>
+                      Remember Me
+                    </Typography>
+                  }
+                  sx={{ mt: -1 }}
                 />
 
                 <Button

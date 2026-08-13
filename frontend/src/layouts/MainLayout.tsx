@@ -5,11 +5,13 @@ import { FluxiflowLogo } from '../components/common/FluxiflowLogo';
 import { CheckSquare, Folder, Users, List, User as UserIcon, LogOut, Search, Menu as MenuIcon, BarChart3 } from 'lucide-react';
 import { NotificationBell } from '../features/notifications/NotificationBell';
 import { Drawer } from '@mui/material';
+import { useWebSockets } from '../hooks/useWebSockets';
 
 
 export const MainLayout: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  useWebSockets(); // Initialize real-time updates for authenticated session
   const [isExiting, setIsExiting] = React.useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = React.useState(false);
 

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { api, getAccessToken, getRefreshToken, setTokens, clearTokens } from '../../services/api';
+import { api, getAccessToken, getRefreshToken, setTokens, clearTokens, authChannel } from '../../services/api';
 import type { User } from '../../types';
 
 interface AuthContextType {
@@ -7,7 +7,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   requestOtp: (email: string) => Promise<void>;
-  login: (email: string, otp: string) => Promise<User>;
+  login: (email: string, otp: string, rememberMe?: boolean) => Promise<User>;
   logout: () => Promise<void>;
   updateUser: (user: User) => void;
 }
@@ -38,6 +38,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } else {
       setIsLoading(false);
     }
+
+    const handleAuthSync = () => {
+      setIsLoading(true);
+      fetchCurrentUser();
+    };
+
+    const handleAuthSyncLogout = () => {
+      setUser(null);
+      setIsLoading(false);
+      window.location.href = '/login';
+    };
+
+    window.addEventListener('auth_sync', handleAuthSync);
+    window.addEventListener('auth_sync_logout', handleAuthSyncLogout);
+
+    return () => {
+      window.removeEventListener('auth_sync', handleAuthSync);
+      window.removeEventListener('auth_sync_logout', handleAuthSyncLogout);
+    };
   }, []);
 
   const requestOtp = async (email: string): Promise<void> => {
@@ -51,12 +70,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const login = async (email: string, otp: string): Promise<User> => {
+  const login = async (email: string, otp: string, rememberMe?: boolean): Promise<User> => {
     setIsLoading(true);
     try {
-      const response = await api.post('/auth/verify-otp/', { email, otp });
+      const response = await api.post('/auth/verify-otp/', { email, otp, remember_me: rememberMe });
       const { access, refresh, user: userData } = response.data;
-      setTokens(access, refresh);
+      setTokens(access, refresh, rememberMe);
       setUser(userData);
       localStorage.setItem('userRole', userData.role);
       setIsLoading(false);
@@ -70,6 +89,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     setIsLoading(true);
     try {
+      if (authChannel) {
+        authChannel.postMessage({ type: 'LOGOUT' });
+      }
       const refresh = getRefreshToken();
       await api.post('/auth/logout/', { refresh });
     } catch (error) {

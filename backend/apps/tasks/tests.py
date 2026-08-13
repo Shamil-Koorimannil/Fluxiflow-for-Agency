@@ -1056,4 +1056,155 @@ class SubTaskIndependentWorkItemTests(TestCase):
         pdf_file = ReportGenerator.export_pdf(today, today)
         self.assertIsNotNone(pdf_file.read())
 
+    def test_project_cascade_deletion_regression(self):
+        """Regression test for project deletion cascade with tasks, subtasks, and assignees."""
+        # Create Project A
+        project_a = Project.objects.create(
+            name='Project A',
+            description='Test A',
+            created_by=self.admin
+        )
+        # Create Task A1 and A2
+        task_a1 = Task.objects.create(
+            project=project_a,
+            name='Task A1',
+            due_date=timezone.now().date(),
+            created_by=self.admin
+        )
+        task_a2 = Task.objects.create(
+            project=project_a,
+            name='Task A2',
+            due_date=timezone.now().date(),
+            created_by=self.admin
+        )
+        # Assign members
+        TaskAssignee.objects.create(task=task_a1, user=self.member1)
+        TaskAssignee.objects.create(task=task_a1, user=self.member2)
+        TaskAssignee.objects.create(task=task_a2, user=self.member1)
+
+        # Create subtask under task A1
+        subtask = SubTask.objects.create(
+            task=task_a1,
+            name='Subtask A1.1',
+            due_date=timezone.now().date()
+        )
+        SubTaskAssignee.objects.create(subtask=subtask, user=self.member1)
+
+        # Project B (which must remain unaffected)
+        project_b = Project.objects.create(
+            name='Project B',
+            description='Test B',
+            created_by=self.admin
+        )
+        task_b1 = Task.objects.create(
+            project=project_b,
+            name='Task B1',
+            due_date=timezone.now().date(),
+            created_by=self.admin
+        )
+
+        # Delete Project A
+        try:
+            project_a.delete()
+        except Exception as e:
+            self.fail(f"Project deletion raised an unexpected exception: {e}")
+
+        # Assert Project A and its related records are deleted
+        self.assertFalse(Project.objects.filter(id=project_a.id).exists())
+        self.assertFalse(Task.objects.filter(id=task_a1.id).exists())
+        self.assertFalse(Task.objects.filter(id=task_a2.id).exists())
+        self.assertFalse(SubTask.objects.filter(id=subtask.id).exists())
+        self.assertFalse(TaskAssignee.objects.filter(task_id=task_a1.id).exists())
+        self.assertFalse(SubTaskAssignee.objects.filter(subtask_id=subtask.id).exists())
+
+        # Assert Project B and Task B1 remain
+        self.assertTrue(Project.objects.filter(id=project_b.id).exists())
+        self.assertTrue(Task.objects.filter(id=task_b1.id).exists())
+
+        # Assert Member tasks API still loads and executes successfully
+        self.set_auth(self.member1_token)
+        url = reverse('task-list')
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_member_tasks_api_scenarios(self):
+        """Verify list scenarios for member tasks and subtasks list combinations."""
+        # Clean existing test data assignments for self.member1
+        TaskAssignee.objects.filter(user=self.member1).delete()
+        SubTaskAssignee.objects.filter(user=self.member1).delete()
+        
+        url = reverse('task-list')
+        self.set_auth(self.member1_token)
+        
+        def get_results(res_data):
+            return res_data.get('results', res_data) if isinstance(res_data, dict) else res_data
+
+        # Scenario 1: No assignments
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = get_results(response.data)
+        for item in results:
+            if item.get('is_subtask'):
+                assignees = [a['id'] for a in item['assignees']]
+                self.assertNotIn(str(self.member1.id), assignees)
+
+        # Scenario 2: Normal tasks only assigned to self.member1
+        task_normal = Task.objects.create(
+            project=self.project,
+            name='Normal Task For Member1',
+            due_date=timezone.now().date(),
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=task_normal, user=self.member1)
+        
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = get_results(response.data)
+        normal_item = next((t for t in results if t['id'] == str(task_normal.id)), None)
+        self.assertIsNotNone(normal_item)
+        self.assertFalse(normal_item.get('is_subtask', False))
+        
+        # Scenario 3: Assigned subtasks only
+        TaskAssignee.objects.filter(task=task_normal, user=self.member1).delete() # remove task assignment
+        
+        subtask_assigned = SubTask.objects.create(
+            task=task_normal,
+            name='SubTask For Member1',
+            due_date=timezone.now().date()
+        )
+        SubTaskAssignee.objects.create(subtask=subtask_assigned, user=self.member1)
+        
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = get_results(response.data)
+        sub_item = next((t for t in results if t['id'] == f"subtask_{subtask_assigned.id}"), None)
+        self.assertIsNotNone(sub_item)
+        self.assertTrue(sub_item.get('is_subtask'))
+        self.assertEqual(sub_item.get('parent_task_id'), str(task_normal.id))
+        self.assertEqual(sub_item.get('parent_task_name'), task_normal.name)
+        
+        # Scenario 4: Both tasks and subtasks
+        TaskAssignee.objects.create(task=task_normal, user=self.member1) # re-assign normal task
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = get_results(response.data)
+        
+        normal_item = next((t for t in results if t['id'] == str(task_normal.id)), None)
+        sub_item = next((t for t in results if t['id'] == f"subtask_{subtask_assigned.id}"), None)
+        self.assertIsNotNone(normal_item)
+        self.assertIsNotNone(sub_item)
+        
+        # Scenario 5: Subtask assigned to a different member must not appear
+        # Assign subtask to member2, unassign from member1
+        SubTaskAssignee.objects.filter(subtask=subtask_assigned, user=self.member1).delete()
+        SubTaskAssignee.objects.create(subtask=subtask_assigned, user=self.member2)
+        
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = get_results(response.data)
+        sub_item = next((t for t in results if t['id'] == f"subtask_{subtask_assigned.id}"), None)
+        self.assertIsNone(sub_item)
+
+
+
 

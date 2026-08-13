@@ -6,7 +6,7 @@ import type { Project, Task } from '../../types';
 import { useAuth } from '../auth/AuthContext';
 import { TaskDetailPanel } from '../tasks/TaskDetailPanel';
 import { TaskFormModal } from '../tasks/TaskFormModal';
-import { ArrowLeft, Plus, Upload, Trash2, CheckSquare, CheckCircle2, Circle } from 'lucide-react';
+import { ArrowLeft, Plus, Upload, Trash2, CheckSquare, CheckCircle2, Circle, X, Pencil } from 'lucide-react';
 import { formatLateDuration } from '../../utils/time';
 import { BulkUploadModal } from './BulkUploadModal';
 
@@ -24,6 +24,10 @@ export const ProjectDetail: React.FC = () => {
   const [taskToEdit, setTaskToEdit] = useState<Task | null>(null);
   const [activeFilter, setActiveFilter] = useState<ProjectFilterType>('all');
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
+  const [isEditProjModalOpen, setIsEditProjModalOpen] = useState(false);
+  const [editProjName, setEditProjName] = useState('');
+  const [editProjDescription, setEditProjDescription] = useState('');
+  const [editProjError, setEditProjError] = useState<string | null>(null);
 
   // Fetch Project details
   const { data: project, isLoading: isProjectLoading, error: projectError } = useQuery<Project>({
@@ -34,6 +38,44 @@ export const ProjectDetail: React.FC = () => {
     },
     enabled: !!id,
   });
+
+  const handleOpenEditProject = () => {
+    if (project) {
+      setEditProjName(project.name);
+      setEditProjDescription(project.description || '');
+      setEditProjError(null);
+      setIsEditProjModalOpen(true);
+    }
+  };
+
+  const editProjectMutation = useMutation({
+    mutationFn: async (data: { name: string; description: string }) => {
+      const response = await api.patch(`/projects/${id}/`, data);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project', id] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      setIsEditProjModalOpen(false);
+      setEditProjError(null);
+    },
+    onError: (err: any) => {
+      if (err.response?.data?.name) {
+        setEditProjError(err.response.data.name[0]);
+      } else {
+        setEditProjError('Failed to update project. Please try again.');
+      }
+    },
+  });
+
+  const handleEditProjSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editProjName.trim()) {
+      setEditProjError('Project name is required.');
+      return;
+    }
+    editProjectMutation.mutate({ name: editProjName, description: editProjDescription });
+  };
 
   // Fetch Project Tasks
   const { data: tasks, isLoading: isTasksLoading } = useQuery<Task[]>({
@@ -118,53 +160,47 @@ export const ProjectDetail: React.FC = () => {
   const renderAssigneesList = (assignees: Task['assignees']) => {
     if (assignees.length === 0) {
       return (
-        <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 flex items-center gap-1 bg-zinc-50 dark:bg-zinc-950 px-2 py-0.5 rounded-full border border-zinc-200/50 dark:border-zinc-850 select-none uppercase tracking-wider">
+        <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-550 flex items-center gap-1 bg-zinc-50 dark:bg-zinc-950 px-2 py-0.5 rounded-full border border-zinc-200/50 dark:border-zinc-850 select-none uppercase tracking-wider">
           👤 Unassigned
         </span>
       );
     }
-    
-    // Single assignee
-    if (assignees.length === 1) {
-      const single = assignees[0];
-      return (
-        <div className="flex items-center gap-1.5 text-[11px] font-semibold text-zinc-600 dark:text-zinc-400">
-          <div className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-[9px] font-bold text-zinc-600 dark:text-zinc-400">
-            {getInitials(single.name)}
-          </div>
-          <span>{single.name}</span>
-        </div>
-      );
-    }
 
-    // Multiple assignees
-    const firstTwo = assignees.slice(0, 2);
-    const overflowCount = assignees.length - 2;
-    const tooltipText = assignees.map(a => a.name).join('\n');
-    
+    const completedCount = assignees.filter(a => a.completed).length;
+
     return (
-      <div 
-        className="flex items-center gap-1.5 text-[11px] font-semibold text-zinc-650 dark:text-zinc-400 cursor-help"
-        title={tooltipText}
-      >
-        <div className="flex -space-x-1.5 overflow-hidden">
-          {firstTwo.map((a) => (
+      <div className="flex items-center gap-2 flex-wrap">
+        {/* Avatars */}
+        <div className="flex -space-x-1.5 overflow-hidden py-0.5">
+          {assignees.map((a) => (
             <div
               key={a.id}
-              className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 border border-white dark:border-zinc-950 text-[9px] font-bold text-zinc-600 dark:text-zinc-455 shrink-0"
+              title={`${a.name} (${a.completed ? 'Completed' : 'Pending'})`}
+              className={`relative flex h-5 w-5 items-center justify-center rounded-full border text-[8px] font-bold shrink-0 ${
+                a.completed
+                  ? 'bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300 border-green-300 dark:border-green-800'
+                  : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-650 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700'
+              }`}
             >
               {getInitials(a.name)}
+              {a.completed && (
+                <span className="absolute -bottom-0.5 -right-0.5 flex h-2 w-2 items-center justify-center rounded-full bg-green-500 text-[6px] text-white font-extrabold shadow-sm border border-white dark:border-zinc-950">
+                  ✓
+                </span>
+              )}
             </div>
           ))}
-          {overflowCount > 0 && (
-            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-250 dark:bg-zinc-700 border border-white dark:border-zinc-950 text-[8px] font-bold text-zinc-700 dark:text-zinc-300 shrink-0">
-              +{overflowCount}
-            </div>
-          )}
         </div>
-        <span>
-          {firstTwo.map(a => a.name).join(' · ')}
-          {overflowCount > 0 ? ` +${overflowCount}` : ''}
+
+        {/* Text Details */}
+        <span className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400">
+          {assignees.length > 1 ? (
+            <span>
+              {completedCount}/{assignees.length} completed
+            </span>
+          ) : (
+            <span>{assignees[0].name}</span>
+          )}
         </span>
       </div>
     );
@@ -292,6 +328,17 @@ export const ProjectDetail: React.FC = () => {
                   {task.priority} Priority
                 </span>
               )}
+              {task.overall_status && (
+                <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${
+                  task.overall_status === 'COMPLETED'
+                    ? 'bg-green-100 dark:bg-green-950/40 text-green-800 dark:text-green-300'
+                    : task.overall_status === 'IN_PROGRESS'
+                    ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300'
+                    : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-550'
+                }`}>
+                  {task.overall_status === 'IN_PROGRESS' ? 'In Progress' : task.overall_status}
+                </span>
+              )}
 
               {task.subtasks && task.subtasks.length > 0 && (
                 <span className="text-zinc-450 dark:text-zinc-400 font-medium">
@@ -366,13 +413,22 @@ export const ProjectDetail: React.FC = () => {
           )}
 
           {isAdmin && (
-            <button
-              onClick={() => setIsDeleteProjModalOpen(true)}
-              className="p-2 border border-zinc-200 dark:border-zinc-800 hover:border-red-200 dark:hover:border-red-800 text-zinc-500 hover:text-red-650 hover:bg-red-50/20 rounded-lg transition-colors"
-              title="Delete Project"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
+            <>
+              <button
+                onClick={handleOpenEditProject}
+                className="p-2 border border-zinc-200 dark:border-zinc-800 hover:border-black dark:hover:border-white text-zinc-500 hover:text-black dark:hover:text-white rounded-lg transition-colors"
+                title="Edit Project"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setIsDeleteProjModalOpen(true)}
+                className="p-2 border border-zinc-200 dark:border-zinc-800 hover:border-red-200 dark:hover:border-red-800 text-zinc-500 hover:text-red-650 hover:bg-red-50/20 rounded-lg transition-colors"
+                title="Delete Project"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -387,10 +443,11 @@ export const ProjectDetail: React.FC = () => {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setIsBulkUploadOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-white/10 text-xs font-semibold rounded-lg transition-colors text-black dark:text-white"
+                className="flex items-center gap-1 px-2.5 py-1.5 md:gap-1.5 md:px-3 md:py-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-white/10 text-xs font-semibold rounded-lg transition-colors text-black dark:text-white"
               >
-                <Upload className="h-3.5 w-3.5" />
-                Bulk Upload
+                <Upload className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden md:inline">Bulk Upload</span>
+                <span className="inline md:hidden">Upload</span>
               </button>
               <button
                 onClick={() => {
@@ -399,10 +456,11 @@ export const ProjectDetail: React.FC = () => {
                   setSelectedTaskId(null);
                   navigate(`/app/tasks?create_project_id=${project.id}`);
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-white/10 text-xs font-semibold rounded-lg transition-colors text-black dark:text-white"
+                className="flex items-center gap-1 px-2.5 py-1.5 md:gap-1.5 md:px-3 md:py-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-white/10 text-xs font-semibold rounded-lg transition-colors text-black dark:text-white"
               >
-                <Plus className="h-3.5 w-3.5" />
-                Add Task
+                <Plus className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden md:inline">Add Task</span>
+                <span className="inline md:hidden">Task</span>
               </button>
             </div>
           )}
@@ -510,6 +568,87 @@ export const ProjectDetail: React.FC = () => {
         projectId={project.id}
         projectName={project.name}
       />
+
+      {/* EDIT PROJECT MODAL */}
+      {isEditProjModalOpen && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl max-w-md w-full p-6 shadow-lg relative animate-in fade-in zoom-in-95 duration-150 text-black dark:text-white">
+            <button
+              onClick={() => setIsEditProjModalOpen(false)}
+              className="absolute right-4 top-4 text-zinc-400 hover:text-black dark:hover:text-white transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+
+            <h3 className="font-bold text-base text-black dark:text-white mb-1">Edit Project</h3>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">
+              Update name or description details for this company scope.
+            </p>
+
+            <form onSubmit={handleEditProjSubmit} className="space-y-4">
+              {editProjError && (
+                <div className="rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/30 p-3 text-xs font-medium text-red-650 dark:text-red-400">
+                  {editProjError}
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider">
+                  Project Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Website Development"
+                  value={editProjName}
+                  onChange={(e) => setEditProjName(e.target.value)}
+                  disabled={editProjectMutation.isPending}
+                  className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider">
+                  Description
+                </label>
+                <textarea
+                  placeholder="Provide details about the scope..."
+                  value={editProjDescription}
+                  onChange={(e) => setEditProjDescription(e.target.value)}
+                  disabled={editProjectMutation.isPending}
+                  rows={3}
+                  className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-900">
+                <button
+                  type="button"
+                  onClick={() => setIsEditProjModalOpen(false)}
+                  disabled={editProjectMutation.isPending}
+                  className="px-3 py-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-white/10 text-xs font-semibold rounded-lg transition-colors text-black dark:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editProjectMutation.isPending}
+                  className="px-3 py-1.5 bg-black dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-100 text-white dark:text-black font-semibold rounded-lg text-xs tracking-wide transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {editProjectMutation.isPending ? (
+                    <>
+                      <div className="h-3 w-3 animate-spin rounded-full border-2 border-white dark:border-black border-t-transparent"></div>
+                      Saving...
+                    </>
+                  ) : (
+                    'Save Changes'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

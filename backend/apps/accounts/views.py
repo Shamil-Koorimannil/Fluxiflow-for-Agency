@@ -181,16 +181,23 @@ class RequestOTPView(views.APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
+        from django.core.validators import validate_email
+        from django.core.exceptions import ValidationError
+
         email = request.data.get('email', '').strip().lower()
         if not email:
             return Response({"detail": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
             
+        try:
+            validate_email(email)
+        except ValidationError:
+            return Response({"detail": "Invalid email address format."}, status=status.HTTP_400_BAD_REQUEST)
+
         user: CustomUser | None = User.objects.filter(email=email).first()  # type: ignore
         if not user:
-            # Prevent email enumeration by returning a generic success message
             return Response({
-                "message": "If this email is registered, a verification code has been sent."
-            }, status=status.HTTP_200_OK)
+                "detail": "This email is not registered or invited in the system. Please verify your spelling or contact your administrator."
+            }, status=status.HTTP_400_BAD_REQUEST)
             
         if user.status == 'INACTIVE' or not user.is_active:
             return Response({
@@ -269,14 +276,19 @@ class VerifyOTPView(views.APIView):
         refresh['name'] = user.name
         refresh['role'] = user.role
         
+        remember_me = request.data.get('remember_me', False)
+        if remember_me:
+            refresh.lifetime = timedelta(days=30)
+            expires_at = timezone.now() + timedelta(days=30)
+        else:
+            refresh.lifetime = timedelta(days=1)
+            expires_at = timezone.now() + timedelta(days=1)
+
         refresh_token_str = str(refresh)
         access_token_str = str(getattr(refresh, 'access_token'))
         
         # Store signature in Session database to maintain token revocation checks
         token_hash = hashlib.sha256(refresh_token_str.encode('utf-8')).hexdigest()
-        simple_jwt_settings = getattr(settings, 'SIMPLE_JWT', {})
-        refresh_lifetime = simple_jwt_settings.get('REFRESH_TOKEN_LIFETIME', timedelta(days=7))
-        expires_at = timezone.now() + refresh_lifetime
 
         Session.objects.create(
             user=user,

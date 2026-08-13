@@ -36,7 +36,6 @@ export const Tasks: React.FC = () => {
     }
   }, [createProjectIdParam, isAdmin]);
 
-  // Fetch tasks
   const { data: tasks, isLoading, error } = useQuery<Task[]>({
     queryKey: ['tasks'],
     queryFn: async () => {
@@ -45,9 +44,25 @@ export const Tasks: React.FC = () => {
     },
   });
 
+  useEffect(() => {
+    if (error) {
+      console.error('[Developer Diagnostics] Failed to load tasks error:', error);
+      if (typeof error === 'object' && error !== null && 'response' in error) {
+        const axiosErr = error as any;
+        console.error('[Developer Diagnostics] Axios HTTP Status:', axiosErr.response?.status);
+        console.error('[Developer Diagnostics] Axios Response Body:', axiosErr.response?.data);
+      }
+    }
+  }, [error]);
+
   // Task inline completion mutation
   const completeTaskMutation = useMutation({
     mutationFn: async (id: string) => {
+      if (id.startsWith('subtask_')) {
+        const subtaskId = id.replace('subtask_', '');
+        const response = await api.post(`/subtasks/${subtaskId}/complete/`);
+        return response.data;
+      }
       const response = await api.post(`/tasks/${id}/complete/`);
       return response.data;
     },
@@ -60,6 +75,11 @@ export const Tasks: React.FC = () => {
   // Task inline reopen mutation
   const reopenTaskMutation = useMutation({
     mutationFn: async (id: string) => {
+      if (id.startsWith('subtask_')) {
+        const subtaskId = id.replace('subtask_', '');
+        const response = await api.post(`/subtasks/${subtaskId}/reopen/`);
+        return response.data;
+      }
       const response = await api.post(`/tasks/${id}/reopen/`);
       return response.data;
     },
@@ -193,48 +213,42 @@ export const Tasks: React.FC = () => {
         </span>
       );
     }
-    
-    // Single assignee
-    if (assignees.length === 1) {
-      const single = assignees[0];
-      return (
-        <div className="flex items-center gap-1.5 text-[11px] font-semibold text-zinc-650 dark:text-zinc-400">
-          <div className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-[9px] font-bold text-zinc-600 dark:text-zinc-400">
-            {getInitials(single.name)}
-          </div>
-          <span>{single.name}</span>
-        </div>
-      );
-    }
 
-    // Multiple assignees
-    const firstTwo = assignees.slice(0, 2);
-    const overflowCount = assignees.length - 2;
-    const tooltipText = assignees.map(a => a.name).join('\n');
-    
+    const completedCount = assignees.filter(a => a.completed).length;
+
     return (
-      <div 
-        className="flex items-center gap-1.5 text-[11px] font-semibold text-zinc-650 dark:text-zinc-400 cursor-help"
-        title={tooltipText}
-      >
-        <div className="flex -space-x-1.5 overflow-hidden">
-          {firstTwo.map((a) => (
+      <div className="flex items-center gap-2 flex-wrap">
+        {/* Avatars */}
+        <div className="flex -space-x-1.5 overflow-hidden py-0.5">
+          {assignees.map((a) => (
             <div
               key={a.id}
-              className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 border border-white dark:border-zinc-950 text-[9px] font-bold text-zinc-600 dark:text-zinc-455 shrink-0"
+              title={`${a.name} (${a.completed ? 'Completed' : 'Pending'})`}
+              className={`relative flex h-5 w-5 items-center justify-center rounded-full border text-[8px] font-bold shrink-0 ${
+                a.completed
+                  ? 'bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300 border-green-300 dark:border-green-800'
+                  : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700'
+              }`}
             >
               {getInitials(a.name)}
+              {a.completed && (
+                <span className="absolute -bottom-0.5 -right-0.5 flex h-2 w-2 items-center justify-center rounded-full bg-green-500 text-[6px] text-white font-extrabold shadow-sm border border-white dark:border-zinc-950">
+                  ✓
+                </span>
+              )}
             </div>
           ))}
-          {overflowCount > 0 && (
-            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-250 dark:bg-zinc-700 border border-white dark:border-zinc-950 text-[8px] font-bold text-zinc-700 dark:text-zinc-300 shrink-0">
-              +{overflowCount}
-            </div>
-          )}
         </div>
-        <span>
-          {firstTwo.map(a => a.name).join(' · ')}
-          {overflowCount > 0 ? ` +${overflowCount}` : ''}
+
+        {/* Text Details */}
+        <span className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400">
+          {assignees.length > 1 ? (
+            <span>
+              {completedCount}/{assignees.length} completed
+            </span>
+          ) : (
+            <span>{assignees[0].name}</span>
+          )}
         </span>
       </div>
     );
@@ -247,10 +261,10 @@ export const Tasks: React.FC = () => {
     return (
       <div
         key={task.id}
-        className={`bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 flex items-center justify-between gap-4 hover:border-black dark:hover:border-white transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-sm animate-slide-up ${getPriorityBorder(
-          task.priority
-        )}`}
-        onClick={() => handleOpenDetail(task.id)}
+        className={`bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 flex items-center justify-between gap-4 hover:border-black dark:hover:border-white transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-sm animate-slide-up ${
+          task.is_subtask ? 'ml-6 md:ml-8 border-dashed' : ''
+        } ${getPriorityBorder(task.priority)}`}
+        onClick={() => handleOpenDetail(task.is_subtask ? task.parent_task_id! : task.id)}
       >
         <div className="flex items-start md:items-center gap-3 min-w-0 flex-1">
           {/* Checkbox Button */}
@@ -286,8 +300,8 @@ export const Tasks: React.FC = () => {
 
             {/* Project name row */}
             {task.project_detail && (
-              <div className="text-[10px] font-bold text-zinc-450 dark:text-zinc-500 uppercase tracking-widest leading-none">
-                {task.project_detail.name}
+              <div className="text-[10px] font-bold text-zinc-450 dark:text-zinc-550 uppercase tracking-widest leading-none">
+                {task.project_detail.name} {task.is_subtask && task.parent_task_name && ` / Parent: ${task.parent_task_name}`}
               </div>
             )}
 
@@ -318,6 +332,22 @@ export const Tasks: React.FC = () => {
               {task.priority && (
                 <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${getPriorityColor(task.priority)}`}>
                   {task.priority} Priority
+                </span>
+              )}
+              {task.is_subtask && (
+                <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-250 dark:border-zinc-750">
+                  Subtask
+                </span>
+              )}
+              {task.overall_status && (
+                <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${
+                  task.overall_status === 'COMPLETED'
+                    ? 'bg-green-100 dark:bg-green-950/40 text-green-800 dark:text-green-300'
+                    : task.overall_status === 'IN_PROGRESS'
+                    ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300'
+                    : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-550'
+                }`}>
+                  {task.overall_status === 'IN_PROGRESS' ? 'In Progress' : task.overall_status}
                 </span>
               )}
             </div>
@@ -416,10 +446,11 @@ export const Tasks: React.FC = () => {
         {isAdmin && (
           <button
             onClick={() => setIsFormModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-black dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-100 text-white dark:text-black font-semibold rounded-lg text-sm transition-colors"
+            className="flex items-center gap-1 px-3 py-1.5 md:gap-2 md:px-4 md:py-2 bg-black dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-100 text-white dark:text-black font-semibold rounded-lg text-xs md:text-sm transition-colors"
           >
-            <Plus className="h-4 w-4" />
-            Create Task
+            <Plus className="h-4 w-4 shrink-0" />
+            <span className="hidden md:inline">Create Task</span>
+            <span className="inline md:hidden">Task</span>
           </button>
         )}
       </div>

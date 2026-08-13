@@ -36,6 +36,106 @@ class TaskViewSet(viewsets.ModelViewSet):
                 
         return queryset.distinct().order_by('due_date', 'due_time', 'created_at')
 
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        project_id = request.query_params.get('project')
+        user = request.user
+        
+        # Serialize tasks
+        serializer = self.get_serializer(queryset, many=True)
+        data = list(serializer.data)
+            
+        # Append subtasks if it's the general list (no project filter) and user is a MEMBER
+        if not project_id and user.is_authenticated and user.role != 'ADMIN':
+            from apps.accounts.serializers import UserSerializer
+            from apps.tasks.helpers import calculate_assignee_submission_status, calculate_submission_status
+            
+            subtasks = SubTask.objects.filter(assignee_relationships__user=user).select_related('task', 'task__project', 'task__created_by', 'completed_by')
+            for subtask in subtasks:
+                assignee_rel = subtask.assignee_relationships.filter(user=user).first()
+                is_completed = assignee_rel.completed if assignee_rel else (subtask.status == 'COMPLETED')
+                completed_at_val = assignee_rel.completed_at if assignee_rel else subtask.completed_at
+                
+                # Format date_display and date_color
+                from apps.tasks.helpers import calculate_date_display_color
+                due_date_str = subtask.due_date.isoformat() if subtask.due_date else subtask.task.due_date.isoformat()
+                date_disp, date_col = calculate_date_display_color(
+                    due_date_str, 
+                    subtask.due_time,
+                    is_completed,
+                    completed_at_val
+                )
+                
+                sub_status = 'PENDING'
+                late_mins = 0
+                if assignee_rel:
+                    sub_status, late_mins = calculate_assignee_submission_status(
+                        assignee_rel,
+                        subtask.due_date or subtask.task.due_date,
+                        subtask.due_time or subtask.task.due_time
+                    )
+                    
+                pseudo_task = {
+                    "id": f"subtask_{subtask.id}",
+                    "is_subtask": True,
+                    "parent_task_id": str(subtask.task.id),
+                    "parent_task_name": subtask.task.name,
+                    "parent_task_title": subtask.task.name,
+                    "name": subtask.name,
+                    "title": subtask.name,
+                    "description": f"Subtask of: {subtask.task.name}",
+                    "due_date": str(subtask.due_date) if subtask.due_date else str(subtask.task.due_date),
+                    "due_time": str(subtask.due_time) if subtask.due_time else str(subtask.task.due_time),
+                    "priority": subtask.task.priority,
+                    "status": "COMPLETED" if is_completed else "PENDING",
+                    "overall_status": "COMPLETED" if is_completed else "PENDING",
+                    "created_at": subtask.created_at.isoformat(),
+                    "updated_at": subtask.updated_at.isoformat(),
+                    "created_by": str(subtask.task.created_by.id),
+                    "created_by_detail": UserSerializer(subtask.task.created_by, context=self.get_serializer_context()).data,
+                    "completed_by": str(subtask.completed_by.id) if subtask.completed_by else None,
+                    "completed_by_detail": UserSerializer(subtask.completed_by, context=self.get_serializer_context()).data if subtask.completed_by else None,
+                    "subtasks": [],
+                    "project": str(subtask.task.project.id) if subtask.task.project else None,
+                    "project_detail": {
+                        "id": str(subtask.task.project.id),
+                        "name": subtask.task.project.name
+                    } if subtask.task.project else None,
+                    "organization": str(subtask.task.organization.id) if subtask.task.organization else None,
+                    "assignees": [
+                        {
+                            **UserSerializer(u.user, context=self.get_serializer_context()).data,
+                            "completed": u.completed,
+                            "completed_at": u.completed_at.isoformat() if u.completed_at else None,
+                            "submission_status": calculate_assignee_submission_status(
+                                u,
+                                subtask.due_date or subtask.task.due_date,
+                                subtask.due_time or subtask.task.due_time
+                            )[0],
+                            "late_by_minutes": calculate_assignee_submission_status(
+                                u,
+                                subtask.due_date or subtask.task.due_date,
+                                u.subtask.due_time or u.subtask.task.due_time
+                            )[1]
+                        }
+                        for u in subtask.assignee_relationships.all()
+                    ],
+                    "date_display": date_disp,
+                    "date_color": date_col,
+                    "submission_status": sub_status,
+                    "late_by_minutes": late_mins,
+                    "completed_at": completed_at_val.isoformat() if completed_at_val else None,
+                }
+                data.append(pseudo_task)
+
+        # Paginate the combined memory list
+        page = self.paginate_queryset(data)
+        if page is not None:
+            return self.get_paginated_response(page)
+                
+        return Response(data, status=status.HTTP_200_OK)
+
     def check_modify_permission(self, request, task=None):
         """Helper to ensure only Admins can create/edit/delete tasks."""
         if request.user.role != 'ADMIN':

@@ -178,8 +178,8 @@ class OTPAuthenticationTests(APITestCase):
     def test_unknown_email_does_not_reveal_existence(self):
         """11. Unknown email does not reveal account existence (enumeration safety)."""
         response = self._request_otp('unknown@example.com')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("verification code has been sent", response.data['message'])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not registered or invited", response.data['detail'])
         self.assertEqual(len(mail.outbox), 0) # No email actually sent
 
     def test_correct_role_loaded_after_login(self):

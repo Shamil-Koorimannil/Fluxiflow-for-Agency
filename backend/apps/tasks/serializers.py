@@ -244,6 +244,15 @@ class TaskSerializer(serializers.ModelSerializer):
         if request and request.user:
             validated_data['created_by'] = request.user
             
+        project = validated_data.get('project')
+        if project and project.organization:
+            validated_data['organization'] = project.organization
+        elif request and request.user:
+            from apps.accounts.models import Membership
+            user_membership = Membership.objects.filter(user=request.user).first()
+            if user_membership:
+                validated_data['organization'] = user_membership.organization
+
         task = Task.objects.create(**validated_data)
         
         from apps.notifications.services import NotificationService
@@ -267,9 +276,25 @@ class TaskSerializer(serializers.ModelSerializer):
             )
                 
         return task
-
     def to_representation(self, instance):
         rep = super().to_representation(instance)
+        # Calculate overall status based on assignees
+        assignees_rels = TaskAssignee.objects.filter(task=instance)
+        total_assignees = assignees_rels.count()
+        completed_assignees = assignees_rels.filter(completed=True).count()
+        
+        if total_assignees > 0:
+            if completed_assignees == total_assignees:
+                overall_status = 'COMPLETED'
+            elif completed_assignees > 0:
+                overall_status = 'IN_PROGRESS'
+            else:
+                overall_status = 'PENDING'
+        else:
+            overall_status = 'COMPLETED' if instance.status == 'COMPLETED' else 'PENDING'
+            
+        rep['overall_status'] = overall_status
+
         request = self.context.get('request')
         target_user = self.context.get('target_user')
         user_to_check = target_user or (request.user if request and request.user.is_authenticated else None)

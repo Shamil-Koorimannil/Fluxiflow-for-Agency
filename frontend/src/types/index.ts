@@ -97,6 +97,10 @@ export interface Task {
   submission_status?: 'PENDING' | 'OVERDUE' | 'COMPLETED_ON_TIME' | 'LATE';
   late_by_minutes?: number;
   due_datetime?: string;
+  overall_status?: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
+  is_subtask?: boolean;
+  parent_task_id?: string;
+  parent_task_name?: string;
 }
 
 export interface ActivityLog {

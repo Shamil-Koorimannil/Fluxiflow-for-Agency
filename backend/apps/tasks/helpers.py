@@ -77,3 +77,82 @@ def format_notification_duration(minutes):
     if hours.is_integer():
         return f"{int(hours)} hours" if int(hours) > 1 else "1 hour"
     return f"{hours:.1f} hours"
+
+def calculate_date_display_color(due_date_str, due_time, is_completed, completed_at_val=None):
+    from datetime import datetime, date, time, timedelta
+    from django.utils import timezone
+
+    if not due_date_str:
+        return "No due date", "gray"
+        
+    try:
+        if isinstance(due_date_str, date):
+            due_date = due_date_str
+        else:
+            due_date = date.fromisoformat(due_date_str)
+    except Exception:
+        # Fallback if string is datetime
+        try:
+            due_date = datetime.fromisoformat(due_date_str).date()
+        except Exception:
+            return "Invalid Date", "gray"
+            
+    today = timezone.localtime(timezone.now()).date()
+    now_local = timezone.localtime(timezone.now())
+    
+    # Combine due date & time to make aware datetime for comparison
+    if due_time:
+        if isinstance(due_time, str):
+            try:
+                due_time = time.fromisoformat(due_time)
+            except Exception:
+                due_time = time(23, 59, 59)
+        due_dt = datetime.combine(due_date, due_time)
+    else:
+        due_dt = datetime.combine(due_date, time(23, 59, 59))
+        
+    if timezone.is_naive(due_dt):
+        due_dt = timezone.make_aware(due_dt, timezone.get_current_timezone())
+        
+    due_dt = timezone.localtime(due_dt)
+    
+    time_str = ""
+    if due_time:
+        time_str = f" · {due_time.strftime('%I:%M %p').lstrip('0')}"
+
+    if is_completed:
+        date_color = 'gray'
+        if completed_at_val:
+            completed_local = timezone.localtime(completed_at_val)
+            completed_date = completed_local.date()
+            if completed_date == today:
+                date_display = "Completed Today"
+            elif completed_date == today - timedelta(days=1):
+                date_display = "Completed Yesterday"
+            else:
+                date_display = f"Completed {completed_date.strftime('%b %d')}"
+        else:
+            date_display = "Completed"
+    else:
+        # Incomplete
+        if due_dt < now_local:
+            # Overdue!
+            date_color = 'red'
+            if due_date == today - timedelta(days=1):
+                date_display = f"Yesterday{time_str}"
+            else:
+                date_display = f"{due_date.strftime('%b %d')}{time_str}"
+        else:
+            # Future or Today
+            if due_date == today:
+                date_color = 'amber'
+                date_display = f"Today{time_str}"
+            elif due_date == today + timedelta(days=1):
+                date_color = 'green'
+                date_display = f"Tomorrow{time_str}"
+            else:
+                date_color = 'gray'
+                date_display = f"{due_date.strftime('%b %d')}{time_str}"
+
+    return date_display, date_color
+

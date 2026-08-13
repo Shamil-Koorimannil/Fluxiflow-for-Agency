@@ -14,7 +14,10 @@ class ProjectViewSet(viewsets.ModelSerializerViewSet if hasattr(viewsets, 'Model
     permission_classes = [IsAdminOrReadOnlyMember]
 
     def perform_create(self, serializer):
-        project = serializer.save(created_by=self.request.user)
+        from apps.accounts.models import Membership
+        user_membership = Membership.objects.filter(user=self.request.user).first()
+        org = user_membership.organization if user_membership else None
+        project = serializer.save(created_by=self.request.user, organization=org)
         # Log activity
         ActivityLog.objects.create(
             user=self.request.user,

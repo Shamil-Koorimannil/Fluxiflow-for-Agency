@@ -96,10 +96,11 @@ export const Projects: React.FC = () => {
         {isAdmin && (
           <button
             onClick={() => setIsModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-black dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-100 text-white dark:text-black font-medium rounded-lg text-sm transition-colors"
+            className="flex items-center gap-1 px-3 py-1.5 md:gap-2 md:px-4 md:py-2 bg-black dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-100 text-white dark:text-black font-medium rounded-lg text-xs md:text-sm transition-colors"
           >
-            <Plus className="h-4 w-4" />
-            Create Project
+            <Plus className="h-4 w-4 shrink-0" />
+            <span className="hidden md:inline">Create Project</span>
+            <span className="inline md:hidden">Project</span>
           </button>
         )}
       </div>
