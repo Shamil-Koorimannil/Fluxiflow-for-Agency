@@ -26,7 +26,7 @@ export const Login: React.FC = () => {
   const [step, setStep] = useState<1 | 2>(1);
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   
   const [resendCountdown, setResendCountdown] = useState(0);
   const [error, setError] = useState<string | null>(null);

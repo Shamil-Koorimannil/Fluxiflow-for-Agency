@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createTheme, ThemeProvider as MuiThemeProvider, CssBaseline } from '@mui/material';
 import { ThemeProvider as AppThemeProvider, useAppTheme } from './context/ThemeContext';
-import { AuthProvider } from './features/auth/AuthContext';
+import { AuthProvider, useAuth } from './features/auth/AuthContext';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
 import { MainLayout } from './layouts/MainLayout';
 import { Login } from './features/auth/Login';
@@ -111,6 +111,48 @@ const ThemeContainer: React.FC<{ children: React.ReactNode }> = ({ children }) =
   );
 };
 
+const PublicLandingRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAuthenticated, isLoading } = useAuth();
+  
+  if (isLoading) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-white">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-black border-t-transparent"></div>
+          <p className="text-sm font-medium text-zinc-500">Loading Fluxiflow...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  if (isAuthenticated) {
+    return <Navigate to="/app/tasks" replace />;
+  }
+  
+  return <>{children}</>;
+};
+
+const LoginRoute: React.FC = () => {
+  const { isAuthenticated, isLoading } = useAuth();
+  
+  if (isLoading) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-white">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-black border-t-transparent"></div>
+          <p className="text-sm font-medium text-zinc-500">Loading Fluxiflow...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  if (isAuthenticated) {
+    return <Navigate to="/app/tasks" replace />;
+  }
+  
+  return <Login />;
+};
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -120,7 +162,7 @@ function App() {
             <BrowserRouter>
               <Routes>
                 {/* Public Auth Route */}
-                <Route path="/login" element={<Login />} />
+                <Route path="/login" element={<LoginRoute />} />
 
                 {/* Protected Application Routes */}
                 <Route
@@ -176,8 +218,8 @@ function App() {
                 </Route>
 
                 {/* Public Marketing Landing Page */}
-                <Route path="/" element={<Home />} />
-                <Route path="/landing" element={<Landing />} />
+                <Route path="/" element={<PublicLandingRoute><Home /></PublicLandingRoute>} />
+                <Route path="/landing" element={<PublicLandingRoute><Landing /></PublicLandingRoute>} />
 
                 {/* Fallback Redirects */}
                 <Route path="*" element={<Navigate to="/" replace />} />

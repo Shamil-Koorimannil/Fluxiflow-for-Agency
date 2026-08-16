@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import axios from 'axios';
 import { api, getAccessToken, getRefreshToken, setTokens, clearTokens, authChannel } from '../../services/api';
 import type { User } from '../../types';
 
@@ -20,9 +21,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchCurrentUser = async () => {
     try {
-      const response = await api.get('/auth/me/');
-      setUser(response.data);
-      localStorage.setItem('userRole', response.data.role);
+      let token = getAccessToken();
+      const refreshToken = getRefreshToken();
+
+      // If access token is missing but refresh token exists, attempt refresh first
+      if (!token && refreshToken) {
+        try {
+          const res = await axios.post('http://localhost:8000/api/auth/token/refresh/', {
+            refresh: refreshToken
+          });
+          const access = res.data.access as string;
+          const refresh = (res.data.refresh || refreshToken) as string;
+          setTokens(access, refresh);
+          token = access;
+        } catch (refreshErr) {
+          clearTokens();
+          setUser(null);
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      if (token) {
+        const response = await api.get('/auth/me/');
+        setUser(response.data);
+        localStorage.setItem('userRole', response.data.role);
+      } else {
+        setUser(null);
+      }
     } catch (error) {
       clearTokens();
       setUser(null);
@@ -32,8 +58,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
-    const token = getAccessToken();
-    if (token) {
+    const accessToken = getAccessToken();
+    const refreshToken = getRefreshToken();
+    if (accessToken || refreshToken) {
       fetchCurrentUser();
     } else {
       setIsLoading(false);
@@ -60,28 +87,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const requestOtp = async (email: string): Promise<void> => {
-    setIsLoading(true);
     try {
       await api.post('/auth/request-otp/', { email });
-      setIsLoading(false);
     } catch (error) {
-      setIsLoading(false);
       throw error;
     }
   };
 
   const login = async (email: string, otp: string, rememberMe?: boolean): Promise<User> => {
-    setIsLoading(true);
     try {
       const response = await api.post('/auth/verify-otp/', { email, otp, remember_me: rememberMe });
       const { access, refresh, user: userData } = response.data;
       setTokens(access, refresh, rememberMe);
       setUser(userData);
       localStorage.setItem('userRole', userData.role);
-      setIsLoading(false);
       return userData;
     } catch (error) {
-      setIsLoading(false);
       throw error;
     }
   };

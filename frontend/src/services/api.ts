@@ -14,29 +14,21 @@ export const authChannel = typeof window !== 'undefined' ? new BroadcastChannel(
 
 // Helper to check if tokens exist
 export const getAccessToken = () => {
-  return localStorage.getItem('accessToken') || sessionStorage.getItem('accessToken');
+  return localStorage.getItem('accessToken');
 };
 
 export const getRefreshToken = () => {
-  return localStorage.getItem('refreshToken') || sessionStorage.getItem('refreshToken');
+  return localStorage.getItem('refreshToken');
 };
 
 export const setTokens = (access: string, refresh: string, rememberMe?: boolean) => {
   const finalRememberMe = rememberMe !== undefined ? rememberMe : (localStorage.getItem('rememberMe') === 'true');
   
-  if (finalRememberMe) {
-    localStorage.setItem('accessToken', access);
-    localStorage.setItem('refreshToken', refresh);
-    localStorage.setItem('rememberMe', 'true');
-    sessionStorage.removeItem('accessToken');
-    sessionStorage.removeItem('refreshToken');
-  } else {
-    sessionStorage.setItem('accessToken', access);
-    sessionStorage.setItem('refreshToken', refresh);
-    localStorage.setItem('rememberMe', 'false');
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-  }
+  localStorage.setItem('accessToken', access);
+  localStorage.setItem('refreshToken', refresh);
+  localStorage.setItem('rememberMe', finalRememberMe ? 'true' : 'false');
+  sessionStorage.removeItem('accessToken');
+  sessionStorage.removeItem('refreshToken');
 
   // Broadcast login details to other tabs on fresh auth
   if (rememberMe !== undefined && authChannel) {
@@ -178,8 +170,8 @@ if (authChannel) {
     const { type, payload } = event.data;
 
     if (type === 'REQUEST_TOKENS') {
-      const access = sessionStorage.getItem('accessToken') || localStorage.getItem('accessToken');
-      const refresh = sessionStorage.getItem('refreshToken') || localStorage.getItem('refreshToken');
+      const access = localStorage.getItem('accessToken');
+      const refresh = localStorage.getItem('refreshToken');
       const rememberMe = localStorage.getItem('rememberMe') === 'true';
       const userRole = localStorage.getItem('userRole');
 
@@ -192,15 +184,9 @@ if (authChannel) {
     } else if (type === 'SEND_TOKENS') {
       if (!getAccessToken()) {
         const { access, refresh, rememberMe, userRole } = payload;
-        if (rememberMe) {
-          localStorage.setItem('accessToken', access);
-          localStorage.setItem('refreshToken', refresh);
-          localStorage.setItem('rememberMe', 'true');
-        } else {
-          sessionStorage.setItem('accessToken', access);
-          sessionStorage.setItem('refreshToken', refresh);
-          localStorage.setItem('rememberMe', 'false');
-        }
+        localStorage.setItem('accessToken', access);
+        localStorage.setItem('refreshToken', refresh);
+        localStorage.setItem('rememberMe', rememberMe ? 'true' : 'false');
         if (userRole) {
           localStorage.setItem('userRole', userRole);
         }
@@ -210,15 +196,8 @@ if (authChannel) {
       isRefreshing = true;
     } else if (type === 'TOKEN_REFRESHED') {
       const { access, refresh } = payload;
-      const rememberMe = localStorage.getItem('rememberMe') === 'true';
-      
-      if (rememberMe) {
-        localStorage.setItem('accessToken', access);
-        localStorage.setItem('refreshToken', refresh);
-      } else {
-        sessionStorage.setItem('accessToken', access);
-        sessionStorage.setItem('refreshToken', refresh);
-      }
+      localStorage.setItem('accessToken', access);
+      localStorage.setItem('refreshToken', refresh);
       
       api.defaults.headers.common.Authorization = `Bearer ${access}`;
       processQueue(null, access);
