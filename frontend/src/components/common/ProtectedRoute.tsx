@@ -8,10 +8,10 @@ interface ProtectedRouteProps {
 }
 
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredRole }) => {
-  const { isAuthenticated, isLoading, user } = useAuth();
+  const { isAuthenticated, isInitializing, user } = useAuth();
   const location = useLocation();
 
-  if (isLoading) {
+  if (isInitializing) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-white">
         <div className="flex flex-col items-center gap-4">

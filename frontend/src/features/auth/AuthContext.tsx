@@ -1,12 +1,13 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import axios from 'axios';
-import { api, getAccessToken, getRefreshToken, setTokens, clearTokens, authChannel } from '../../services/api';
+import { api, getAccessToken, getRefreshToken, setTokens, clearTokens, authChannel, API_BASE_URL } from '../../services/api';
 import type { User } from '../../types';
 
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  isInitializing: boolean;
   requestOtp: (email: string) => Promise<void>;
   login: (email: string, otp: string, rememberMe?: boolean) => Promise<User>;
   logout: () => Promise<void>;
@@ -18,6 +19,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isInitializing, setIsInitializing] = useState(true);
 
   const fetchCurrentUser = async () => {
     try {
@@ -27,7 +29,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // If access token is missing but refresh token exists, attempt refresh first
       if (!token && refreshToken) {
         try {
-          const res = await axios.post('http://localhost:8000/api/auth/token/refresh/', {
+          const res = await axios.post(`${API_BASE_URL}/auth/token/refresh/`, {
             refresh: refreshToken
           });
           const access = res.data.access as string;
@@ -38,6 +40,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           clearTokens();
           setUser(null);
           setIsLoading(false);
+          setIsInitializing(false);
           return;
         }
       }
@@ -54,6 +57,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(null);
     } finally {
       setIsLoading(false);
+      setIsInitializing(false);
     }
   };
 
@@ -64,6 +68,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       fetchCurrentUser();
     } else {
       setIsLoading(false);
+      setIsInitializing(false);
     }
 
     const handleAuthSync = () => {
@@ -135,6 +140,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         isAuthenticated: !!user,
         isLoading,
+        isInitializing,
         requestOtp,
         login,
         logout,

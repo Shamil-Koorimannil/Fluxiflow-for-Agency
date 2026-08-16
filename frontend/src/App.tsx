@@ -112,9 +112,9 @@ const ThemeContainer: React.FC<{ children: React.ReactNode }> = ({ children }) =
 };
 
 const PublicLandingRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isInitializing } = useAuth();
   
-  if (isLoading) {
+  if (isInitializing) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-white">
         <div className="flex flex-col items-center gap-4">
@@ -133,9 +133,9 @@ const PublicLandingRoute: React.FC<{ children: React.ReactNode }> = ({ children 
 };
 
 const LoginRoute: React.FC = () => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isInitializing } = useAuth();
   
-  if (isLoading) {
+  if (isInitializing) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-white">
         <div className="flex flex-col items-center gap-4">
