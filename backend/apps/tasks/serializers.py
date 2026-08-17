@@ -214,6 +214,12 @@ class TaskSerializer(serializers.ModelSerializer):
         return data
 
     def validate(self, data):
+        status_val = data.get('status')
+        if status_val == 'COMPLETED':
+            if self.instance and self.instance.subtasks.exclude(status='COMPLETED').exists():
+                raise serializers.ValidationError(
+                    {"status": "All subtasks must be completed before the task can be completed."}
+                )
         return data
 
     def validate_assignee_ids(self, value):
@@ -393,7 +399,7 @@ class TaskSerializer(serializers.ModelSerializer):
         
         time_str = ""
         if due_time:
-            time_str = f" · {due_time.strftime('%I:%M %p').lstrip('0')}"
+            time_str = f" · {due_time.strftime('%I:%M %p')}"
 
         if is_completed:
             date_color = 'gray'

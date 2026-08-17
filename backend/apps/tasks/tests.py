@@ -373,6 +373,37 @@ class FluxiflowAPITests(TestCase):
         response = self.client.post(complete_c_url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_task_completion_blocked_by_incomplete_subtasks(self):
+        self.set_auth(self.admin_token)
+        
+        # Create an incomplete subtask
+        subtask = SubTask.objects.create(
+            task=self.task,
+            name='Test Incomplete Subtask',
+            status='PENDING'
+        )
+        
+        url = reverse('task-complete', args=[self.task.id])
+        response = self.client.post(url)
+        
+        # Ticking task should be blocked
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['detail'], "All subtasks must be completed before the task can be completed.")
+        
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, 'PENDING')
+        
+        # Mark subtask completed
+        subtask.status = 'COMPLETED'
+        subtask.save()
+        
+        # Now ticking the task should succeed
+        response = self.client.post(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, 'COMPLETED')
+
 
 from apps.accounts.views import calculate_user_health_metrics, get_task_due_datetime
 
@@ -629,7 +660,7 @@ class BulkTaskImportTests(TestCase):
         assert ws is not None
         ws.title = "Tasks"
         
-        headers = ["Import Key", "Title", "Description", "Priority", "Status", "Due Date", "Due Time", "Assignee Emails", "Parent Key"]
+        headers = ["Title", "Description", "Priority", "Status", "Due Date", "Due Time", "Assignee Emails"]
         ws.append(headers)
         
         for row in rows_data:
@@ -650,7 +681,7 @@ class BulkTaskImportTests(TestCase):
         
         # 2. Rejects Validate
         url = reverse('project-bulk-import-validate', args=[self.project.id])
-        excel_file = self.create_mock_excel([["T001", "Task 1", "Desc", "High", "Pending", "2026-08-12", "12:00", "", ""]])
+        excel_file = self.create_mock_excel([["Task 1", "Desc", "High", "Pending", "2026-08-12", "12:00", ""]])
         response = self.client.post(url, {'file': excel_file}, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         
@@ -672,7 +703,7 @@ class BulkTaskImportTests(TestCase):
         
         # Scenario A: Missing Title & Invalid Priority / Status
         excel_file = self.create_mock_excel([
-            ["T001", "", "Desc", "Critical", "In-Progress", "2026-08-12", "12:00", "", ""]
+            ["", "Desc", "Critical", "In-Progress", "2026-08-12", "12:00", ""]
         ])
         response = self.client.post(url, {'file': excel_file}, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -683,49 +714,20 @@ class BulkTaskImportTests(TestCase):
         self.assertIn("Priority", fields)
         self.assertIn("Status", fields)
         
-        # Scenario B: Duplicate Import Key
+        # Scenario B: Duplicate rows within file (warning only)
         excel_file = self.create_mock_excel([
-            ["T001", "Task 1", "Desc", "High", "Pending", "2026-08-12", "12:00", "", ""],
-            ["T001", "Task 2", "Desc", "Medium", "Pending", "2026-08-12", "12:00", "", ""]
+            ["Task 1", "Desc", "High", "Pending", "2026-08-12", "12:00", ""],
+            ["Task 1", "Desc", "High", "Pending", "2026-08-12", "12:00", ""]
         ])
         response = self.client.post(url, {'file': excel_file}, format='multipart')
-        self.assertFalse(response.data['success'])
-        errors = response.data['errors']
-        self.assertTrue(any("Duplicate Import Key" in e['message'] for e in errors))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['success'])
+        self.assertEqual(response.data['duplicate_count'], 1)
 
-        # Scenario C: Invalid Parent Key
+        # Scenario C: Invalid Assignee Email / Inactive Assignee
         excel_file = self.create_mock_excel([
-            ["T001", "Subtask 1", "Desc", "High", "Pending", "", "", "", "T999"]
-        ])
-        response = self.client.post(url, {'file': excel_file}, format='multipart')
-        self.assertFalse(response.data['success'])
-        errors = response.data['errors']
-        self.assertTrue(any("does not exist" in e['message'] for e in errors))
-
-        # Scenario D: Nested Subtasks (unsupported)
-        excel_file = self.create_mock_excel([
-            ["T001", "Parent", "Desc", "High", "Pending", "2026-08-12", "12:00", "", ""],
-            ["T002", "Subtask 1", "Desc", "Medium", "Pending", "", "", "", "T001"],
-            ["T003", "Sub-subtask", "Desc", "Low", "Pending", "", "", "", "T002"]
-        ])
-        response = self.client.post(url, {'file': excel_file}, format='multipart')
-        self.assertFalse(response.data['success'])
-        errors = response.data['errors']
-        self.assertTrue(any("itself a subtask" in e['message'] for e in errors))
-
-        # Scenario E: Self Parent
-        excel_file = self.create_mock_excel([
-            ["T001", "Task 1", "Desc", "High", "Pending", "", "", "", "T001"]
-        ])
-        response = self.client.post(url, {'file': excel_file}, format='multipart')
-        self.assertFalse(response.data['success'])
-        errors = response.data['errors']
-        self.assertTrue(any("its own parent" in e['message'] for e in errors))
-
-        # Scenario F: Invalid Assignee Email / Inactive Assignee
-        excel_file = self.create_mock_excel([
-            ["T001", "Task 1", "Desc", "High", "Pending", "2026-08-12", "12:00", "nonexistent@test.com", ""],
-            ["T002", "Task 2", "Desc", "Medium", "Pending", "2026-08-12", "12:00", "deactivated_import@test.com", ""]
+            ["Task 1", "Desc", "High", "Pending", "2026-08-12", "12:00", "nonexistent@test.com"],
+            ["Task 2", "Desc", "Medium", "Pending", "2026-08-12", "12:00", "deactivated_import@test.com"]
         ])
         response = self.client.post(url, {'file': excel_file}, format='multipart')
         self.assertFalse(response.data['success'])
@@ -743,15 +745,13 @@ class BulkTaskImportTests(TestCase):
             "tasks": [
                 {
                     "row_number": 2,
-                    "import_key": "T001",
                     "title": "Rollback Parent",
                     "description": "Desc",
                     "priority": "HIGH",
                     "status": "PENDING",
                     "due_date": "invalid-date",
                     "due_time": "12:00",
-                    "assignee_emails_str": "",
-                    "parent_key": ""
+                    "assignee_emails_str": ""
                 }
             ]
         }
@@ -759,86 +759,47 @@ class BulkTaskImportTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(Task.objects.filter(name="Rollback Parent").exists())
 
-        # 2. Test Success Import (1 Parent, 3 Subtasks, Assignee and Completed states)
+        # 2. Test Success Import (2 Tasks, Assignee and Completed states)
         success_payload = {
             "tasks": [
                 {
                     "row_number": 2,
-                    "import_key": "T001",
                     "title": "Website Redesign",
                     "description": "Corporate site redesign",
                     "priority": "HIGH",
                     "status": "PENDING",
                     "due_date": "2026-08-15",
                     "due_time": "18:00",
-                    "assignee_emails_str": "member_import@test.com",
-                    "parent_key": ""
+                    "assignee_emails_str": "member_import@test.com"
                 },
                 {
                     "row_number": 3,
-                    "import_key": "T002",
                     "title": "Homepage Design",
                     "description": "Wireframe first",
                     "priority": "MEDIUM",
                     "status": "COMPLETED",
-                    "due_date": "",
-                    "due_time": "",
-                    "assignee_emails_str": "",
-                    "parent_key": "T001"
-                },
-                {
-                    "row_number": 4,
-                    "import_key": "T003",
-                    "title": "About Page",
-                    "description": "About page details",
-                    "priority": "LOW",
-                    "status": "PENDING",
-                    "due_date": "",
-                    "due_time": "",
-                    "assignee_emails_str": "",
-                    "parent_key": "T001"
-                },
-                {
-                    "row_number": 5,
-                    "import_key": "T004",
-                    "title": "Mobile Design",
-                    "description": "Mobile screen wireframes",
-                    "priority": "HIGH",
-                    "status": "PENDING",
-                    "due_date": "",
-                    "due_time": "",
-                    "assignee_emails_str": "",
-                    "parent_key": "T001"
+                    "due_date": "2026-08-16",
+                    "due_time": "12:00",
+                    "assignee_emails_str": ""
                 }
             ]
         }
         
         response = self.client.post(url_confirm, success_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['tasks_created'], 1)
-        self.assertEqual(response.data['subtasks_created'], 3)
+        self.assertEqual(response.data['tasks_created'], 2)
         
         # Verify database structures
-        parent_task = Task.objects.get(name="Website Redesign", project=self.project)
-        self.assertEqual(parent_task.priority, "HIGH")
-        self.assertEqual(parent_task.status, "PENDING")
-        self.assertEqual(str(parent_task.due_date), "2026-08-15")
-        
-        # Check subtasks count and names
-        self.assertEqual(parent_task.subtasks.count(), 3)
-        sub_completed = parent_task.subtasks.get(name="Homepage Design")
-        self.assertEqual(sub_completed.status, "COMPLETED")
-        self.assertIsNotNone(sub_completed.completed_at)
-        self.assertEqual(sub_completed.completed_by, self.admin)
-        
-        sub_pending = parent_task.subtasks.get(name="About Page")
-        self.assertEqual(sub_pending.status, "PENDING")
+        task1 = Task.objects.get(name="Website Redesign", project=self.project)
+        self.assertEqual(task1.priority, "HIGH")
+        self.assertEqual(task1.status, "PENDING")
+        self.assertEqual(str(task1.due_date), "2026-08-15")
         
         # Check assignee creation
-        self.assertTrue(TaskAssignee.objects.filter(task=parent_task, user=self.member).exists())
+        self.assertTrue(TaskAssignee.objects.filter(task=task1, user=self.member).exists())
         
         # Check assignment history
-        self.assertTrue(TaskAssignmentHistory.objects.filter(task=parent_task, user=self.member, unassigned_at__isnull=True).exists())
+        self.assertTrue(TaskAssignmentHistory.objects.filter(task=task1, user=self.member, unassigned_at__isnull=True).exists())
         
         # Check ActivityLog entry
         self.assertTrue(ActivityLog.objects.filter(

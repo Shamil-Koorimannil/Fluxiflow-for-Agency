@@ -4,7 +4,8 @@ import { api } from '../../services/api';
 import type { Task, User } from '../../types';
 import { useAuth } from '../auth/AuthContext';
 import { X, CheckSquare, Calendar, Clock, AlertCircle, Trash2, Edit, CheckCircle2, Circle, AlertTriangle } from 'lucide-react';
-import { formatLateDuration } from '../../utils/time';
+import { formatLateDuration, formatDateOnly, formatTimeOnly } from '../../utils/time';
+import { TimePicker } from '../../components/common/TimePicker';
 
 interface TaskDetailPanelProps {
   taskId: string | null;
@@ -252,14 +253,14 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
               </div>
 
               {/* Scope/Due Dates Panel Grid */}
-              <div className="grid grid-cols-2 gap-4 border border-zinc-100 dark:border-zinc-850 bg-zinc-50/20 dark:bg-black p-4 rounded-xl text-xs">
+              <div className="grid grid-cols-2 gap-4 border border-zinc-100 dark:border-zinc-855 bg-zinc-50/20 dark:bg-black p-4 rounded-xl text-xs">
                 <div className="space-y-1">
                   <span className="text-zinc-400 font-semibold uppercase tracking-wider block">
                     Due Date
                   </span>
                   <div className="flex items-center gap-1.5 font-medium text-black dark:text-white">
                     <Calendar className="h-3.5 w-3.5 text-zinc-400" />
-                    <span>{task.due_date}</span>
+                    <span>{formatDateOnly(task.due_date)}</span>
                   </div>
                 </div>
 
@@ -269,7 +270,7 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                   </span>
                   <div className="flex items-center gap-1.5 font-medium text-black dark:text-white">
                     <Clock className="h-3.5 w-3.5 text-zinc-400" />
-                    <span>{task.due_time ? task.due_time.substring(0, 5) : 'N/A'}</span>
+                    <span>{task.due_time ? formatTimeOnly(task.due_time) : 'N/A'}</span>
                   </div>
                 </div>
 
@@ -453,12 +454,10 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                                 />
                               </div>
                               <div className="space-y-1">
-                                <label className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase">Due Time</label>
-                                <input
-                                  type="time"
+                                <label className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase block mb-1">Due Time</label>
+                                <TimePicker
                                   value={editSubDueTime}
-                                  onChange={(e) => setEditSubDueTime(e.target.value)}
-                                  className="w-full px-2.5 py-1.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-850 rounded-lg text-xs text-black dark:text-white focus:outline-none"
+                                  onChange={setEditSubDueTime}
                                 />
                               </div>
                             </div>
@@ -569,13 +568,13 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                                     {sub.due_date && (
                                       <span className="flex items-center gap-1">
                                         <Calendar className="h-3 w-3" />
-                                        {sub.due_date}
+                                        {formatDateOnly(sub.due_date)}
                                       </span>
                                     )}
                                     {sub.due_time && (
                                       <span className="flex items-center gap-1">
                                         <Clock className="h-3 w-3" />
-                                        {sub.due_time.substring(0, 5)}
+                                        {formatTimeOnly(sub.due_time)}
                                       </span>
                                     )}
                                   </div>
@@ -696,12 +695,10 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                             />
                           </div>
                           <div className="space-y-1">
-                            <label className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase">Due Time</label>
-                            <input
-                              type="time"
+                            <label className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase block mb-1">Due Time</label>
+                            <TimePicker
                               value={newSubDueTime}
-                              onChange={(e) => setNewSubDueTime(e.target.value)}
-                              className="w-full px-2.5 py-1.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-850 rounded-lg text-xs text-black dark:text-white focus:outline-none"
+                              onChange={setNewSubDueTime}
                             />
                           </div>
                         </div>

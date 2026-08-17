@@ -23,6 +23,7 @@ interface ValidationResponse {
   total_rows: number;
   tasks_count: number;
   subtasks_count: number;
+  duplicate_count?: number;
   tasks: any[];
 }
 
@@ -249,7 +250,7 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
         {step === 2 && validationResult && (
           <div className="space-y-4 flex-1 flex flex-col min-h-0">
             {/* Stats */}
-            <div className="grid grid-cols-4 gap-3 bg-zinc-50 dark:bg-zinc-950 p-4 border border-zinc-200 dark:border-zinc-850 rounded-xl select-none">
+            <div className="grid grid-cols-3 gap-3 bg-zinc-50 dark:bg-zinc-950 p-4 border border-zinc-200 dark:border-zinc-850 rounded-xl select-none">
               <div className="text-center">
                 <div className="text-lg font-bold text-black dark:text-white">
                   {validationResult.total_rows}
@@ -267,14 +268,6 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
                 </div>
               </div>
               <div className="text-center border-l border-zinc-200 dark:border-zinc-800">
-                <div className="text-lg font-bold text-black dark:text-white">
-                  {validationResult.subtasks_count}
-                </div>
-                <div className="text-[10px] font-bold text-zinc-450 dark:text-zinc-500 uppercase tracking-wide">
-                  Subtasks
-                </div>
-              </div>
-              <div className="text-center border-l border-zinc-200 dark:border-zinc-800">
                 <div className={`text-lg font-bold ${validationResult.errors.length > 0 ? 'text-red-500' : 'text-green-500'}`}>
                   {validationResult.errors.length}
                 </div>
@@ -283,6 +276,16 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
                 </div>
               </div>
             </div>
+
+            {/* Warning banner for internal file duplicate rows */}
+            {validationResult.duplicate_count !== undefined && validationResult.duplicate_count > 0 && (
+              <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-150 dark:border-amber-900/50 p-3 text-xs font-semibold text-amber-700 dark:text-amber-400 flex items-start gap-2 animate-slide-up">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+                <div>
+                  This file contains {validationResult.duplicate_count} duplicate task row(s). Do you want to continue?
+                </div>
+              </div>
+            )}
 
             {/* Error view */}
             {validationResult.errors.length > 0 ? (
@@ -331,7 +334,7 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
                   Validation Successful!
                 </h4>
                 <p className="text-xs text-zinc-600 dark:text-zinc-400 max-w-sm">
-                  Spreadsheet contains 0 errors. You are ready to import {validationResult.tasks_count} tasks and {validationResult.subtasks_count} subtasks into {projectName}.
+                  Spreadsheet contains 0 errors. You are ready to import {validationResult.tasks_count} tasks into {projectName}.
                 </p>
               </div>
             )}
@@ -388,21 +391,13 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
               </p>
             </div>
 
-            <div className="flex items-center gap-6 justify-center bg-zinc-50 dark:bg-zinc-950 p-4 border border-zinc-200 dark:border-zinc-850 rounded-xl w-full max-w-sm">
+            <div className="flex items-center gap-6 justify-center bg-zinc-50 dark:bg-zinc-950 p-4 border border-zinc-200 dark:border-zinc-850 rounded-xl w-full max-w-xs">
               <div className="text-center flex-1">
                 <div className="text-lg font-bold text-black dark:text-white">
                   {validationResult?.tasks_count || 0}
                 </div>
                 <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide">
                   Tasks Created
-                </div>
-              </div>
-              <div className="text-center flex-1 border-l border-zinc-200 dark:border-zinc-800">
-                <div className="text-lg font-bold text-black dark:text-white">
-                  {validationResult?.subtasks_count || 0}
-                </div>
-                <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide">
-                  Subtasks Created
                 </div>
               </div>
             </div>

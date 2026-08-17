@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import type { Task, Project, User } from '../../types';
 import { X } from 'lucide-react';
+import { TimePicker } from '../../components/common/TimePicker';
 
 interface TaskFormModalProps {
   isOpen: boolean;
@@ -209,15 +210,13 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+              <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider block mb-1">
                 Due Time (optional)
               </label>
-              <input
-                type="time"
+              <TimePicker
                 value={dueTime}
-                onChange={(e) => setDueTime(e.target.value)}
+                onChange={setDueTime}
                 disabled={submitMutation.isPending}
-                className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
               />
             </div>
           </div>

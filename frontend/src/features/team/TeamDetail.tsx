@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import type { TeamWorkload, Task } from '../../types';
 import { ArrowLeft, CheckCircle2, Circle, AlertCircle } from 'lucide-react';
+import { formatDateTime } from '../../utils/time';
 
 export const TeamDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -83,7 +84,7 @@ export const TeamDetail: React.FC = () => {
             >
               <div className="flex items-start md:items-center gap-3">
                 {task.status === 'COMPLETED' ? (
-                  <CheckCircle2 className="h-4 w-4 text-zinc-400 dark:text-zinc-550 shrink-0 mt-0.5 md:mt-0" />
+                  <CheckCircle2 className="h-4 w-4 text-green-500 dark:text-green-400 shrink-0 mt-0.5 md:mt-0" />
                 ) : (
                   <Circle className="h-4 w-4 text-zinc-400 dark:text-zinc-550 shrink-0 mt-0.5 md:mt-0" />
                 )}
@@ -102,7 +103,7 @@ export const TeamDetail: React.FC = () => {
               
               <div className="text-right shrink-0">
                 <span className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">
-                  {task.due_time ? `${task.due_date} · ${task.due_time.substring(0, 5)}` : task.due_date}
+                  {formatDateTime(task.due_date, task.due_time)}
                 </span>
               </div>
             </div>

@@ -14,7 +14,15 @@ export const Projects: React.FC = () => {
   // Form fields
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [clientName, setClientName] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [dueDate, setDueDate] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  // Search, sort, and tab filters
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState('newest');
+  const [activeTab, setActiveTab] = useState<'active' | 'completed'>('active');
 
   const isAdmin = user?.role === 'ADMIN';
 
@@ -29,7 +37,13 @@ export const Projects: React.FC = () => {
 
   // Create project mutation
   const createProjectMutation = useMutation({
-    mutationFn: async (data: { name: string; description: string }) => {
+    mutationFn: async (data: {
+      name: string;
+      description: string;
+      client_name?: string | null;
+      start_date?: string | null;
+      due_date?: string | null;
+    }) => {
       const response = await api.post('/projects/', data);
       return response.data;
     },
@@ -38,6 +52,9 @@ export const Projects: React.FC = () => {
       setIsModalOpen(false);
       setName('');
       setDescription('');
+      setClientName('');
+      setStartDate('');
+      setDueDate('');
       setError(null);
     },
     onError: (err: any) => {
@@ -55,8 +72,54 @@ export const Projects: React.FC = () => {
       setError('Project name is required.');
       return;
     }
-    createProjectMutation.mutate({ name, description });
+    createProjectMutation.mutate({
+      name,
+      description,
+      client_name: clientName.trim() || null,
+      start_date: startDate || null,
+      due_date: dueDate || null,
+    });
   };
+
+  // Filter and Search projects
+  const searchedProjects = (projects || []).filter((project) => {
+    const term = searchTerm.toLowerCase().trim();
+    if (!term) return true;
+    const nameMatch = project.name.toLowerCase().includes(term);
+    const descMatch = project.description?.toLowerCase().includes(term) ?? false;
+    const clientMatch = project.client_name?.toLowerCase().includes(term) ?? false;
+    return nameMatch || descMatch || clientMatch;
+  });
+
+  // Split projects based on completeness rules:
+  // Completed: progress >= 100
+  // Active: progress < 100 or progress is null (no tasks yet)
+  const activeProjects = searchedProjects.filter((p) => p.progress === null || p.progress < 100);
+  const completedProjects = searchedProjects.filter((p) => p.progress !== null && p.progress >= 100);
+
+  const displayedProjects = activeTab === 'active' ? activeProjects : completedProjects;
+
+  // Sort projects
+  const sortedProjects = [...displayedProjects].sort((a, b) => {
+    switch (sortBy) {
+      case 'newest':
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      case 'oldest':
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      case 'name_asc':
+        return a.name.localeCompare(b.name);
+      case 'name_desc':
+        return b.name.localeCompare(a.name);
+      case 'progress_desc':
+        return (b.progress ?? 0) - (a.progress ?? 0);
+      case 'progress_asc':
+        return (a.progress ?? 0) - (b.progress ?? 0);
+      case 'recently_updated':
+        return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+      default:
+        return 0;
+    }
+  });
 
   if (isLoading) {
     return (
@@ -76,7 +139,7 @@ export const Projects: React.FC = () => {
 
   if (fetchError) {
     return (
-      <div className="rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/30 p-4 text-sm font-medium text-red-600 dark:text-red-400">
+      <div className="rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/30 p-4 text-sm font-medium text-red-650 dark:text-red-400">
         Failed to load projects. Please verify connection and auth state.
       </div>
     );
@@ -105,6 +168,58 @@ export const Projects: React.FC = () => {
         )}
       </div>
 
+      {/* Search, Sort, and Tabs Filter Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-zinc-100 dark:border-zinc-900">
+        {/* Tabs */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => setActiveTab('active')}
+            className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all border ${
+              activeTab === 'active'
+                ? 'bg-black text-white border-black dark:bg-white dark:text-black dark:border-white shadow-sm'
+                : 'bg-transparent text-zinc-550 border-zinc-200 dark:border-zinc-800 hover:text-black dark:hover:text-white'
+            }`}
+          >
+            Active Projects ({activeProjects.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('completed')}
+            className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all border ${
+              activeTab === 'completed'
+                ? 'bg-black text-white border-black dark:bg-white dark:text-black dark:border-white shadow-sm'
+                : 'bg-transparent text-zinc-550 border-zinc-200 dark:border-zinc-800 hover:text-black dark:hover:text-white'
+            }`}
+          >
+            Completed Projects ({completedProjects.length})
+          </button>
+        </div>
+
+        {/* Search & Sort Controls */}
+        <div className="flex items-center gap-3 w-full sm:w-auto">
+          <input
+            type="text"
+            placeholder="Search projects..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="flex-1 sm:w-64 px-3 py-1.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white transition-colors"
+          />
+          
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="px-3 py-1.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white transition-colors cursor-pointer"
+          >
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="name_asc">Name A-Z</option>
+            <option value="name_desc">Name Z-A</option>
+            <option value="progress_desc">Progress: High to Low</option>
+            <option value="progress_asc">Progress: Low to High</option>
+            <option value="recently_updated">Recently updated</option>
+          </select>
+        </div>
+      </div>
+
       {/* Projects Grid */}
       {!projects || projects.length === 0 ? (
         <div className="flex flex-col items-center justify-center border border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-black p-12 text-center text-black dark:text-white">
@@ -130,9 +245,17 @@ export const Projects: React.FC = () => {
             </p>
           )}
         </div>
+      ) : sortedProjects.length === 0 ? (
+        <div className="flex flex-col items-center justify-center border border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-black p-12 text-center text-zinc-500 dark:text-zinc-400">
+          <Folder className="h-5 w-5 text-zinc-450 mb-2" />
+          <h3 className="font-semibold text-sm">No matching projects found</h3>
+          <p className="text-xs text-zinc-400 mt-1">
+            Try adjusting your search terms or filters.
+          </p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {projects.map((project) => (
+          {sortedProjects.map((project) => (
             <Link
               key={project.id}
               to={`/app/projects/${project.id}`}
@@ -143,6 +266,12 @@ export const Projects: React.FC = () => {
                   <Folder className="h-4 w-4 text-zinc-400 group-hover:text-black dark:group-hover:text-white shrink-0" />
                   <h3 className="font-semibold text-sm text-black dark:text-white truncate">{project.name}</h3>
                 </div>
+                {project.client_name && (
+                  <div className="text-[10px] font-bold text-zinc-450 dark:text-zinc-500 uppercase tracking-wider flex items-center gap-1 select-none">
+                    <span>💼</span>
+                    <span className="truncate">Client: {project.client_name}</span>
+                  </div>
+                )}
                 <p className="text-xs text-zinc-550 dark:text-zinc-400 line-clamp-2 leading-relaxed">
                   {project.description || 'No description provided.'}
                 </p>
@@ -221,9 +350,50 @@ export const Projects: React.FC = () => {
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   disabled={createProjectMutation.isPending}
-                  rows={3}
+                  rows={2}
                   className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors resize-none"
                 />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider">
+                  Client Name
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Acme Corporation"
+                  value={clientName}
+                  onChange={(e) => setClientName(e.target.value)}
+                  disabled={createProjectMutation.isPending}
+                  className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider">
+                    Start Date
+                  </label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    disabled={createProjectMutation.isPending}
+                    className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider">
+                    Due Date
+                  </label>
+                  <input
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    disabled={createProjectMutation.isPending}
+                    className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
+                  />
+                </div>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-900">

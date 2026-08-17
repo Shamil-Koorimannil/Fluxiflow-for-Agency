@@ -89,17 +89,17 @@ class ProjectViewSet(viewsets.ModelSerializerViewSet if hasattr(viewsets, 'Model
             return Response({"detail": result}, status=status.HTTP_400_BAD_REQUEST)
             
         assert isinstance(result, list)
-        errors = validate_bulk_import_data(result, project)
-        
-        tasks_count = len([t for t in result if not (t.get("parent_key") and str(t.get("parent_key")).strip() != "")])
-        subtasks_count = len([t for t in result if (t.get("parent_key") and str(t.get("parent_key")).strip() != "")])
+        validation_result = validate_bulk_import_data(result, project)
+        errors = validation_result["errors"]
+        duplicate_count = validation_result["duplicate_count"]
         
         return Response({
             "success": len(errors) == 0,
             "errors": errors,
             "total_rows": len(result),
-            "tasks_count": tasks_count,
-            "subtasks_count": subtasks_count,
+            "tasks_count": len(result),
+            "subtasks_count": 0,
+            "duplicate_count": duplicate_count,
             "tasks": result
         })
 
@@ -115,7 +115,8 @@ class ProjectViewSet(viewsets.ModelSerializerViewSet if hasattr(viewsets, 'Model
             return Response({"detail": "Invalid payload format. Tasks list is required."}, status=status.HTTP_400_BAD_REQUEST)
             
         # Security & Integrity re-validation on server side
-        errors = validate_bulk_import_data(tasks_data, project)
+        validation_result = validate_bulk_import_data(tasks_data, project)
+        errors = validation_result["errors"]
         if errors:
             return Response({
                 "detail": "Validation failed. Import payload was manipulated or contains errors.",
@@ -138,5 +139,31 @@ class ProjectViewSet(viewsets.ModelSerializerViewSet if hasattr(viewsets, 'Model
             import traceback
             traceback.print_exc()
             return Response({"detail": f"Import failed due to a server error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['GET'], url_path='export-report')
+    def export_report(self, request, pk=None):
+        project = self.get_object()
+        from apps.reports.services import ReportGenerator
+        
+        try:
+            pdf_file = ReportGenerator.export_project_report(project)
+            
+            # Log export activity
+            ActivityLog.objects.create(
+                user=request.user,
+                action='REPORT_EXPORTED',
+                entity_type='Project',
+                entity_id=project.id,
+                description=f"{request.user.name} exported client PDF report for project '{project.name}'."
+            )
+            
+            filename = f"Fluxiflow_Project_Report_{project.name.replace(' ', '_')}.pdf"
+            response = HttpResponse(pdf_file.read(), content_type='application/pdf')
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            return response
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return Response({"detail": f"Failed to generate project report: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 

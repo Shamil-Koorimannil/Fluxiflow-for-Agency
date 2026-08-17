@@ -215,6 +215,13 @@ class TaskViewSet(viewsets.ModelViewSet):
         task = self.get_object()
         user = request.user
         
+        # Prevent completion if task has incomplete subtasks
+        if task.subtasks.exclude(status='COMPLETED').exists():
+            return Response(
+                {"detail": "All subtasks must be completed before the task can be completed."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
         # Check permission: Admin, or Member assigned to the task
         is_assigned = TaskAssignee.objects.filter(task=task, user=user).exists()
         if user.role != 'ADMIN' and not is_assigned:

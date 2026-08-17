@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../../services/api';
 import type { GlobalSearchResults } from '../../types';
 import { Search as SearchIcon, Folder, CheckSquare } from 'lucide-react';
-import { formatLateDuration } from '../../utils/time';
+import { formatLateDuration, formatDateTime } from '../../utils/time';
 
 export const Search: React.FC = () => {
   const [query, setQuery] = useState('');
@@ -223,7 +223,7 @@ export const Search: React.FC = () => {
                       {/* Date display & Priority indicator */}
                       <div className="flex items-center gap-3 flex-wrap text-[11px] text-zinc-450 mt-1">
                         <span className="font-medium dark:text-zinc-400">
-                          Due: {new Date(task.due_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                          Due: {formatDateTime(task.due_date, task.due_time)}
                         </span>
 
                         {task.priority && (

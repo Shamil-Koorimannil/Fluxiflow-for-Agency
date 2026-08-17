@@ -11,8 +11,11 @@ from dotenv import load_dotenv
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Load environment variables from workspace directory
-load_dotenv(BASE_DIR.parent / '.env')
+# Load environment variables from workspace directory or backend directory
+env_path = BASE_DIR.parent / '.env'
+if not env_path.exists():
+    env_path = BASE_DIR / '.env'
+load_dotenv(env_path)
 
 # Quick-start development settings - unsuitable for production
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-fluxiflow-for-agency-project-management-v1-key')
@@ -103,8 +106,8 @@ if DATABASE_URL:
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
             'NAME': url.path[1:],
-            'USER': url.username,
-            'PASSWORD': url.password,
+            'USER': urlparse.unquote(url.username) if url.username else '',
+            'PASSWORD': urlparse.unquote(url.password) if url.password else '',
             'HOST': url.hostname,
             'PORT': url.port or 5432,
         }

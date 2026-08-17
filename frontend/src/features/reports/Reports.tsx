@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, Download, Search as SearchIcon, CheckCircle,
 import { api } from '../../services/api';
 import { useAuth } from '../auth/AuthContext';
 import type { User, Project } from '../../types';
+import { formatDateOnly, formatTimeOnly, formatDateTime } from '../../utils/time';
 
 interface MemberSummary {
   member_id: string;
@@ -619,8 +620,8 @@ export const Reports: React.FC = () => {
                             </span>
                           </td>
                           <td className="px-6 py-4">
-                            <span>{t.due_date}</span>
-                            {t.due_time && <span className="text-[10px] text-zinc-400 block mt-0.5">{t.due_time}</span>}
+                            <span>{formatDateOnly(t.due_date)}</span>
+                            {t.due_time && <span className="text-[10px] text-zinc-400 block mt-0.5">{formatTimeOnly(t.due_time)}</span>}
                           </td>
                           <td className="px-6 py-4 font-bold text-emerald-500">{t.completed_at || '-'}</td>
                           <td className="px-6 py-4">
@@ -765,7 +766,7 @@ export const Reports: React.FC = () => {
                         <p className="text-[10px] text-zinc-400 font-semibold uppercase tracking-wide">Project: {t.project_name}</p>
                         <div className="flex items-center gap-1 text-[9px] text-zinc-400 font-bold">
                           <Clock size={10} />
-                          Due: {t.due_date} {t.due_time ? `@ ${t.due_time}` : ''}
+                          Due: {formatDateTime(t.due_date, t.due_time)}
                         </div>
                       </div>
                     ))

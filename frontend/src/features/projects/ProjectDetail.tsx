@@ -6,7 +6,7 @@ import type { Project, Task } from '../../types';
 import { useAuth } from '../auth/AuthContext';
 import { TaskDetailPanel } from '../tasks/TaskDetailPanel';
 import { TaskFormModal } from '../tasks/TaskFormModal';
-import { ArrowLeft, Plus, Upload, Trash2, CheckSquare, CheckCircle2, Circle, X, Pencil } from 'lucide-react';
+import { ArrowLeft, Plus, Upload, Trash2, CheckSquare, CheckCircle2, Circle, X, Pencil, Download, Loader2 } from 'lucide-react';
 import { formatLateDuration } from '../../utils/time';
 import { BulkUploadModal } from './BulkUploadModal';
 
@@ -27,7 +27,34 @@ export const ProjectDetail: React.FC = () => {
   const [isEditProjModalOpen, setIsEditProjModalOpen] = useState(false);
   const [editProjName, setEditProjName] = useState('');
   const [editProjDescription, setEditProjDescription] = useState('');
+  const [editProjClientName, setEditProjClientName] = useState('');
+  const [editProjStartDate, setEditProjStartDate] = useState('');
+  const [editProjDueDate, setEditProjDueDate] = useState('');
   const [editProjError, setEditProjError] = useState<string | null>(null);
+
+  const [isDownloadingReport, setIsDownloadingReport] = useState(false);
+
+  const handleDownloadReport = async () => {
+    if (isDownloadingReport) return;
+    setIsDownloadingReport(true);
+    try {
+      const response = await api.get(`/projects/${id}/export-report/`, {
+        responseType: 'blob',
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Fluxiflow_Project_Report_${project?.name.replace(/\s+/g, '_')}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode?.removeChild(link);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to generate/download project report. Please try again.');
+    } finally {
+      setIsDownloadingReport(false);
+    }
+  };
 
   // Fetch Project details
   const { data: project, isLoading: isProjectLoading, error: projectError } = useQuery<Project>({
@@ -43,13 +70,22 @@ export const ProjectDetail: React.FC = () => {
     if (project) {
       setEditProjName(project.name);
       setEditProjDescription(project.description || '');
+      setEditProjClientName(project.client_name || '');
+      setEditProjStartDate(project.start_date || '');
+      setEditProjDueDate(project.due_date || '');
       setEditProjError(null);
       setIsEditProjModalOpen(true);
     }
   };
 
   const editProjectMutation = useMutation({
-    mutationFn: async (data: { name: string; description: string }) => {
+    mutationFn: async (data: {
+      name: string;
+      description: string;
+      client_name?: string | null;
+      start_date?: string | null;
+      due_date?: string | null;
+    }) => {
       const response = await api.patch(`/projects/${id}/`, data);
       return response.data;
     },
@@ -74,7 +110,13 @@ export const ProjectDetail: React.FC = () => {
       setEditProjError('Project name is required.');
       return;
     }
-    editProjectMutation.mutate({ name: editProjName, description: editProjDescription });
+    editProjectMutation.mutate({
+      name: editProjName,
+      description: editProjDescription,
+      client_name: editProjClientName.trim() || null,
+      start_date: editProjStartDate || null,
+      due_date: editProjDueDate || null,
+    });
   };
 
   // Fetch Project Tasks
@@ -283,7 +325,7 @@ export const ProjectDetail: React.FC = () => {
             className="text-zinc-400 hover:text-black dark:hover:text-white shrink-0 disabled:opacity-50 transition-all duration-200 active:scale-90 hover:scale-110 mt-0.5 md:mt-0"
           >
             {task.status === 'COMPLETED' ? (
-              <CheckCircle2 className="h-4.5 w-4.5 text-zinc-400 dark:text-zinc-550" />
+              <CheckCircle2 className="h-4.5 w-4.5 text-green-550 dark:text-green-400" />
             ) : (
               <Circle className="h-4.5 w-4.5" />
             )}
@@ -392,7 +434,13 @@ export const ProjectDetail: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
         <div className="space-y-1.5 flex-1">
           <h1 className="text-2xl font-bold tracking-tight">{project.name}</h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed">
+          {project.client_name && (
+            <div className="text-xs font-bold text-zinc-450 dark:text-zinc-500 uppercase tracking-wider flex items-center gap-1 select-none">
+              <span>💼 Client:</span>
+              <span className="text-black dark:text-white">{project.client_name}</span>
+            </div>
+          )}
+          <p className="text-sm text-zinc-550 dark:text-zinc-400 leading-relaxed">
             {project.description || 'No description provided.'}
           </p>
         </div>
@@ -411,6 +459,19 @@ export const ProjectDetail: React.FC = () => {
           ) : (
             <span className="text-xs text-zinc-400 italic font-semibold">No tasks</span>
           )}
+
+          <button
+            onClick={handleDownloadReport}
+            disabled={isDownloadingReport}
+            className="p-2 border border-zinc-200 dark:border-zinc-800 hover:border-black dark:hover:border-white text-zinc-500 hover:text-black dark:hover:text-white rounded-lg transition-colors flex items-center justify-center disabled:opacity-50"
+            title="Download Project Report"
+          >
+            {isDownloadingReport ? (
+              <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+          </button>
 
           {isAdmin && (
             <>
@@ -616,9 +677,50 @@ export const ProjectDetail: React.FC = () => {
                   value={editProjDescription}
                   onChange={(e) => setEditProjDescription(e.target.value)}
                   disabled={editProjectMutation.isPending}
-                  rows={3}
+                  rows={2}
                   className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors resize-none"
                 />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider">
+                  Client Name
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Acme Corporation"
+                  value={editProjClientName}
+                  onChange={(e) => setEditProjClientName(e.target.value)}
+                  disabled={editProjectMutation.isPending}
+                  className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider">
+                    Start Date
+                  </label>
+                  <input
+                    type="date"
+                    value={editProjStartDate}
+                    onChange={(e) => setEditProjStartDate(e.target.value)}
+                    disabled={editProjectMutation.isPending}
+                    className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider">
+                    Due Date
+                  </label>
+                  <input
+                    type="date"
+                    value={editProjDueDate}
+                    onChange={(e) => setEditProjDueDate(e.target.value)}
+                    disabled={editProjectMutation.isPending}
+                    className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
+                  />
+                </div>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-900">

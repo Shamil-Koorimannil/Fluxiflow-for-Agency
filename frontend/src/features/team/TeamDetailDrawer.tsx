@@ -24,6 +24,7 @@ import {
   Plus,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
+import { formatTimeOnly } from '../../utils/time';
 
 interface TeamDetailDrawerProps {
   memberId: string | null;
@@ -440,7 +441,7 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
                               className="text-zinc-450 hover:text-black dark:hover:text-white shrink-0 transition-all duration-200 active:scale-90"
                             >
                               {task.status === 'COMPLETED' ? (
-                                <CheckCircle2 className="h-4.5 w-4.5 text-zinc-400" />
+                                <CheckCircle2 className="h-4.5 w-4.5 text-green-500" />
                               ) : (
                                 <Circle className="h-4.5 w-4.5" />
                               )}
@@ -461,7 +462,7 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
                                 {task.due_time && (
                                   <Box className="flex items-center gap-0.5">
                                     <Clock className="h-2.5 w-2.5" />
-                                    <span>{task.due_time.substring(0, 5)}</span>
+                                    <span>{formatTimeOnly(task.due_time)}</span>
                                   </Box>
                                 )}
                                 {task.project_detail && (

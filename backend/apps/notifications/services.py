@@ -130,7 +130,7 @@ class NotificationService:
                     created_at__gte=now - timedelta(hours=24)
                 ).exists()
                 if not exists:
-                    due_time_str = due_dt.strftime('%I:%M %p').lstrip('0')
+                    due_time_str = due_dt.strftime('%I:%M %p')
                     NotificationService.create_notification(
                         recipient=user,
                         notification_type='TASK_DUE_SOON',
@@ -199,7 +199,7 @@ class NotificationService:
                     created_at__gte=now - timedelta(hours=24)
                 ).filter(message__icontains=subtask.name).exists()
                 if not exists:
-                    due_time_str = due_dt.strftime('%I:%M %p').lstrip('0')
+                    due_time_str = due_dt.strftime('%I:%M %p')
                     NotificationService.create_notification(
                         recipient=user,
                         notification_type='TASK_DUE_SOON',

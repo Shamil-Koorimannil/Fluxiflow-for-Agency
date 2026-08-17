@@ -118,7 +118,7 @@ def calculate_date_display_color(due_date_str, due_time, is_completed, completed
     
     time_str = ""
     if due_time:
-        time_str = f" · {due_time.strftime('%I:%M %p').lstrip('0')}"
+        time_str = f" · {due_time.strftime('%I:%M %p')}"
 
     if is_completed:
         date_color = 'gray'

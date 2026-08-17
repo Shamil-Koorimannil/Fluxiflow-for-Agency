@@ -282,7 +282,7 @@ export const Tasks: React.FC = () => {
             className="text-zinc-400 hover:text-black dark:hover:text-white shrink-0 disabled:opacity-50 transition-all duration-200 active:scale-90 hover:scale-110 mt-0.5 md:mt-0"
           >
             {task.status === 'COMPLETED' ? (
-              <CheckCircle2 className="h-4.5 w-4.5 text-zinc-400 dark:text-zinc-550 animate-pop" />
+              <CheckCircle2 className="h-4.5 w-4.5 text-green-550 dark:text-green-400 animate-pop" />
             ) : (
               <Circle className="h-4.5 w-4.5 transition-transform duration-200" />
             )}

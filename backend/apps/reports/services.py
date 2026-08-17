@@ -192,7 +192,7 @@ class ReportGenerator:
                             late_duration = format_late_duration(late_mins)
                             
                     task_status = "COMPLETED"
-                    completed_at_str = timezone.localtime(h.completed_at).strftime("%Y-%m-%d %I:%M %p")
+                    completed_at_str = timezone.localtime(h.completed_at).strftime("%d %b %Y, %I:%M %p")
                 else:
                     # Incomplete by end of day
                     if not is_completed_before_day_end:
@@ -218,7 +218,7 @@ class ReportGenerator:
                         continue
 
                 # Add to task details
-                due_date_str = str(subtask.due_date) if (is_subtask and subtask.due_date) else (str(task.due_date) if not is_subtask else "-")
+                due_date_str = subtask.due_date.strftime("%d %b %Y") if (is_subtask and subtask.due_date) else (task.due_date.strftime("%d %b %Y") if (not is_subtask and task.due_date) else "-")
                 due_time_str = subtask.due_time.strftime("%I:%M %p") if (is_subtask and subtask.due_time) else (task.due_time.strftime("%I:%M %p") if (not is_subtask and task.due_time) else None)
                 priority_str = task.get_priority_display() if hasattr(task, 'get_priority_display') else task.priority
                 
@@ -634,7 +634,7 @@ class ReportGenerator:
             for t in data["tasks"]:
                 due_str = f"{t['due_date']}"
                 if t['due_time']:
-                    due_str += f"\n{t['due_time']}"
+                    due_str += f", {t['due_time']}"
                 
                 # Format status column showing Late status details
                 if t["status"] == "COMPLETED":
@@ -669,6 +669,377 @@ class ReportGenerator:
             ]))
             story.append(task_table)
 
+        doc.build(story)
+        buffer.seek(0)
+        return buffer
+
+    @staticmethod
+    def export_project_report(project):
+        from io import BytesIO
+        from django.utils import timezone
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib import colors
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepTogether
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        
+        # 1. Compile project stats
+        tasks = project.tasks.all().order_by('due_date', 'due_time', 'created_at')
+        total_tasks = tasks.count()
+        
+        completed_tasks = 0
+        in_progress_tasks = 0
+        pending_tasks = 0
+        
+        task_list_data = []
+        
+        # Helper to determine task overall status and progress
+        for task in tasks:
+            # calculate overall status based on assignees
+            assignees_rels = task.assignee_relationships.all()
+            total_assignees = assignees_rels.count()
+            completed_assignees = sum(1 for rel in assignees_rels if rel.completed)
+            
+            if total_assignees > 0:
+                if completed_assignees == total_assignees:
+                    task_status = 'COMPLETED'
+                elif completed_assignees > 0:
+                    task_status = 'IN_PROGRESS'
+                else:
+                    task_status = 'PENDING'
+            else:
+                task_status = 'COMPLETED' if task.status == 'COMPLETED' else 'PENDING'
+                
+            # Progress calculation
+            subtasks_count = task.subtasks.count()
+            if subtasks_count > 0:
+                completed_subtasks = task.subtasks.filter(status='COMPLETED').count()
+                task_progress = round((completed_subtasks / subtasks_count) * 100)
+            else:
+                task_progress = 100 if task_status == 'COMPLETED' else 0
+                
+            if task_status == 'COMPLETED':
+                completed_tasks += 1
+            elif task_status == 'IN_PROGRESS':
+                in_progress_tasks += 1
+            else:
+                pending_tasks += 1
+                
+            due_str = task.due_date.strftime("%d %b %Y") if task.due_date else "N/A"
+            if task.due_time:
+                due_str += f", {task.due_time.strftime('%I:%M %p')}"
+                
+            task_list_data.append({
+                'name': task.name,
+                'status': task_status,
+                'progress': task_progress,
+                'due_date': due_str
+            })
+            
+        progress_pct = 0
+        if total_tasks > 0:
+            progress_pct = round((completed_tasks / total_tasks) * 100)
+            
+        # Determine overall project status
+        if total_tasks > 0 and completed_tasks == total_tasks:
+            project_status = "Completed"
+        elif project.due_date and project.due_date < timezone.localtime(timezone.now()).date() and completed_tasks < total_tasks:
+            project_status = "Overdue"
+        elif completed_tasks > 0 or in_progress_tasks > 0:
+            project_status = "In Progress"
+        else:
+            project_status = "Planning"
+            
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=letter,
+            rightMargin=40,
+            leftMargin=40,
+            topMargin=40,
+            bottomMargin=40
+        )
+        
+        styles = getSampleStyleSheet()
+        
+        # Styles definition
+        title_style = ParagraphStyle(
+            'ReportTitle',
+            parent=styles['Heading1'],
+            fontName='Helvetica-Bold',
+            fontSize=24,
+            textColor=colors.HexColor('#111827'), # Dark slate
+            spaceAfter=4
+        )
+        subtitle_style = ParagraphStyle(
+            'ReportSubTitle',
+            parent=styles['Normal'],
+            fontName='Helvetica',
+            fontSize=10,
+            textColor=colors.HexColor('#6B7280'), # Cool grey
+            spaceAfter=24
+        )
+        section_heading = ParagraphStyle(
+            'ReportSection',
+            parent=styles['Heading2'],
+            fontName='Helvetica-Bold',
+            fontSize=13,
+            textColor=colors.HexColor('#1F2937'),
+            spaceBefore=16,
+            spaceAfter=8,
+            keepWithNext=True
+        )
+        body_style = ParagraphStyle(
+            'ReportBody',
+            parent=styles['Normal'],
+            fontName='Helvetica',
+            fontSize=9.5,
+            textColor=colors.HexColor('#374151'),
+            leading=14
+        )
+        bold_body = ParagraphStyle(
+            'ReportBoldBody',
+            parent=body_style,
+            fontName='Helvetica-Bold'
+        )
+        small_style = ParagraphStyle(
+            'ReportSmall',
+            parent=body_style,
+            fontName='Helvetica',
+            fontSize=8,
+            textColor=colors.HexColor('#6B7280')
+        )
+        
+        story = []
+        
+        # ── 1. HEADER SECTION (Branding) ──
+        org_name = project.organization.name if project.organization else "Fluxiflow Workspace"
+        gen_date = timezone.localtime(timezone.now()).strftime("%B %d, %Y")
+        
+        header_table_data = [
+            [
+                Paragraph(f"<b>FLUXIFLOW</b> | {org_name}", bold_body),
+                Paragraph(f"Generated on {gen_date}", small_style)
+            ]
+        ]
+        header_table = Table(header_table_data, colWidths=[350, 180])
+        header_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (0, 0), 'LEFT'),
+            ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+            ('LINEBELOW', (0, 0), (-1, -1), 1, colors.HexColor('#E5E7EB')),
+        ]))
+        story.append(header_table)
+        story.append(Spacer(1, 15))
+        
+        # ── 2. PROJECT OVERVIEW ──
+        story.append(Paragraph(project.name, title_style))
+        if project.client_name:
+            story.append(Paragraph(f"Client: <b>{project.client_name}</b>", subtitle_style))
+        else:
+            story.append(Paragraph("Client: Internal / Unspecified", subtitle_style))
+            
+        story.append(Paragraph("<b>Project Overview</b>", section_heading))
+        desc_text = project.description or "No description provided."
+        
+        # Overview grid table
+        start_date_str = project.start_date.strftime("%Y-%m-%d") if project.start_date else "N/A"
+        due_date_str = project.due_date.strftime("%Y-%m-%d") if project.due_date else "N/A"
+        
+        overview_table_data = [
+            [
+                Paragraph("<b>Description</b>", bold_body),
+                Paragraph(desc_text, body_style)
+            ],
+            [
+                Paragraph("<b>Start Date</b>", bold_body),
+                Paragraph(start_date_str, body_style)
+            ],
+            [
+                Paragraph("<b>Due Date</b>", bold_body),
+                Paragraph(due_date_str, body_style)
+            ],
+            [
+                Paragraph("<b>Overall Status</b>", bold_body),
+                Paragraph(project_status, bold_body)
+            ]
+        ]
+        overview_table = Table(overview_table_data, colWidths=[110, 420])
+        overview_table.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#F3F4F6')),
+            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#F9FAFB')),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        story.append(overview_table)
+        story.append(Spacer(1, 15))
+        
+        # ── 3. PROGRESS SUMMARY ──
+        story.append(Paragraph("<b>Delivery & Progress Summary</b>", section_heading))
+        
+        # Helper to create horizontal bar
+        def make_pdf_progress_bar(pct):
+            filled_width = (pct / 100.0) * 120.0
+            unfilled_width = 120.0 - filled_width
+            bar_data = [['']]
+            bar_col_widths = []
+            bar_styles = []
+            if filled_width > 0:
+                bar_col_widths.append(filled_width)
+                bar_styles.append(('BACKGROUND', (0, 0), (0, 0), colors.HexColor('#10B981'))) # Emerald Green
+            if unfilled_width > 0:
+                bar_col_widths.append(unfilled_width)
+                bar_styles.append(('BACKGROUND', (-1, 0), (-1, 0), colors.HexColor('#E5E7EB'))) # Light gray
+            bar_table = Table(bar_data, colWidths=bar_col_widths, rowHeights=[8])
+            bar_table.setStyle(TableStyle(bar_styles + [
+                ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                ('TOPPADDING', (0, 0), (-1, -1), 0),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+            ]))
+            return bar_table
+            
+        progress_table_data = [
+            [
+                Paragraph("<b>Metric</b>", bold_body),
+                Paragraph("<b>Value</b>", bold_body),
+                Paragraph("<b>Visual Progress</b>", bold_body)
+            ],
+            [
+                Paragraph("Overall Completion", body_style),
+                Paragraph(f"{progress_pct}%", bold_body),
+                make_pdf_progress_bar(progress_pct)
+            ],
+            [
+                Paragraph("Total Project Tasks", body_style),
+                Paragraph(str(total_tasks), body_style),
+                ""
+            ],
+            [
+                Paragraph("Completed Tasks", body_style),
+                Paragraph(f"{completed_tasks} tasks", body_style),
+                ""
+            ],
+            [
+                Paragraph("In-Progress Tasks", body_style),
+                Paragraph(f"{in_progress_tasks} tasks", body_style),
+                ""
+            ],
+            [
+                Paragraph("Pending Tasks", body_style),
+                Paragraph(f"{pending_tasks} tasks", body_style),
+                ""
+            ]
+        ]
+        
+        progress_table = Table(progress_table_data, colWidths=[160, 160, 210])
+        progress_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F3F4F6')),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E5E7EB')),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        story.append(progress_table)
+        story.append(Spacer(1, 15))
+        
+        # ── 4. TASK PROGRESS TABLE ──
+        story.append(Paragraph("<b>Task Delivery Breakdown</b>", section_heading))
+        
+        if total_tasks == 0:
+            story.append(Paragraph("No tasks created for this project yet.", body_style))
+        else:
+            task_table_headers = [
+                Paragraph("<b>Task Name</b>", bold_body),
+                Paragraph("<b>Status</b>", bold_body),
+                Paragraph("<b>Progress</b>", bold_body),
+                Paragraph("<b>Due Date</b>", bold_body)
+            ]
+            task_table_rows = [task_table_headers]
+            for t in task_list_data:
+                status_color = '#10B981' if t['status'] == 'COMPLETED' else ('#F59E0B' if t['status'] == 'IN_PROGRESS' else '#374151')
+                status_p = Paragraph(f"<font color='{status_color}'><b>{t['status']}</b></font>", body_style)
+                
+                task_table_rows.append([
+                    Paragraph(t['name'], body_style),
+                    status_p,
+                    Paragraph(f"{t['progress']}%", body_style),
+                    Paragraph(t['due_date'], body_style)
+                ])
+                
+            task_table = Table(task_table_rows, colWidths=[240, 95, 95, 100])
+            task_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F3F4F6')),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E5E7EB')),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                ('LEFTPADDING', (0, 0), (-1, -1), 8),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            ]))
+            story.append(task_table)
+            
+        story.append(Spacer(1, 15))
+        
+        # ── 5. COMPLETION SUMMARY ──
+        completed_list = [t['name'] for t in task_list_data if t['status'] == 'COMPLETED']
+        remaining_list = [t['name'] for t in task_list_data if t['status'] != 'COMPLETED']
+        
+        completed_bullet_text = "None"
+        if completed_list:
+            completed_bullet_text = "<br/>".join([f"• {name}" for name in completed_list[:5]])
+            if len(completed_list) > 5:
+                completed_bullet_text += f"<br/>• ...and {len(completed_list) - 5} more task(s)"
+                
+        remaining_bullet_text = "None (All tasks completed!)"
+        if remaining_list:
+            remaining_bullet_text = "<br/>".join([f"• {name}" for name in remaining_list[:5]])
+            if len(remaining_list) > 5:
+                remaining_bullet_text += f"<br/>• ...and {len(remaining_list) - 5} remaining task(s)"
+                
+        summary_block_data = [
+            [
+                Paragraph("<b>Key Completed Work:</b>", bold_body),
+                Paragraph("<b>Remaining Deliverables:</b>", bold_body)
+            ],
+            [
+                Paragraph(completed_bullet_text, body_style),
+                Paragraph(remaining_bullet_text, body_style)
+            ]
+        ]
+        summary_block_table = Table(summary_block_data, colWidths=[260, 270])
+        summary_block_table.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E5E7EB')),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F9FAFB')),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        story.append(KeepTogether([summary_block_table]))
+        
+        # ── 6. FOOTER ──
+        story.append(Spacer(1, 20))
+        footer_table_data = [
+            [
+                Paragraph("Report generated dynamically by Fluxiflow. Client-Presentable Copy.", small_style),
+                Paragraph("Page 1 of 1", small_style)
+            ]
+        ]
+        footer_table = Table(footer_table_data, colWidths=[400, 130])
+        footer_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (0, 0), 'LEFT'),
+            ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+            ('LINEABOVE', (0, 0), (-1, -1), 1, colors.HexColor('#E5E7EB')),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        story.append(footer_table)
+        
         doc.build(story)
         buffer.seek(0)
         return buffer
