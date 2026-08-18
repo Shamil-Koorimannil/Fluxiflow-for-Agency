@@ -4,7 +4,8 @@ import { Link } from 'react-router-dom';
 import { api } from '../../services/api';
 import type { Project } from '../../types';
 import { useAuth } from '../auth/AuthContext';
-import { Folder, Plus, X } from 'lucide-react';
+import { Folder, Plus, X, ArrowUpDown, Check } from 'lucide-react';
+import { Button, Menu, MenuItem } from '@mui/material';
 
 export const Projects: React.FC = () => {
   const { user } = useAuth();
@@ -23,6 +24,7 @@ export const Projects: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('newest');
   const [activeTab, setActiveTab] = useState<'active' | 'completed'>('active');
+  const [sortAnchorEl, setSortAnchorEl] = useState<null | HTMLElement>(null);
 
   const isAdmin = user?.role === 'ADMIN';
 
@@ -121,6 +123,19 @@ export const Projects: React.FC = () => {
     }
   });
 
+  const getSortLabel = () => {
+    switch (sortBy) {
+      case 'newest': return 'Newest first';
+      case 'oldest': return 'Oldest first';
+      case 'name_asc': return 'Name A-Z';
+      case 'name_desc': return 'Name Z-A';
+      case 'progress_desc': return 'Progress: High to Low';
+      case 'progress_asc': return 'Progress: Low to High';
+      case 'recently_updated': return 'Recently updated';
+      default: return 'Newest first';
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -204,19 +219,118 @@ export const Projects: React.FC = () => {
             className="flex-1 sm:w-64 px-3 py-1.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white transition-colors"
           />
           
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            className="px-3 py-1.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white transition-colors cursor-pointer"
+          {/* Polished Sort Trigger */}
+          <Button
+            onClick={(e) => setSortAnchorEl(e.currentTarget)}
+            variant="outlined"
+            startIcon={<ArrowUpDown size={15} />}
+            endIcon={<span>▾</span>}
+            sx={{
+              textTransform: 'none',
+              fontWeight: 600,
+              borderRadius: '8px',
+              borderColor: 'divider',
+              color: 'text.primary',
+              height: '36px',
+              fontSize: '12px',
+              px: 1.5,
+              whiteSpace: 'nowrap',
+              '&:hover': { borderColor: 'text.primary', bgcolor: 'action.hover' }
+            }}
           >
-            <option value="newest">Newest first</option>
-            <option value="oldest">Oldest first</option>
-            <option value="name_asc">Name A-Z</option>
-            <option value="name_desc">Name Z-A</option>
-            <option value="progress_desc">Progress: High to Low</option>
-            <option value="progress_asc">Progress: Low to High</option>
-            <option value="recently_updated">Recently updated</option>
-          </select>
+            Sort: {getSortLabel()}
+          </Button>
+
+          {/* Dropdown Menu for options */}
+          <Menu
+            anchorEl={sortAnchorEl}
+            open={Boolean(sortAnchorEl)}
+            onClose={() => setSortAnchorEl(null)}
+            slotProps={{
+              paper: {
+                elevation: 1,
+                sx: {
+                  border: '1px solid #e4e4e7',
+                  borderRadius: '8px',
+                  minWidth: 190,
+                  '& .MuiMenuItem-root': {
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    py: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 1.5,
+                    '&:hover': { bgcolor: '#f4f4f5' },
+                  },
+                },
+              },
+            }}
+          >
+            <MenuItem
+              onClick={() => {
+                setSortBy('newest');
+                setSortAnchorEl(null);
+              }}
+            >
+              <span>Newest first</span>
+              {sortBy === 'newest' && <Check size={14} className="text-zinc-800" />}
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                setSortBy('oldest');
+                setSortAnchorEl(null);
+              }}
+            >
+              <span>Oldest first</span>
+              {sortBy === 'oldest' && <Check size={14} className="text-zinc-800" />}
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                setSortBy('name_asc');
+                setSortAnchorEl(null);
+              }}
+            >
+              <span>Name A-Z</span>
+              {sortBy === 'name_asc' && <Check size={14} className="text-zinc-800" />}
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                setSortBy('name_desc');
+                setSortAnchorEl(null);
+              }}
+            >
+              <span>Name Z-A</span>
+              {sortBy === 'name_desc' && <Check size={14} className="text-zinc-800" />}
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                setSortBy('progress_desc');
+                setSortAnchorEl(null);
+              }}
+            >
+              <span>Progress: High to Low</span>
+              {sortBy === 'progress_desc' && <Check size={14} className="text-zinc-800" />}
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                setSortBy('progress_asc');
+                setSortAnchorEl(null);
+              }}
+            >
+              <span>Progress: Low to High</span>
+              {sortBy === 'progress_asc' && <Check size={14} className="text-zinc-800" />}
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                setSortBy('recently_updated');
+                setSortAnchorEl(null);
+              }}
+            >
+              <span>Recently updated</span>
+              {sortBy === 'recently_updated' && <Check size={14} className="text-zinc-800" />}
+            </MenuItem>
+          </Menu>
         </div>
       </div>
 

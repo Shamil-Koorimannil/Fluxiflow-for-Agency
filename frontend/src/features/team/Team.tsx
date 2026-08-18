@@ -47,6 +47,8 @@ import {
   ArrowLeftRight,
   ChevronLeft,
   ChevronRight,
+  Heart,
+  ArrowUpDown
 } from 'lucide-react';
 
 export const Team: React.FC = () => {
@@ -134,6 +136,9 @@ export const Team: React.FC = () => {
   const [pickerType, setPickerType] = useState<'month' | 'range' | null>(null);
   const [viewYear, setViewYear] = useState<number>(currentYear);
   const mainButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  const [healthAnchorEl, setHealthAnchorEl] = useState<null | HTMLElement>(null);
+  const [sortAnchorEl, setSortAnchorEl] = useState<null | HTMLElement>(null);
 
   const [rangeStep, setRangeStep] = useState<'start' | 'end'>('start');
   const [isMobile, setIsMobile] = useState(window.innerWidth < 640);
@@ -612,6 +617,29 @@ export const Team: React.FC = () => {
     return 0;
   });
 
+  const getHealthFilterLabel = () => {
+    switch (healthFilter) {
+      case 'all': return 'All Statuses';
+      case 'excellent': return 'Excellent';
+      case 'healthy': return 'Healthy';
+      case 'needs_attention': return 'Needs Attention';
+      case 'at_risk': return 'At Risk';
+      case 'critical': return 'Critical';
+      default: return 'All Statuses';
+    }
+  };
+
+  const getSortByLabel = () => {
+    switch (sortBy) {
+      case 'health_low': return 'Health: Low → High';
+      case 'health_high': return 'Health: High → Low';
+      case 'name': return 'Name: A → Z';
+      case 'pending_high': return 'Pending: High → Low';
+      case 'overdue_high': return 'Overdue: High → Low';
+      default: return 'Health: Low → High';
+    }
+  };
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 4, pb: 8 }}>
       {/* Head section */}
@@ -737,21 +765,107 @@ export const Team: React.FC = () => {
         {/* Health status filter */}
         {activeTab === 'active' && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-            <FormControl size="small" sx={{ minWidth: 140, '& .MuiOutlinedInput-root': { borderRadius: '8px', bgcolor: 'background.paper' } }}>
-              <InputLabel>Health Status</InputLabel>
-              <Select
-                label="Health Status"
-                value={healthFilter}
-                onChange={(e) => setHealthFilter(e.target.value as any)}
+            {/* Polished Health Status Trigger */}
+            <Button
+              onClick={(e) => setHealthAnchorEl(e.currentTarget)}
+              variant="outlined"
+              startIcon={<Heart size={15} />}
+              endIcon={<span>▾</span>}
+              sx={{
+                textTransform: 'none',
+                fontWeight: 600,
+                borderRadius: '8px',
+                borderColor: 'divider',
+                color: 'text.primary',
+                height: '40px',
+                px: 2,
+                '&:hover': { borderColor: 'text.primary', bgcolor: 'action.hover' }
+              }}
+            >
+              Health: {getHealthFilterLabel()}
+            </Button>
+
+            {/* Dropdown Menu for Health filter options */}
+            <Menu
+              anchorEl={healthAnchorEl}
+              open={Boolean(healthAnchorEl)}
+              onClose={() => setHealthAnchorEl(null)}
+              slotProps={{
+                paper: {
+                  elevation: 1,
+                  sx: {
+                    border: '1px solid #e4e4e7',
+                    borderRadius: '8px',
+                    minWidth: 160,
+                    '& .MuiMenuItem-root': {
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      py: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 1.5,
+                      '&:hover': { bgcolor: '#f4f4f5' },
+                    },
+                  },
+                },
+              }}
+            >
+              <MenuItem
+                onClick={() => {
+                  setHealthFilter('all');
+                  setHealthAnchorEl(null);
+                }}
               >
-                <MenuItem value="all">All Statuses</MenuItem>
-                <MenuItem value="excellent">Excellent</MenuItem>
-                <MenuItem value="healthy">Healthy</MenuItem>
-                <MenuItem value="needs_attention">Needs Attention</MenuItem>
-                <MenuItem value="at_risk">At Risk</MenuItem>
-                <MenuItem value="critical">Critical</MenuItem>
-              </Select>
-            </FormControl>
+                <span>All Statuses</span>
+                {healthFilter === 'all' && <Check size={14} className="text-zinc-800" />}
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  setHealthFilter('excellent');
+                  setHealthAnchorEl(null);
+                }}
+              >
+                <span>Excellent</span>
+                {healthFilter === 'excellent' && <Check size={14} className="text-zinc-800" />}
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  setHealthFilter('healthy');
+                  setHealthAnchorEl(null);
+                }}
+              >
+                <span>Healthy</span>
+                {healthFilter === 'healthy' && <Check size={14} className="text-zinc-800" />}
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  setHealthFilter('needs_attention');
+                  setHealthAnchorEl(null);
+                }}
+              >
+                <span>Needs Attention</span>
+                {healthFilter === 'needs_attention' && <Check size={14} className="text-zinc-800" />}
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  setHealthFilter('at_risk');
+                  setHealthAnchorEl(null);
+                }}
+              >
+                <span>At Risk</span>
+                {healthFilter === 'at_risk' && <Check size={14} className="text-zinc-800" />}
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  setHealthFilter('critical');
+                  setHealthAnchorEl(null);
+                }}
+              >
+                <span>Critical</span>
+                {healthFilter === 'critical' && <Check size={14} className="text-zinc-800" />}
+              </MenuItem>
+            </Menu>
 
             {/* Polished Period Selector Trigger */}
             <Button
@@ -1233,20 +1347,103 @@ export const Team: React.FC = () => {
         )}
 
         {/* Sorting filter */}
-        <FormControl size="small" sx={{ minWidth: 180, '& .MuiOutlinedInput-root': { borderRadius: '8px', bgcolor: 'background.paper' } }}>
-          <InputLabel>Sort By</InputLabel>
-          <Select
-            label="Sort By"
-            value={activeTab === 'deactivated' && (sortBy === 'health_low' || sortBy === 'health_high') ? 'name' : sortBy}
-            onChange={(e) => setSortBy(e.target.value as any)}
+        {/* Polished Sort Trigger */}
+        <Button
+          onClick={(e) => setSortAnchorEl(e.currentTarget)}
+          variant="outlined"
+          startIcon={<ArrowUpDown size={15} />}
+          endIcon={<span>▾</span>}
+          sx={{
+            textTransform: 'none',
+            fontWeight: 600,
+            borderRadius: '8px',
+            borderColor: 'divider',
+            color: 'text.primary',
+            height: '40px',
+            px: 2,
+            whiteSpace: 'nowrap',
+            '&:hover': { borderColor: 'text.primary', bgcolor: 'action.hover' }
+          }}
+        >
+          Sort: {getSortByLabel()}
+        </Button>
+
+        {/* Dropdown Menu for Sort options */}
+        <Menu
+          anchorEl={sortAnchorEl}
+          open={Boolean(sortAnchorEl)}
+          onClose={() => setSortAnchorEl(null)}
+          slotProps={{
+            paper: {
+              elevation: 1,
+              sx: {
+                border: '1px solid #e4e4e7',
+                borderRadius: '8px',
+                minWidth: 180,
+                '& .MuiMenuItem-root': {
+                  fontSize: '13px',
+                  fontWeight: 500,
+                  py: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 1.5,
+                  '&:hover': { bgcolor: '#f4f4f5' },
+                },
+              },
+            },
+          }}
+        >
+          {activeTab === 'active' && (
+            <MenuItem
+              onClick={() => {
+                setSortBy('health_low');
+                setSortAnchorEl(null);
+              }}
+            >
+              <span>Health: Low → High</span>
+              {sortBy === 'health_low' && <Check size={14} className="text-zinc-800" />}
+            </MenuItem>
+          )}
+          {activeTab === 'active' && (
+            <MenuItem
+              onClick={() => {
+                setSortBy('health_high');
+                setSortAnchorEl(null);
+              }}
+            >
+              <span>Health: High → Low</span>
+              {sortBy === 'health_high' && <Check size={14} className="text-zinc-800" />}
+            </MenuItem>
+          )}
+          <MenuItem
+            onClick={() => {
+              setSortBy('name');
+              setSortAnchorEl(null);
+            }}
           >
-            {activeTab === 'active' && <MenuItem value="health_low">Health: Low → High</MenuItem>}
-            {activeTab === 'active' && <MenuItem value="health_high">Health: High → Low</MenuItem>}
-            <MenuItem value="name">Name: A → Z</MenuItem>
-            <MenuItem value="pending_high">Pending: High → Low</MenuItem>
-            <MenuItem value="overdue_high">Overdue: High → Low</MenuItem>
-          </Select>
-        </FormControl>
+            <span>Name: A → Z</span>
+            {sortBy === 'name' && <Check size={14} className="text-zinc-800" />}
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              setSortBy('pending_high');
+              setSortAnchorEl(null);
+            }}
+          >
+            <span>Pending: High → Low</span>
+            {sortBy === 'pending_high' && <Check size={14} className="text-zinc-800" />}
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              setSortBy('overdue_high');
+              setSortAnchorEl(null);
+            }}
+          >
+            <span>Overdue: High → Low</span>
+            {sortBy === 'overdue_high' && <Check size={14} className="text-zinc-800" />}
+          </MenuItem>
+        </Menu>
       </Box>
 
       {/* Grid of Team Member Cards */}
