@@ -4,7 +4,9 @@ from .serializers import CustomTokenRefreshSerializer
 from .views import (
     RequestOTPView, VerifyOTPView, MeView, LogoutView, ProfileView,
     TeamListView, TeamDetailView, TeamWorkloadView,
-    TeamDeactivateView, TeamReactivateView, TeamResendInvitationView, TeamTasksView
+    TeamDeactivateView, TeamReactivateView, TeamResendInvitationView, TeamTasksView,
+    RequestEmailChangeOTPView, VerifyEmailChangeView, PasswordLoginView,
+    RequestPasswordChangeOTPView, SetPasswordWithOTPView
 )
 
 urlpatterns = [
@@ -15,6 +17,13 @@ urlpatterns = [
     path('auth/logout/', LogoutView.as_view(), name='logout'),
     path('auth/me/', MeView.as_view(), name='me'),
     
+    # New Auth and Security routes
+    path('auth/request-email-change-otp/', RequestEmailChangeOTPView.as_view(), name='request_email_change_otp'),
+    path('auth/verify-email-change/', VerifyEmailChangeView.as_view(), name='verify_email_change'),
+    path('auth/login-password/', PasswordLoginView.as_view(), name='login_password'),
+    path('auth/request-password-change-otp/', RequestPasswordChangeOTPView.as_view(), name='request_password_change_otp'),
+    path('auth/set-password-with-otp/', SetPasswordWithOTPView.as_view(), name='set_password_with_otp'),
+
     # Profile route
     path('profile/', ProfileView.as_view(), name='profile_detail'),
     

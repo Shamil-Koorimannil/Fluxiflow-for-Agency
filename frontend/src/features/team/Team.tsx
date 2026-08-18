@@ -95,6 +95,12 @@ export const Team: React.FC = () => {
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
 
+  // Email verification state for editing
+  const [emailVerifyStep, setEmailVerifyStep] = useState<1 | 2>(1);
+  const [emailVerifyOtp, setEmailVerifyOtp] = useState('');
+  const [isVerifyingEmail, setIsVerifyingEmail] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+
   // Success toast/snackbar
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastSeverity, setToastSeverity] = useState<'success' | 'error'>('success');
@@ -274,16 +280,82 @@ export const Team: React.FC = () => {
     inviteMutation.mutate(formData);
   };
 
-  const handleEditSubmit = (e: React.FormEvent) => {
+  const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUser) return;
     if (!name || !email) {
       showToast('Please fill in Name and Email.', 'error');
       return;
     }
+
+    // If email is changed and not verified yet
+    if (email.trim().toLowerCase() !== selectedUser.email.toLowerCase() && emailVerifyStep === 1) {
+      setVerifyError(null);
+      setIsVerifyingEmail(true);
+      try {
+        await api.post('/auth/request-email-change-otp/', {
+          user_id: selectedUser.id,
+          new_email: email.trim().toLowerCase()
+        });
+        setEmailVerifyStep(2);
+        showToast('Verification code sent to the new email address.', 'success');
+      } catch (err: any) {
+        if (err.response?.data?.detail) {
+          setVerifyError(err.response.data.detail);
+          showToast(err.response.data.detail, 'error');
+        } else {
+          setVerifyError('Failed to request verification code. Please check your input.');
+          showToast('Failed to request verification code.', 'error');
+        }
+      } finally {
+        setIsVerifyingEmail(false);
+      }
+      return;
+    }
+
+    // If OTP is required and we are on step 2
+    if (emailVerifyStep === 2) {
+      if (!emailVerifyOtp.trim()) {
+        setVerifyError('Verification code is required.');
+        return;
+      }
+      setVerifyError(null);
+      setIsVerifyingEmail(true);
+      try {
+        await api.post('/auth/verify-email-change/', {
+          user_id: selectedUser.id,
+          new_email: email.trim().toLowerCase(),
+          otp: emailVerifyOtp.trim()
+        });
+        
+        // Email is verified and updated! Now update other fields
+        const formData = new FormData();
+        formData.append('name', name);
+        formData.append('role', role);
+        if (avatarFile) {
+          formData.append('avatar', avatarFile);
+        }
+        await editMutation.mutateAsync({ id: selectedUser.id, formData });
+        setIsEditOpen(false);
+        setEmailVerifyStep(1);
+        setEmailVerifyOtp('');
+      } catch (err: any) {
+        if (err.response?.data?.detail) {
+          setVerifyError(err.response.data.detail);
+          showToast(err.response.data.detail, 'error');
+        } else {
+          setVerifyError('Invalid verification code. Please try again.');
+          showToast('Invalid verification code.', 'error');
+        }
+      } finally {
+        setIsVerifyingEmail(false);
+      }
+      return;
+    }
+
+    // Normal edit if email didn't change
     const formData = new FormData();
     formData.append('name', name);
-    formData.append('email', email);
     formData.append('role', role);
     if (avatarFile) {
       formData.append('avatar', avatarFile);
@@ -1001,7 +1073,12 @@ export const Team: React.FC = () => {
       {/* EDIT DIALOG */}
       <Dialog
         open={isEditOpen}
-        onClose={() => setIsEditOpen(false)}
+        onClose={() => {
+          setIsEditOpen(false);
+          setEmailVerifyStep(1);
+          setEmailVerifyOtp('');
+          setVerifyError(null);
+        }}
         slotProps={{
           paper: {
             sx: { borderRadius: '12px', maxWidth: '420px', width: '100%', p: 1 },
@@ -1009,83 +1086,118 @@ export const Team: React.FC = () => {
         }}
       >
         <Box component="form" onSubmit={handleEditSubmit}>
-          <DialogTitle sx={{ fontWeight: 750, fontSize: '18px', pb: 1 }}>Edit Team Member</DialogTitle>
+          <DialogTitle sx={{ fontWeight: 750, fontSize: '18px', pb: 1 }}>
+            {emailVerifyStep === 1 ? 'Edit Team Member' : 'Verify Email Change'}
+          </DialogTitle>
           <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: '10px !important' }}>
-            <TextField
-              label="Name"
-              required
-              fullWidth
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
-            />
-            <TextField
-              label="Email"
-              type="email"
-              required
-              fullWidth
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
-            />
-            <FormControl fullWidth sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}>
-              <InputLabel>Role</InputLabel>
-              <Select label="Role" value={role} onChange={(e) => setRole(e.target.value as any)}>
-                <MenuItem value="MEMBER">Member</MenuItem>
-                <MenuItem value="ADMIN">Admin/Manager</MenuItem>
-              </Select>
-            </FormControl>
+            {verifyError && (
+              <Alert severity="error" sx={{ borderRadius: '8px', fontSize: '13px' }}>
+                {verifyError}
+              </Alert>
+            )}
 
+            {emailVerifyStep === 1 ? (
+              <>
+                <TextField
+                  label="Name"
+                  required
+                  fullWidth
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
+                />
+                <TextField
+                  label="Email"
+                  type="email"
+                  required
+                  fullWidth
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
+                />
+                <FormControl fullWidth sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}>
+                  <InputLabel>Role</InputLabel>
+                  <Select label="Role" value={role} onChange={(e) => setRole(e.target.value as any)}>
+                    <MenuItem value="MEMBER">Member</MenuItem>
+                    <MenuItem value="ADMIN">Admin/Manager</MenuItem>
+                  </Select>
+                </FormControl>
 
-            <Box>
-              <Typography variant="caption" sx={{ color: '#71717a', fontWeight: 600, display: 'block', mb: 1 }}>
-                Profile Picture
-              </Typography>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <Avatar src={avatarPreview || undefined} sx={{ width: 44, height: 44 }} />
-                <Button
-                  component="label"
-                  variant="outlined"
-                  size="small"
-                  startIcon={<Upload size={14} />}
-                  sx={{
-                    borderRadius: '8px',
-                    borderColor: '#e4e4e7',
-                    color: '#27272a',
-                    textTransform: 'none',
-                    fontWeight: 600,
-                    '&:hover': { borderColor: '#a1a1aa', bgcolor: '#fafafa' },
-                  }}
-                >
-                  Upload File
-                  <input type="file" hidden accept="image/*" onChange={handleAvatarChange} />
-                </Button>
-              </Box>
-            </Box>
+                <Box>
+                  <Typography variant="caption" sx={{ color: '#71717a', fontWeight: 600, display: 'block', mb: 1 }}>
+                    Profile Picture
+                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Avatar src={avatarPreview || undefined} sx={{ width: 44, height: 44 }} />
+                    <Button
+                      component="label"
+                      variant="outlined"
+                      size="small"
+                      startIcon={<Upload size={14} />}
+                      sx={{
+                        borderRadius: '8px',
+                        borderColor: '#e4e4e7',
+                        color: '#27272a',
+                        textTransform: 'none',
+                        fontWeight: 600,
+                        '&:hover': { borderColor: '#a1a1aa', bgcolor: '#fafafa' },
+                      }}
+                    >
+                      Upload File
+                      <input type="file" hidden accept="image/*" onChange={handleAvatarChange} />
+                    </Button>
+                  </Box>
+                </Box>
+              </>
+            ) : (
+              <>
+                <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                  A verification code has been sent to the new email address: <strong>{email}</strong>.
+                </Typography>
+                <TextField
+                  label="Verification Code"
+                  required
+                  fullWidth
+                  value={emailVerifyOtp}
+                  onChange={(e) => setEmailVerifyOtp(e.target.value.replace(/\D/g, '').substring(0, 6))}
+                  placeholder="123456"
+                  sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
+                />
+              </>
+            )}
           </DialogContent>
           <DialogActions sx={{ px: 3, pb: 2 }}>
             <Button
-              onClick={() => setIsEditOpen(false)}
+              onClick={() => {
+                if (emailVerifyStep === 2) {
+                  setEmailVerifyStep(1);
+                  setVerifyError(null);
+                } else {
+                  setIsEditOpen(false);
+                }
+              }}
               color="inherit"
               sx={{ textTransform: 'none', fontWeight: 600 }}
             >
-              Cancel
+              {emailVerifyStep === 2 ? 'Back' : 'Cancel'}
             </Button>
             <Button
               type="submit"
               variant="contained"
-              disabled={editMutation.isPending}
+              disabled={editMutation.isPending || isVerifyingEmail}
               sx={{
                 bgcolor: 'text.primary',
                 color: 'background.paper',
-                textTransform: 'none',
                 fontWeight: 600,
                 borderRadius: '8px',
-                boxShadow: 'none',
-                '&:hover': { bgcolor: 'text.secondary', boxShadow: 'none' },
+                textTransform: 'none',
+                px: 2.5,
+                '&:hover': { bgcolor: 'text.secondary' },
               }}
             >
-              Save Changes
+              {isVerifyingEmail 
+                ? 'Verifying...' 
+                : (editMutation.isPending ? 'Saving...' : (emailVerifyStep === 2 ? 'Verify & Save' : 'Save Changes'))}
             </Button>
           </DialogActions>
         </Box>

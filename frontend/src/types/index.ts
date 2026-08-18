@@ -32,6 +32,7 @@ export interface User {
   late_by_minutes?: number;
   created_at: string;
   updated_at: string;
+  has_password?: boolean;
 }
 
 export interface Project {

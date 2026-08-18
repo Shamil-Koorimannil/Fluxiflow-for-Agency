@@ -120,6 +120,56 @@ class OTPService:
         except Exception as e:
             logger.error("OTP email delivery failed for %s: %s", email, str(e))
 
+    @staticmethod
+    def send_email_change_otp_email(user_name: str, email: str, otp_code: str) -> None:
+        """
+        Sends the OTP verification code to confirm a user's new email address.
+        """
+        subject = "Confirm your new email - Fluxiflow"
+        message_body = (
+            f"Hi {user_name},\n\n"
+            f"Please use the verification code below to verify your new email address:\n\n"
+            f"{otp_code}\n\n"
+            f"This code expires in 5 minutes.\n\n"
+            f"If you did not request this, please ignore this email.\n\n"
+            f"Fluxiflow for Agency"
+        )
+        try:
+            send_mail(
+                subject=subject,
+                message=message_body,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email],
+                fail_silently=False
+            )
+        except Exception as e:
+            logger.error("Email change OTP delivery failed for %s: %s", email, str(e))
+
+    @staticmethod
+    def send_password_change_otp_email(user_name: str, email: str, otp_code: str) -> None:
+        """
+        Sends the OTP verification code to confirm a password creation/change.
+        """
+        subject = "Confirm password reset - Fluxiflow"
+        message_body = (
+            f"Hi {user_name},\n\n"
+            f"Please use the verification code below to set or change your password:\n\n"
+            f"{otp_code}\n\n"
+            f"This code expires in 5 minutes.\n\n"
+            f"If you did not request this, please ignore this email.\n\n"
+            f"Fluxiflow for Agency"
+        )
+        try:
+            send_mail(
+                subject=subject,
+                message=message_body,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email],
+                fail_silently=False
+            )
+        except Exception as e:
+            logger.error("Password change OTP delivery failed for %s: %s", email, str(e))
+
 
 class InvitationEmailService:
     """

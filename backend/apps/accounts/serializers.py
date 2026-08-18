@@ -17,27 +17,33 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
     def validate(self, attrs):
         data = super().validate(attrs)
-        data['user'] = {
-            'id': str(self.user.id),
-            'email': self.user.email,
-            'name': self.user.name,
-            'role': self.user.role,
-        }
+        user = self.user
+        if user is not None:
+            data['user'] = {  # type: ignore
+                'id': str(user.id),
+                'email': getattr(user, 'email', ''),
+                'name': getattr(user, 'name', ''),
+                'role': getattr(user, 'role', ''),
+            }
         return data
 
 class ProfileSerializer(serializers.ModelSerializer):
-    class Meta:
+    class Meta:  # type: ignore
         model = Profile
         fields = ['id', 'avatar']
 
 class UserSerializer(serializers.ModelSerializer):
     profile = ProfileSerializer(read_only=True)
     avatar_url = serializers.SerializerMethodField()
+    has_password = serializers.SerializerMethodField()
 
-    class Meta:
+    class Meta:  # type: ignore
         model = User
-        fields = ['id', 'email', 'name', 'role', 'status', 'profile', 'avatar_url', 'is_active', 'deactivated_at', 'created_at', 'updated_at']
+        fields = ['id', 'email', 'name', 'role', 'status', 'profile', 'avatar_url', 'is_active', 'deactivated_at', 'created_at', 'updated_at', 'has_password']
         read_only_fields = ['id', 'role', 'status', 'is_active', 'deactivated_at', 'created_at', 'updated_at']
+
+    def get_has_password(self, obj):
+        return obj.has_usable_password()
 
     def get_avatar_url(self, obj):
         try:
@@ -87,8 +93,8 @@ class CustomTokenRefreshSerializer(TokenRefreshSerializer):
             session_obj.save()
 
             # Create new session
-            new_refresh_obj = RefreshToken(new_refresh)
-            expires_at = timezone.now() + new_refresh_obj.lifetime
+            new_refresh_obj = RefreshToken(new_refresh)  # type: ignore
+            expires_at = timezone.now() + new_refresh_obj.lifetime  # type: ignore
             Session.objects.create(
                 user=session_obj.user,
                 refresh_token_hash=new_hash,
@@ -101,7 +107,7 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
     name = serializers.CharField(source='user.name', required=False)
     email = serializers.EmailField(source='user.email', required=False)
 
-    class Meta:
+    class Meta:  # type: ignore
         model = Profile
         fields = ['id', 'avatar', 'name', 'email']
 
@@ -112,9 +118,8 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
         # Update User fields if provided
         if 'name' in user_data:
             user.name = user_data['name']
-        if 'email' in user_data:
-            user.email = user_data['email']
-            user.username = user_data['email'] # keep username in sync
+        if 'email' in user_data and user_data['email'] != user.email:
+            raise serializers.ValidationError({"email": "Email changes require OTP verification."})
             
         user.save()
         

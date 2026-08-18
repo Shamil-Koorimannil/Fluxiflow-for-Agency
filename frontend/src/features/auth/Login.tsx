@@ -15,16 +15,19 @@ import {
   Checkbox,
   FormControlLabel,
 } from '@mui/material';
-import { Mail, AlertCircle, ArrowLeft, KeyRound, CheckCircle2 } from 'lucide-react';
+import { Mail, AlertCircle, ArrowLeft, KeyRound, CheckCircle2, Lock, Eye, EyeOff } from 'lucide-react';
 
 export const Login: React.FC = () => {
-  const { requestOtp, login } = useAuth();
+  const { requestOtp, login, loginWithPassword } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
   // Authentication screens step: 1 = Email request, 2 = OTP verification
   const [step, setStep] = useState<1 | 2>(1);
+  const [loginMethod, setLoginMethod] = useState<'otp' | 'password'>('otp');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [otp, setOtp] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   
@@ -67,6 +70,31 @@ export const Login: React.FC = () => {
         setError(err.response.data.detail);
       } else {
         setError('Failed to send verification code. Please verify your connection.');
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handlePasswordLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !password) {
+      setError('Email address and password are required.');
+      return;
+    }
+
+    setError(null);
+    setSuccess(null);
+    setIsSubmitting(true);
+
+    try {
+      await loginWithPassword(email.trim().toLowerCase(), password, rememberMe);
+      navigate(from, { replace: true });
+    } catch (err: any) {
+      if (err.response?.data?.detail) {
+        setError(err.response.data.detail);
+      } else {
+        setError('Incorrect email or password. Please try again.');
       }
     } finally {
       setIsSubmitting(false);
@@ -203,89 +231,266 @@ export const Login: React.FC = () => {
               </Alert>
             )}
 
-            {step === 1 ? (
-              // STEP 1: Request OTP screen
-              <Box component="form" onSubmit={handleSendOtp} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <Box>
-                  <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5, color: 'text.primary' }}>
-                    Welcome back
-                  </Typography>
-                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                    Enter your email to continue. We'll send you a secure verification code.
-                  </Typography>
-                </Box>
-
-                <TextField
-                  fullWidth
-                  variant="outlined"
-                  type="email"
-                  label="Email Address"
-                  placeholder="name@company.com"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  disabled={isSubmitting}
-                  slotProps={{
-                    input: {
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <Mail size={16} color="#a1a1aa" />
-                        </InputAdornment>
-                      ),
-                    },
-                  }}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      borderRadius: '8px',
-                      bgcolor: 'background.paper',
-                      '&:hover fieldset': { borderColor: 'text.primary' },
-                      '&.Mui-focused fieldset': { borderColor: 'text.primary', borderWidth: '1.5px' },
-                    },
-                  }}
-                />
-
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={rememberMe}
-                      onChange={(e) => setRememberMe(e.target.checked)}
-                      sx={{
-                        color: 'text.secondary',
-                        '&.Mui-checked': {
-                          color: 'text.primary',
-                        },
-                      }}
-                    />
-                  }
-                  label={
-                    <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 500 }}>
-                      Remember Me
-                    </Typography>
-                  }
-                  sx={{ mt: -1 }}
-                />
-
+            {step === 1 && (
+              <Box sx={{ display: 'flex', border: '1px solid', borderColor: 'divider', borderRadius: '8px', p: 0.5, mb: 3, bgcolor: 'background.default' }}>
                 <Button
-                  type="submit"
                   fullWidth
-                  variant="contained"
-                  disabled={isSubmitting}
+                  onClick={() => {
+                    setLoginMethod('otp');
+                    setError(null);
+                    setSuccess(null);
+                  }}
                   sx={{
-                    py: 1.5,
-                    bgcolor: 'text.primary',
-                    color: 'background.paper',
-                    fontWeight: 600,
-                    borderRadius: '8px',
+                    py: 0.75,
                     textTransform: 'none',
-                    fontSize: '14px',
-                    boxShadow: 'none',
-                    '&:hover': { bgcolor: 'text.secondary', boxShadow: 'none' },
-                    '&.Mui-disabled': { bgcolor: 'divider', color: 'text.secondary' },
+                    borderRadius: '6px',
+                    fontWeight: 600,
+                    fontSize: '13px',
+                    color: loginMethod === 'otp' ? 'text.primary' : 'text.secondary',
+                    bgcolor: loginMethod === 'otp' ? 'background.paper' : 'transparent',
+                    boxShadow: loginMethod === 'otp' ? '0px 1px 3px rgba(0,0,0,0.05)' : 'none',
+                    '&:hover': {
+                      bgcolor: loginMethod === 'otp' ? 'background.paper' : 'rgba(0,0,0,0.02)',
+                    }
                   }}
                 >
-                  {isSubmitting ? <CircularProgress size={20} color="inherit" /> : 'Send OTP'}
+                  OTP Login
+                </Button>
+                <Button
+                  fullWidth
+                  onClick={() => {
+                    setLoginMethod('password');
+                    setError(null);
+                    setSuccess(null);
+                  }}
+                  sx={{
+                    py: 0.75,
+                    textTransform: 'none',
+                    borderRadius: '6px',
+                    fontWeight: 600,
+                    fontSize: '13px',
+                    color: loginMethod === 'password' ? 'text.primary' : 'text.secondary',
+                    bgcolor: loginMethod === 'password' ? 'background.paper' : 'transparent',
+                    boxShadow: loginMethod === 'password' ? '0px 1px 3px rgba(0,0,0,0.05)' : 'none',
+                    '&:hover': {
+                      bgcolor: loginMethod === 'password' ? 'background.paper' : 'rgba(0,0,0,0.02)',
+                    }
+                  }}
+                >
+                  Password Login
                 </Button>
               </Box>
+            )}
+
+            {step === 1 ? (
+              loginMethod === 'otp' ? (
+                // STEP 1: Request OTP screen
+                <Box component="form" onSubmit={handleSendOtp} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <Box>
+                    <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5, color: 'text.primary' }}>
+                      Welcome back
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                      Enter your email to continue. We'll send you a secure verification code.
+                    </Typography>
+                  </Box>
+
+                  <TextField
+                    fullWidth
+                    variant="outlined"
+                    type="email"
+                    label="Email Address"
+                    placeholder="name@company.com"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    disabled={isSubmitting}
+                    slotProps={{
+                      input: {
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <Mail size={16} color="#a1a1aa" />
+                          </InputAdornment>
+                        ),
+                      },
+                    }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: '8px',
+                        bgcolor: 'background.paper',
+                        '&:hover fieldset': { borderColor: 'text.primary' },
+                        '&.Mui-focused fieldset': { borderColor: 'text.primary', borderWidth: '1.5px' },
+                      },
+                    }}
+                  />
+
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={rememberMe}
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                        sx={{
+                          color: 'text.secondary',
+                          '&.Mui-checked': {
+                            color: 'text.primary',
+                          },
+                        }}
+                      />
+                    }
+                    label={
+                      <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 500 }}>
+                        Remember Me
+                      </Typography>
+                    }
+                    sx={{ mt: -1 }}
+                  />
+
+                  <Button
+                    type="submit"
+                    fullWidth
+                    variant="contained"
+                    disabled={isSubmitting}
+                    sx={{
+                      py: 1.5,
+                      bgcolor: 'text.primary',
+                      color: 'background.paper',
+                      fontWeight: 600,
+                      borderRadius: '8px',
+                      textTransform: 'none',
+                      fontSize: '14px',
+                      boxShadow: 'none',
+                      '&:hover': { bgcolor: 'text.secondary', boxShadow: 'none' },
+                      '&.Mui-disabled': { bgcolor: 'divider', color: 'text.secondary' },
+                    }}
+                  >
+                    {isSubmitting ? <CircularProgress size={20} color="inherit" /> : 'Send OTP'}
+                  </Button>
+                </Box>
+              ) : (
+                // STEP 1: Password Login screen
+                <Box component="form" onSubmit={handlePasswordLogin} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <Box>
+                    <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5, color: 'text.primary' }}>
+                      Welcome back
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                      Enter your email and password to log in.
+                    </Typography>
+                  </Box>
+
+                  <TextField
+                    fullWidth
+                    variant="outlined"
+                    type="email"
+                    label="Email Address"
+                    placeholder="name@company.com"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    disabled={isSubmitting}
+                    slotProps={{
+                      input: {
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <Mail size={16} color="#a1a1aa" />
+                          </InputAdornment>
+                        ),
+                      },
+                    }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: '8px',
+                        bgcolor: 'background.paper',
+                        '&:hover fieldset': { borderColor: 'text.primary' },
+                        '&.Mui-focused fieldset': { borderColor: 'text.primary', borderWidth: '1.5px' },
+                      },
+                    }}
+                  />
+
+                  <TextField
+                    fullWidth
+                    variant="outlined"
+                    type={showPassword ? 'text' : 'password'}
+                    label="Password"
+                    placeholder="••••••••"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    disabled={isSubmitting}
+                    slotProps={{
+                      input: {
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <Lock size={16} color="#a1a1aa" />
+                          </InputAdornment>
+                        ),
+                        endAdornment: (
+                          <InputAdornment position="end">
+                            <IconButton
+                              onClick={() => setShowPassword(!showPassword)}
+                              edge="end"
+                              size="small"
+                              sx={{ color: 'text.secondary' }}
+                            >
+                              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                            </IconButton>
+                          </InputAdornment>
+                        ),
+                      },
+                    }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: '8px',
+                        bgcolor: 'background.paper',
+                        '&:hover fieldset': { borderColor: 'text.primary' },
+                        '&.Mui-focused fieldset': { borderColor: 'text.primary', borderWidth: '1.5px' },
+                      },
+                    }}
+                  />
+
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={rememberMe}
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                        sx={{
+                          color: 'text.secondary',
+                          '&.Mui-checked': {
+                            color: 'text.primary',
+                          },
+                        }}
+                      />
+                    }
+                    label={
+                      <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 500 }}>
+                        Remember Me
+                      </Typography>
+                    }
+                    sx={{ mt: -1 }}
+                  />
+
+                  <Button
+                    type="submit"
+                    fullWidth
+                    variant="contained"
+                    disabled={isSubmitting}
+                    sx={{
+                      py: 1.5,
+                      bgcolor: 'text.primary',
+                      color: 'background.paper',
+                      fontWeight: 600,
+                      borderRadius: '8px',
+                      textTransform: 'none',
+                      fontSize: '14px',
+                      boxShadow: 'none',
+                      '&:hover': { bgcolor: 'text.secondary', boxShadow: 'none' },
+                      '&.Mui-disabled': { bgcolor: 'divider', color: 'text.secondary' },
+                    }}
+                  >
+                    {isSubmitting ? <CircularProgress size={20} color="inherit" /> : 'Log In'}
+                  </Button>
+                </Box>
+              )
             ) : (
               // STEP 2: Verify OTP screen
               <Box component="form" onSubmit={handleVerifyOtp} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>

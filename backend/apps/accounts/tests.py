@@ -496,3 +496,346 @@ class TeamInvitationEmailTests(APITestCase):
         self.assertNotIn('localhost', full_content)
 
 
+
+
+
+class SecurityAuthenticationTests(APITestCase):
+    def setUp(self):
+        # Create organization
+        self.org = Organization.objects.create(name='Fluxiflow Agency')
+
+        # Admin User
+        self.admin = User.objects.create_user(
+            email='admin@example.com',
+            name='Admin User',
+            role='ADMIN',
+            status='ACTIVE'
+        )
+        ProfileClass = User._meta.get_field('profile').related_model
+        ProfileClass.objects.create(user=self.admin)
+        Membership.objects.create(organization=self.org, user=self.admin)
+
+        # Member User (passwordless initially)
+        self.member = User.objects.create_user(
+            email='member@example.com',
+            name='Member User',
+            role='MEMBER',
+            status='ACTIVE'
+        )
+        ProfileClass.objects.create(user=self.member)
+        Membership.objects.create(organization=self.org, user=self.member)
+
+        # Second Member User (passwordless initially)
+        self.member2 = User.objects.create_user(
+            email='member2@example.com',
+            name='Member 2 User',
+            role='MEMBER',
+            status='ACTIVE'
+        )
+        ProfileClass.objects.create(user=self.member2)
+        Membership.objects.create(organization=self.org, user=self.member2)
+
+        mail.outbox.clear()
+        OTPVerification.objects.all().delete()
+
+    def _get_token(self, user):
+        # Generate token using OTP
+        self.client.post('/api/auth/request-otp/', {'email': user.email}, format='json')
+        otp_code = re.search(r'\b\d{6}\b', mail.outbox[-1].body).group()
+        res = self.client.post('/api/auth/verify-otp/', {'email': user.email, 'otp': otp_code}, format='json')
+        mail.outbox.clear()
+        return res.data['access']
+
+    # ── Email Change OTP Tests ──
+
+    def test_request_email_change_otp(self):
+        token = self._get_token(self.member)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+        new_email = 'newemail@example.com'
+        res = self.client.post('/api/auth/request-email-change-otp/', {
+            'user_id': str(self.member.id),
+            'new_email': new_email
+        }, format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(new_email, mail.outbox[0].to)
+
+        # Check that user email has NOT changed yet
+        self.member.refresh_from_db()
+        self.assertEqual(self.member.email, 'member@example.com')
+
+    def test_verify_email_change_success(self):
+        token = self._get_token(self.member)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+        new_email = 'newemail@example.com'
+        self.client.post('/api/auth/request-email-change-otp/', {
+            'user_id': str(self.member.id),
+            'new_email': new_email
+        }, format='json')
+
+        otp_code = re.search(r'\b\d{6}\b', mail.outbox[-1].body).group()
+
+        res = self.client.post('/api/auth/verify-email-change/', {
+            'user_id': str(self.member.id),
+            'new_email': new_email,
+            'otp': otp_code
+        }, format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.member.refresh_from_db()
+        self.assertEqual(self.member.email, new_email)
+        self.assertEqual(self.member.username, new_email)
+
+    def test_verify_email_change_invalid_otp(self):
+        token = self._get_token(self.member)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+        new_email = 'newemail@example.com'
+        self.client.post('/api/auth/request-email-change-otp/', {
+            'user_id': str(self.member.id),
+            'new_email': new_email
+        }, format='json')
+
+        res = self.client.post('/api/auth/verify-email-change/', {
+            'user_id': str(self.member.id),
+            'new_email': new_email,
+            'otp': '999999' # Incorrect OTP
+        }, format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.member.refresh_from_db()
+        self.assertEqual(self.member.email, 'member@example.com')
+
+    def test_email_change_expired_otp(self):
+        token = self._get_token(self.member)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+        new_email = 'newemail@example.com'
+        self.client.post('/api/auth/request-email-change-otp/', {
+            'user_id': str(self.member.id),
+            'new_email': new_email
+        }, format='json')
+
+        otp_code = re.search(r'\b\d{6}\b', mail.outbox[-1].body).group()
+        OTPVerification.objects.all().update(expires_at=timezone.now() - timedelta(minutes=1))
+
+        res = self.client.post('/api/auth/verify-email-change/', {
+            'user_id': str(self.member.id),
+            'new_email': new_email,
+            'otp': otp_code
+        }, format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.member.refresh_from_db()
+        self.assertEqual(self.member.email, 'member@example.com')
+
+    def test_email_change_otp_reuse_fails(self):
+        token = self._get_token(self.member)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+        new_email = 'newemail@example.com'
+        self.client.post('/api/auth/request-email-change-otp/', {
+            'user_id': str(self.member.id),
+            'new_email': new_email
+        }, format='json')
+
+        otp_code = re.search(r'\b\d{6}\b', mail.outbox[-1].body).group()
+
+        # First verify: success
+        res1 = self.client.post('/api/auth/verify-email-change/', {
+            'user_id': str(self.member.id),
+            'new_email': new_email,
+            'otp': otp_code
+        }, format='json')
+        self.assertEqual(res1.status_code, status.HTTP_200_OK)
+
+        # Try reuse OTP with another email
+        res2 = self.client.post('/api/auth/verify-email-change/', {
+            'user_id': str(self.member.id),
+            'new_email': 'anothernew@example.com',
+            'otp': otp_code
+        }, format='json')
+        self.assertEqual(res2.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_email_change_checks_uniqueness(self):
+        token = self._get_token(self.member)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+        # Already used email
+        res = self.client.post('/api/auth/request-email-change-otp/', {
+            'user_id': str(self.member.id),
+            'new_email': self.member2.email
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_member_cannot_change_another_user_email(self):
+        token = self._get_token(self.member)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+        # Try to change member2's email
+        res = self.client.post('/api/auth/request-email-change-otp/', {
+            'user_id': str(self.member2.id),
+            'new_email': 'hacked@example.com'
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_change_member_email(self):
+        token = self._get_token(self.admin)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+        new_email = 'membernew@example.com'
+        res = self.client.post('/api/auth/request-email-change-otp/', {
+            'user_id': str(self.member.id),
+            'new_email': new_email
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        otp_code = re.search(r'\b\d{6}\b', mail.outbox[-1].body).group()
+
+        res_verify = self.client.post('/api/auth/verify-email-change/', {
+            'user_id': str(self.member.id),
+            'new_email': new_email,
+            'otp': otp_code
+        }, format='json')
+        self.assertEqual(res_verify.status_code, status.HTTP_200_OK)
+
+        self.member.refresh_from_db()
+        self.assertEqual(self.member.email, new_email)
+
+    def test_reject_direct_email_changes(self):
+        token = self._get_token(self.member)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+        # Direct profile patch
+        res = self.client.patch('/api/profile/', {'email': 'direct@example.com'}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Admin direct patch team member
+        admin_token = self._get_token(self.admin)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {admin_token}')
+        res_admin = self.client.patch(f'/api/team/{self.member.id}/', {'email': 'directadmin@example.com'}, format='json')
+        self.assertEqual(res_admin.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # ── Password Flow Tests ──
+
+    def test_passwordless_user_can_set_password_with_otp(self):
+        token = self._get_token(self.member)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+        # Verify initial unusable password
+        self.assertFalse(self.member.has_usable_password())
+
+        # Request password change OTP
+        res_req = self.client.post('/api/auth/request-password-change-otp/', {}, format='json')
+        self.assertEqual(res_req.status_code, status.HTTP_200_OK)
+
+        otp_code = re.search(r'\b\d{6}\b', mail.outbox[-1].body).group()
+
+        # Set password with correct OTP
+        res_set = self.client.post('/api/auth/set-password-with-otp/', {
+            'otp': otp_code,
+            'new_password': 'SuperSecurePassword123!'
+        }, format='json')
+        self.assertEqual(res_set.status_code, status.HTTP_200_OK)
+
+        self.member.refresh_from_db()
+        self.assertTrue(self.member.has_usable_password())
+        self.assertTrue(self.member.check_password('SuperSecurePassword123!'))
+
+    def test_password_login_works_after_setting(self):
+        # Set password
+        token = self._get_token(self.member)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        self.client.post('/api/auth/request-password-change-otp/', {}, format='json')
+        otp_code = re.search(r'\b\d{6}\b', mail.outbox[-1].body).group()
+        self.client.post('/api/auth/set-password-with-otp/', {
+            'otp': otp_code,
+            'new_password': 'SuperSecurePassword123!'
+        }, format='json')
+
+        # Now test password login
+        self.client.credentials() # Clear headers
+        res_login = self.client.post('/api/auth/login-password/', {
+            'email': self.member.email,
+            'password': 'SuperSecurePassword123!'
+        }, format='json')
+
+        self.assertEqual(res_login.status_code, status.HTTP_200_OK)
+        self.assertIn('access', res_login.data)
+        self.assertIn('refresh', res_login.data)
+
+    def test_password_login_fails_for_passwordless_user(self):
+        # Try login without setting a password
+        res = self.client.post('/api/auth/login-password/', {
+            'email': self.member.email,
+            'password': 'randompassword'
+        }, format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("No password has been set", res.data['detail'])
+
+    def test_password_login_fails_with_incorrect_password(self):
+        # Set password
+        token = self._get_token(self.member)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        self.client.post('/api/auth/request-password-change-otp/', {}, format='json')
+        otp_code = re.search(r'\b\d{6}\b', mail.outbox[-1].body).group()
+        self.client.post('/api/auth/set-password-with-otp/', {
+            'otp': otp_code,
+            'new_password': 'SuperSecurePassword123!'
+        }, format='json')
+
+        # Try login with wrong password
+        self.client.credentials()
+        res = self.client.post('/api/auth/login-password/', {
+            'email': self.member.email,
+            'password': 'WrongPassword123'
+        }, format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("No active account found with the given credentials", res.data['detail'])
+
+    def test_otp_purpose_separation(self):
+        # Request a login OTP
+        self.client.post('/api/auth/request-otp/', {'email': self.member.email}, format='json')
+        login_otp = re.search(r'\b\d{6}\b', mail.outbox[-1].body).group()
+
+        # Try to use login OTP for setting password
+        token = self._get_token(self.member)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        res = self.client.post('/api/auth/set-password-with-otp/', {
+            'otp': login_otp,
+            'new_password': 'SuperSecurePassword123!'
+        }, format='json')
+        # Should fail since purpose is different
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Request password change OTP
+        self.client.post('/api/auth/request-password-change-otp/', {}, format='json')
+        pw_otp = re.search(r'\b\d{6}\b', mail.outbox[-1].body).group()
+
+        # Try to use password change OTP for login verify
+        self.client.credentials()
+        res_login = self.client.post('/api/auth/verify-otp/', {
+            'email': self.member.email,
+            'otp': pw_otp
+        }, format='json')
+        self.assertEqual(res_login.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_password_validation_enforced(self):
+        token = self._get_token(self.member)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        self.client.post('/api/auth/request-password-change-otp/', {}, format='json')
+        otp_code = re.search(r'\b\d{6}\b', mail.outbox[-1].body).group()
+
+        # Too short password (fails Django min length validator)
+        res = self.client.post('/api/auth/set-password-with-otp/', {
+            'otp': otp_code,
+            'new_password': '123'
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        # Should return a validation error messages array
+        self.assertIsInstance(res.data['detail'], list)

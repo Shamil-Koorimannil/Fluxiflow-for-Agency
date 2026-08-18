@@ -10,6 +10,7 @@ interface AuthContextType {
   isInitializing: boolean;
   requestOtp: (email: string) => Promise<void>;
   login: (email: string, otp: string, rememberMe?: boolean) => Promise<User>;
+  loginWithPassword: (email: string, password: string, rememberMe?: boolean) => Promise<User>;
   logout: () => Promise<void>;
   updateUser: (user: User) => void;
 }
@@ -134,6 +135,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('userRole', updatedUser.role);
   };
 
+  const loginWithPassword = async (email: string, password: string, rememberMe?: boolean): Promise<User> => {
+    try {
+      const response = await api.post('/auth/login-password/', { email, password, remember_me: rememberMe });
+      const { access, refresh, user: userData } = response.data;
+      setTokens(access, refresh, rememberMe);
+      setUser(userData);
+      localStorage.setItem('userRole', userData.role);
+      return userData;
+    } catch (error) {
+      throw error;
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -143,6 +157,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isInitializing,
         requestOtp,
         login,
+        loginWithPassword,
         logout,
         updateUser,
       }}

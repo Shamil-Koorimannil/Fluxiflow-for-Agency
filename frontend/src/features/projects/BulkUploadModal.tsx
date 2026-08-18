@@ -311,7 +311,7 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
                         >
                           <td className="p-2 border-r border-zinc-200 dark:border-zinc-800 text-center font-semibold">{err.row}</td>
                           <td className="p-2 border-r border-zinc-200 dark:border-zinc-800 font-semibold text-zinc-700 dark:text-zinc-300">{err.field}</td>
-                          <td className="p-2 border-r border-zinc-200 dark:border-zinc-800 text-red-500 truncate max-w-[110px]" title={err.value}>
+                          <td className="p-2 border-r border-zinc-200 dark:border-zinc-800 text-red-500 truncate max-w-27.5" title={err.value}>
                             {err.value === null || err.value === "" ? <span className="italic text-zinc-400">(empty)</span> : err.value}
                           </td>
                           <td className="p-2 text-zinc-650 dark:text-zinc-400 font-medium">{err.message}</td>

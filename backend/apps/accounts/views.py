@@ -494,15 +494,11 @@ class TeamDetailView(views.APIView):
         role = request.data.get('role', None)
 
         if email and email != user.email:
-            if User.objects.filter(email=email).exclude(id=user.id).exists():
-                return Response({"detail": "A user with this email address already exists."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "Email changes require OTP verification. Direct changes are not allowed."}, status=status.HTTP_400_BAD_REQUEST)
 
         with transaction.atomic():
             if name:
                 user.name = name
-            if email:
-                user.email = email
-                user.username = email
             if role:
                 user.role = role
             user.save()
@@ -780,3 +776,242 @@ class TeamTasksView(views.APIView):
         context = {'request': request, 'target_user': user}
         serializer = TaskSerializer(queryset, many=True, context=context)
         return Response(serializer.data)
+
+
+class RequestEmailChangeOTPView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        from django.core.validators import validate_email
+        from django.core.exceptions import ValidationError
+
+        user_id = request.data.get('user_id')
+        new_email = request.data.get('new_email', '').strip().lower()
+
+        if not user_id or not new_email:
+            return Response({"detail": "User ID and new email are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Authorization: Ordinary members cannot change other users' email
+        if request.user.role != 'ADMIN' and str(request.user.id) != str(user_id):
+            return Response({"detail": "You do not have permission to perform this action."}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            validate_email(new_email)
+        except ValidationError:
+            return Response({"detail": "Invalid email address format."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check if the email is already used by another account
+        if User.objects.filter(email=new_email).exclude(id=user.id).exists():
+            return Response({"detail": "A user with this email address already exists."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Rate-limiting: Wait 60s
+        last_otp = OTPVerification.objects.filter(
+            email=new_email,
+            purpose='EMAIL_CHANGE',
+            verified_at__isnull=True,
+            created_at__gt=timezone.now() - timedelta(seconds=60)
+        ).exists()
+        if last_otp:
+            return Response({"detail": "Please wait 60 seconds before requesting another code."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
+        try:
+            otp_code = OTPService.generate_otp(new_email, purpose='EMAIL_CHANGE')
+            OTPService.send_email_change_otp_email(user.name, new_email, otp_code)
+        except Exception as e:
+            return Response({"detail": f"Failed to send verification code: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({"message": "Verification code has been sent to the new email address."}, status=status.HTTP_200_OK)
+
+
+class VerifyEmailChangeView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        user_id = request.data.get('user_id')
+        new_email = request.data.get('new_email', '').strip().lower()
+        otp_code = request.data.get('otp', '').strip()
+
+        if not user_id or not new_email or not otp_code:
+            return Response({"detail": "User ID, new email, and code are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Authorization: Ordinary members cannot change other users' email
+        if request.user.role != 'ADMIN' and str(request.user.id) != str(user_id):
+            return Response({"detail": "You do not have permission to perform this action."}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Check if the email is already used by another account
+        if User.objects.filter(email=new_email).exclude(id=user.id).exists():
+            return Response({"detail": "A user with this email address already exists."}, status=status.HTTP_400_BAD_REQUEST)
+
+        success, message = OTPService.verify_otp(new_email, otp_code, purpose='EMAIL_CHANGE')
+        if not success:
+            return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Successful verification: Update user's email
+        with transaction.atomic():
+            old_email = user.email
+            user.email = new_email
+            user.username = new_email
+            user.save()
+
+            ActivityLog.objects.create(
+                user=request.user,
+                action='USER_UPDATED',
+                entity_type='User',
+                entity_id=user.id,
+                description=f"{request.user.name} changed email of user {user.name} from {old_email} to {new_email}."
+            )
+
+        serializer = UserSerializer(user, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class PasswordLoginView(views.APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        email = request.data.get('email', '').strip().lower()
+        password = request.data.get('password', '')
+
+        if not email or not password:
+            return Response({"detail": "Email and password are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.filter(email=email).first()
+        if not user:
+            return Response({"detail": "No active account found with the given credentials."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if user.status == 'INACTIVE' or not user.is_active:
+            return Response({
+                "detail": "Your account is currently deactivated. Please contact your administrator."
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        if not user.has_usable_password():
+            return Response({
+                "detail": "No password has been set for this account. Please log in with OTP or create a password from your profile."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if not user.check_password(password):
+            return Response({"detail": "No active account found with the given credentials."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Successful login: Update status if INVITED to ACTIVE
+        with transaction.atomic():
+            if user.status == 'INVITED':
+                user.status = 'ACTIVE'
+                user.save()
+                
+                Invitation.objects.filter(email=user.email, status='PENDING').update(
+                    status='ACCEPTED',
+                    accepted_at=timezone.now()
+                )
+
+                ActivityLog.objects.create(
+                    user=user,
+                    action='PROFILE_UPDATED',
+                    entity_type='User',
+                    entity_id=user.id,
+                    description=f"{user.name} logged in for the first time and activated their account."
+                )
+
+        # Generate tokens
+        refresh = RefreshToken.for_user(user)
+        refresh['email'] = user.email
+        refresh['name'] = user.name
+        refresh['role'] = user.role
+        
+        remember_me = request.data.get('remember_me', False)
+        if remember_me:
+            refresh.lifetime = timedelta(days=30)
+            expires_at = timezone.now() + timedelta(days=30)
+        else:
+            refresh.lifetime = timedelta(days=1)
+            expires_at = timezone.now() + timedelta(days=1)
+
+        refresh_token_str = str(refresh)
+        access_token_str = str(getattr(refresh, 'access_token'))
+        
+        token_hash = hashlib.sha256(refresh_token_str.encode('utf-8')).hexdigest()
+
+        Session.objects.create(
+            user=user,
+            refresh_token_hash=token_hash,
+            expires_at=expires_at
+        )
+
+        return Response({
+            "access": access_token_str,
+            "refresh": refresh_token_str,
+            "user": UserSerializer(user, context={'request': request}).data
+        }, status=status.HTTP_200_OK)
+
+
+class RequestPasswordChangeOTPView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        
+        # Rate-limiting: Wait 60s
+        last_otp = OTPVerification.objects.filter(
+            email=user.email,
+            purpose='PASSWORD_CHANGE',
+            verified_at__isnull=True,
+            created_at__gt=timezone.now() - timedelta(seconds=60)
+        ).exists()
+        if last_otp:
+            return Response({"detail": "Please wait 60 seconds before requesting another code."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
+        try:
+            otp_code = OTPService.generate_otp(user.email, purpose='PASSWORD_CHANGE')
+            OTPService.send_password_change_otp_email(user.name, user.email, otp_code)
+        except Exception as e:
+            return Response({"detail": f"Failed to send verification code: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({"message": "Verification code has been sent to your email address."}, status=status.HTTP_200_OK)
+
+
+class SetPasswordWithOTPView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        otp_code = request.data.get('otp', '').strip()
+        new_password = request.data.get('new_password', '')
+
+        if not otp_code or not new_password:
+            return Response({"detail": "Verification code and new password are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        success, message = OTPService.verify_otp(user.email, otp_code, purpose='PASSWORD_CHANGE')
+        if not success:
+            return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate password using Django validators
+        from django.contrib.auth.password_validation import validate_password
+        from django.core.exceptions import ValidationError
+        try:
+            validate_password(new_password, user)
+        except ValidationError as e:
+            return Response({"detail": list(e.messages)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Set and hash password
+        with transaction.atomic():
+            user.set_password(new_password)
+            user.save()
+
+            ActivityLog.objects.create(
+                user=user,
+                action='PROFILE_UPDATED',
+                entity_type='User',
+                entity_id=user.id,
+                description=f"{user.name} set/changed their password."
+            )
+
+        return Response({"message": "Password has been successfully updated."}, status=status.HTTP_200_OK)
