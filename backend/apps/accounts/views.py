@@ -709,7 +709,9 @@ class TeamWorkloadView(views.APIView):
         yesterday = today - timedelta(days=1)
         tomorrow = today + timedelta(days=1)
 
-        user_tasks = Task.objects.filter(assignee_relationships__user=user).distinct().order_by('due_date', 'due_time')
+        # Query unique task IDs first to avoid duplicate results from joined tables
+        task_ids = Task.objects.filter(assignee_relationships__user=user).values_list('id', flat=True).distinct()
+        user_tasks = Task.objects.filter(id__in=task_ids).order_by('due_date', 'due_time')
         
         # Apply date range filtering if provided
         if start_date and end_date:
@@ -801,7 +803,12 @@ class TeamTasksView(views.APIView):
             except Exception:
                 pass
 
-        queryset = Task.objects.filter(assignee_relationships__user=user).distinct().order_by('due_date', 'due_time')
+        now = timezone.now()
+        today_date = now.date()
+
+        # Query unique task IDs first to avoid duplicate results from joined tables
+        task_ids = Task.objects.filter(assignee_relationships__user=user).values_list('id', flat=True).distinct()
+        queryset = Task.objects.filter(id__in=task_ids).order_by('due_date', 'due_time')
         
         # Apply date range filtering if provided
         if start_date and end_date:
@@ -813,41 +820,32 @@ class TeamTasksView(views.APIView):
 
         status_param = request.query_params.get('status')
         
-        if status_param == 'today':
-            queryset = queryset.filter(
-                assignee_relationships__user=user,
-                assignee_relationships__completed=False,
-                status='PENDING',
-                due_date=today_date
-            )
-        elif status_param == 'pending':
-            queryset = queryset.filter(
-                assignee_relationships__user=user,
-                assignee_relationships__completed=False,
-                status='PENDING'
-            )
-        elif status_param == 'upcoming':
-            queryset = queryset.filter(
-                assignee_relationships__user=user,
-                assignee_relationships__completed=False,
-                status='PENDING',
-                due_date__gt=today_date
-            )
-        elif status_param == 'completed':
+        if status_param == 'completed':
             queryset = queryset.filter(
                 assignee_relationships__user=user,
                 assignee_relationships__completed=True
             ).order_by('-assignee_relationships__completed_at')
-        elif status_param == 'overdue':
-            from django.db.models import Q
+        else:
+            # All other filters (all, today, pending, upcoming, overdue) show active tasks only
             queryset = queryset.filter(
                 assignee_relationships__user=user,
                 assignee_relationships__completed=False,
                 status='PENDING'
-            ).filter(
-                Q(due_date__lt=today_date) | 
-                Q(due_date=today_date, due_time__lt=now.time())
             )
+            
+            if status_param == 'today':
+                queryset = queryset.filter(due_date=today_date)
+            elif status_param == 'pending':
+                # Returns all pending active tasks
+                pass
+            elif status_param == 'upcoming':
+                queryset = queryset.filter(due_date__gt=today_date)
+            elif status_param == 'overdue':
+                from django.db.models import Q
+                queryset = queryset.filter(
+                    Q(due_date__lt=today_date) | 
+                    Q(due_date=today_date, due_time__lt=now.time())
+                )
             
         context = {'request': request, 'target_user': user}
         serializer = TaskSerializer(queryset, many=True, context=context)

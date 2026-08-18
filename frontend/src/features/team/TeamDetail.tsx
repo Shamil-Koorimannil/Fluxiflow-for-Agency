@@ -173,6 +173,15 @@ export const TeamDetail: React.FC = () => {
     }
   };
 
+  const deduplicateTasks = (taskList: Task[]): Task[] => {
+    const seen = new Set<string>();
+    return taskList.filter((task) => {
+      if (seen.has(task.id)) return false;
+      seen.add(task.id);
+      return true;
+    });
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-6 max-w-5xl mx-auto animate-pulse">
@@ -829,12 +838,12 @@ export const TeamDetail: React.FC = () => {
         
         return (
           <div className="space-y-6 pt-4">
-            {renderTaskSection('Today', workload.today)}
-            {renderTaskSection('Tomorrow', workload.tomorrow)}
-            {renderTaskSection('Yesterday', workload.yesterday)}
-            {renderTaskSection('Pending / Overdue', workload.pending, true)}
-            {renderTaskSection('Upcoming', workload.upcoming)}
-            {renderTaskSection('Completed', workload.completed)}
+            {renderTaskSection('Today', deduplicateTasks(workload.today))}
+            {renderTaskSection('Tomorrow', deduplicateTasks(workload.tomorrow))}
+            {renderTaskSection('Yesterday', deduplicateTasks(workload.yesterday))}
+            {renderTaskSection('Pending / Overdue', deduplicateTasks(workload.pending), true)}
+            {renderTaskSection('Upcoming', deduplicateTasks(workload.upcoming))}
+            {renderTaskSection('Completed', deduplicateTasks(workload.completed))}
           </div>
         );
       })()}

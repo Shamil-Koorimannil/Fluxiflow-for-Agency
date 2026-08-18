@@ -68,21 +68,67 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
     enabled: !!memberId && open,
   });
 
-  // Fetch filtered tasks list
-  const { data: tasks, isLoading: isTasksLoading } = useQuery<Task[]>({
-    queryKey: ['teamTasks', memberId, activeFilter, startDate, endDate],
+  // Fetch raw tasks list (single source of truth query)
+  const { data: allTasksRaw, isLoading: isTasksLoading } = useQuery<Task[]>({
+    queryKey: ['teamTasks', memberId, startDate, endDate],
     queryFn: async () => {
-      const statusParam = activeFilter === 'all' ? '' : activeFilter;
       const response = await api.get(`/team/${memberId}/tasks/`, {
-        params: {
-          ...(statusParam ? { status: statusParam } : {}),
-          ...(startDate && endDate ? { start_date: startDate, end_date: endDate } : {})
-        }
+        params: startDate && endDate ? { start_date: startDate, end_date: endDate } : {}
       });
       return response.data;
     },
     enabled: !!memberId && open,
   });
+
+  const getLocalDateString = (d: Date) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const todayStr = getLocalDateString(new Date());
+
+  const deduplicateTasks = (taskList: Task[]): Task[] => {
+    const seen = new Set<string>();
+    return taskList.filter((t) => {
+      if (seen.has(t.id)) return false;
+      seen.add(t.id);
+      return true;
+    });
+  };
+
+  const processedTasks = React.useMemo(() => {
+    if (!allTasksRaw) return [];
+    
+    // 1. Deduplicate by unique task ID
+    const deduplicated = deduplicateTasks(allTasksRaw);
+    
+    // 2. Filter based on activeFilter tab using local calendar date
+    return deduplicated.filter((task) => {
+      if (activeFilter === 'completed') {
+        return task.status === 'COMPLETED';
+      }
+      
+      // All other filters only show non-completed tasks
+      if (task.status === 'COMPLETED') {
+        return false;
+      }
+      
+      if (activeFilter === 'today') {
+        return task.due_date === todayStr;
+      }
+      if (activeFilter === 'pending') {
+        return task.due_date < todayStr;
+      }
+      if (activeFilter === 'upcoming') {
+        return task.due_date > todayStr;
+      }
+      return true; // 'all'
+    });
+  }, [allTasksRaw, activeFilter, todayStr]);
+
+  const tasks = processedTasks;
 
   // Task Completion Mutation
   const completeTaskMutation = useMutation({
@@ -93,6 +139,7 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
       queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
+      queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
       queryClient.invalidateQueries({ queryKey: ['team'] });
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
     },
@@ -107,6 +154,7 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
       queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
+      queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
       queryClient.invalidateQueries({ queryKey: ['team'] });
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
     },
