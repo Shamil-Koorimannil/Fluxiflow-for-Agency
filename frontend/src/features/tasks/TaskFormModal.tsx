@@ -223,7 +223,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
 
           <div className="space-y-1">
             <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
-              Project (optional)
+              Project *
             </label>
             <select
               value={projectId}

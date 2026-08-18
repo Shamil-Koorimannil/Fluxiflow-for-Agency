@@ -839,3 +839,90 @@ class SecurityAuthenticationTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
         # Should return a validation error messages array
         self.assertIsInstance(res.data['detail'], list)
+
+
+class TeamHealthDateFilteringTests(APITestCase):
+    def setUp(self):
+        self.org = Organization.objects.create(name='Date Test Org')
+        self.admin = User.objects.create_user(
+            email='admin@datetest.com',
+            name='Admin User',
+            role='ADMIN',
+            status='ACTIVE'
+        )
+        self.member = User.objects.create_user(
+            email='member@datetest.com',
+            name='Member User',
+            role='MEMBER',
+            status='ACTIVE'
+        )
+        ProfileClass = User._meta.get_field('profile').related_model
+        ProfileClass.objects.create(user=self.admin)
+        ProfileClass.objects.create(user=self.member)
+        Membership.objects.create(organization=self.org, user=self.admin)
+        Membership.objects.create(organization=self.org, user=self.member)
+        
+        # We need task models
+        # pyrefly: ignore [missing-import]
+        from apps.tasks.models import Task, TaskAssignee
+        
+        # Create a task completed in the past (15 days ago)
+        self.task1 = Task.objects.create(
+            organization=self.org,
+            name='Task 1',
+            status='COMPLETED',
+            due_date=timezone.now().date() - timedelta(days=15),
+            created_by=self.admin
+        )
+        self.assign1 = TaskAssignee.objects.create(
+            task=self.task1,
+            user=self.member,
+            completed=True,
+            completed_at=timezone.now() - timedelta(days=15)
+        )
+        
+        # Create a task completed today
+        self.task2 = Task.objects.create(
+            organization=self.org,
+            name='Task 2',
+            status='COMPLETED',
+            due_date=timezone.now().date(),
+            created_by=self.admin
+        )
+        self.assign2 = TaskAssignee.objects.create(
+            task=self.task2,
+            user=self.member,
+            completed=True,
+            completed_at=timezone.now()
+        )
+
+
+    def _get_token(self, user):
+        from rest_framework_simplejwt.tokens import RefreshToken
+        refresh = RefreshToken.for_user(user)
+        return str(refresh.access_token)
+
+    def test_team_list_with_date_range(self):
+        token = self._get_token(self.admin)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        
+        # 1. Fetch team list with a range that excludes the older task
+        start_date = timezone.now() - timedelta(days=5)
+        end_date = timezone.now() + timedelta(days=1)
+        
+        response = self.client.get('/api/team/', {
+            'start_date': start_date.isoformat(),
+            'end_date': end_date.isoformat()
+        })
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # The member's completed count should only be 1 (excluding task1)
+        member_data = next(u for u in response.data if u['id'] == str(self.member.id))
+        self.assertEqual(member_data['completed_this_month'], 1)
+        
+        # 2. Fetch with all-time / default range (includes both)
+        response_all = self.client.get('/api/team/')
+        self.assertEqual(response_all.status_code, status.HTTP_200_OK)
+        member_data_all = next(u for u in response_all.data if u['id'] == str(self.member.id))
+        self.assertEqual(member_data_all['completed_this_month'], 2)
+

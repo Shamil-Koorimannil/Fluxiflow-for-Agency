@@ -33,10 +33,17 @@ def get_task_due_datetime(due_date, due_time):
         return make_aware(due_dt)
     return due_dt
 
-def calculate_user_health_metrics(user):
+def calculate_user_health_metrics(user, start_date=None, end_date=None):
     now = timezone.now()
-    start_date = now - timedelta(days=30)
     today_date = now.date()
+    
+    if start_date is None:
+        start_date = now - timedelta(days=30)
+    if end_date is None:
+        end_date = now
+        
+    start_date_val = start_date
+    end_date_val = end_date
     
     # pyrefly: ignore [missing-import]
     from apps.tasks.models import TaskAssignee, SubTaskAssignee
@@ -51,9 +58,17 @@ def calculate_user_health_metrics(user):
     overdue_pending_tasks = 0
     today_pending_tasks = 0
     
-    # We only count workload issues if the overall task/subtask is still PENDING
-    pending_assignments = [a for a in assignments if not a.completed and a.task.status == 'PENDING']
-    pending_subtask_assignments = [sa for sa in subtask_assignments if not sa.completed and sa.subtask.status == 'PENDING']
+    # Filter pending assignments to only those in the range
+    pending_assignments = [
+        a for a in assignments 
+        if not a.completed and a.task.status == 'PENDING' and 
+        start_date_val.date() <= a.task.due_date <= end_date_val.date()
+    ]
+    pending_subtask_assignments = [
+        sa for sa in subtask_assignments 
+        if not sa.completed and sa.subtask.status == 'PENDING' and 
+        sa.subtask.due_date and start_date_val.date() <= sa.subtask.due_date <= end_date_val.date()
+    ]
     
     from apps.tasks.helpers import calculate_submission_status, calculate_assignee_submission_status
     for a in pending_assignments:
@@ -62,22 +77,22 @@ def calculate_user_health_metrics(user):
             overdue_pending_tasks += 1
         elif a.task.due_date == today_date:
             today_pending_tasks += 1
-
+ 
     for sa in pending_subtask_assignments:
         sub_status, _ = calculate_assignee_submission_status(sa, sa.subtask.due_date, sa.subtask.due_time)
         if sub_status == "OVERDUE":
             overdue_pending_tasks += 1
         elif sa.subtask.due_date == today_date:
             today_pending_tasks += 1
-
-    # 2. Historical Performance: Completed tasks/subtasks in the last 30 days
+ 
+    # 2. Historical Performance: Completed tasks/subtasks in the date range
     completed_assignments_30 = [
         a for a in assignments 
-        if a.completed and a.completed_at and a.completed_at >= start_date
+        if a.completed and a.completed_at and start_date_val <= a.completed_at <= end_date_val
     ]
     completed_subtask_assignments_30 = [
         sa for sa in subtask_assignments
-        if sa.completed and sa.completed_at and sa.completed_at >= start_date
+        if sa.completed and sa.completed_at and start_date_val <= sa.completed_at <= end_date_val
     ]
     
     total_completed_tasks = len(completed_assignments_30) + len(completed_subtask_assignments_30)
@@ -131,49 +146,30 @@ def calculate_user_health_metrics(user):
     else:
         health_status = 'critical'
         
-    # Additional week/month completion counts
-    start_of_week = now - timedelta(days=now.weekday())
-    start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
-    start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    
+    # Recalculate completed_this_week & completed_this_month for the selected period
+    start_of_week = end_date_val - timedelta(days=7)
     completed_this_week = 0
-    completed_this_month = 0
+    completed_this_month = total_completed_tasks
     
-    for a in assignments:
-        if a.completed and a.completed_at:
-            if a.completed_at >= start_of_week:
-                completed_this_week += 1
-            if a.completed_at >= start_of_month:
-                completed_this_month += 1
-                
-    for sa in subtask_assignments:
-        if sa.completed and sa.completed_at:
-            if sa.completed_at >= start_of_week:
-                completed_this_week += 1
-            if sa.completed_at >= start_of_month:
-                completed_this_month += 1
+    for a in completed_assignments_30:
+        if a.completed_at >= start_of_week:
+            completed_this_week += 1
+    for sa in completed_subtask_assignments_30:
+        if sa.completed_at >= start_of_week:
+            completed_this_week += 1
                 
     return {
         "health_score": health_score,
         "health_status": health_status,
         "pending_tasks": len(pending_assignments) + len(pending_subtask_assignments),
-        "today_tasks": TaskAssignee.objects.filter(
-            user=user, 
-            completed=False, 
-            task__due_date=today_date,
-            task__status='PENDING'
-        ).count() + SubTaskAssignee.objects.filter(
-            user=user,
-            completed=False,
-            subtask__due_date=today_date,
-            subtask__status='PENDING'
-        ).count(),
+        "today_tasks": today_pending_tasks,
         "overdue_tasks": overdue_pending_tasks,
         "completed_this_week": completed_this_week,
         "completed_this_month": completed_this_month,
         "on_time_completion_rate": round(on_time_completion_rate, 2),
         "late_completions": late_completed_tasks_in_last_30_days
     }
+
 
 # --- OTP Authentication View Handlers ---
 
@@ -370,11 +366,33 @@ class TeamListView(views.APIView):
     permission_classes = [permissions.IsAuthenticated, IsAdmin]
 
     def get(self, request):
+        import django.utils.dateparse
+        start_date_str = request.query_params.get('start_date')
+        end_date_str = request.query_params.get('end_date')
+        
+        start_date = None
+        end_date = None
+        
+        if start_date_str:
+            try:
+                start_date = django.utils.dateparse.parse_datetime(start_date_str)
+                if start_date and timezone.is_naive(start_date):
+                    start_date = timezone.make_aware(start_date)
+            except Exception:
+                pass
+        if end_date_str:
+            try:
+                end_date = django.utils.dateparse.parse_datetime(end_date_str)
+                if end_date and timezone.is_naive(end_date):
+                    end_date = timezone.make_aware(end_date)
+            except Exception:
+                pass
+
         users = User.objects.all().order_by('name').prefetch_related('task_assignments__task')
         data = []
         
         for user in users:
-            metrics = calculate_user_health_metrics(user)
+            metrics = calculate_user_health_metrics(user, start_date=start_date, end_date=end_date)
             user_data = UserSerializer(user, context={'request': request}).data
             
             user_data['health_score'] = metrics['health_score']
@@ -664,13 +682,43 @@ class TeamWorkloadView(views.APIView):
         except User.DoesNotExist:
             return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        metrics = calculate_user_health_metrics(user)
+        import django.utils.dateparse
+        start_date_str = request.query_params.get('start_date')
+        end_date_str = request.query_params.get('end_date')
+        
+        start_date = None
+        end_date = None
+        
+        if start_date_str:
+            try:
+                start_date = django.utils.dateparse.parse_datetime(start_date_str)
+                if start_date and timezone.is_naive(start_date):
+                    start_date = timezone.make_aware(start_date)
+            except Exception:
+                pass
+        if end_date_str:
+            try:
+                end_date = django.utils.dateparse.parse_datetime(end_date_str)
+                if end_date and timezone.is_naive(end_date):
+                    end_date = timezone.make_aware(end_date)
+            except Exception:
+                pass
+
+        metrics = calculate_user_health_metrics(user, start_date=start_date, end_date=end_date)
         today = timezone.now().date()
         yesterday = today - timedelta(days=1)
         tomorrow = today + timedelta(days=1)
 
         user_tasks = Task.objects.filter(assignee_relationships__user=user).distinct().order_by('due_date', 'due_time')
         
+        # Apply date range filtering if provided
+        if start_date and end_date:
+            from django.db.models import Q
+            user_tasks = user_tasks.filter(
+                Q(assignee_relationships__user=user, assignee_relationships__completed=True, assignee_relationships__completed_at__range=(start_date, end_date)) |
+                Q(assignee_relationships__user=user, assignee_relationships__completed=False, due_date__range=(start_date.date(), end_date.date()))
+            )
+
         # Segment tasks based on assignee completion status
         completed_tasks = user_tasks.filter(
             assignee_relationships__user=user, 
@@ -731,10 +779,38 @@ class TeamTasksView(views.APIView):
         except User.DoesNotExist:
             return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        now = timezone.now()
-        today_date = now.date()
+        import django.utils.dateparse
+        start_date_str = request.query_params.get('start_date')
+        end_date_str = request.query_params.get('end_date')
         
+        start_date = None
+        end_date = None
+        
+        if start_date_str:
+            try:
+                start_date = django.utils.dateparse.parse_datetime(start_date_str)
+                if start_date and timezone.is_naive(start_date):
+                    start_date = timezone.make_aware(start_date)
+            except Exception:
+                pass
+        if end_date_str:
+            try:
+                end_date = django.utils.dateparse.parse_datetime(end_date_str)
+                if end_date and timezone.is_naive(end_date):
+                    end_date = timezone.make_aware(end_date)
+            except Exception:
+                pass
+
         queryset = Task.objects.filter(assignee_relationships__user=user).distinct().order_by('due_date', 'due_time')
+        
+        # Apply date range filtering if provided
+        if start_date and end_date:
+            from django.db.models import Q
+            queryset = queryset.filter(
+                Q(assignee_relationships__user=user, assignee_relationships__completed=True, assignee_relationships__completed_at__range=(start_date, end_date)) |
+                Q(assignee_relationships__user=user, assignee_relationships__completed=False, due_date__range=(start_date.date(), end_date.date()))
+            )
+
         status_param = request.query_params.get('status')
         
         if status_param == 'today':

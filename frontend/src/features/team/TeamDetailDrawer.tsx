@@ -22,15 +22,18 @@ import {
   Circle,
   HelpCircle,
   Plus,
+  Calendar,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
-import { formatTimeOnly } from '../../utils/time';
+import { formatTimeOnly, formatDueDate, getDueDateStyleClass } from '../../utils/time';
 
 interface TeamDetailDrawerProps {
   memberId: string | null;
   open: boolean;
   onClose: () => void;
   onCreateTask?: (memberId: string) => void;
+  startDate?: string;
+  endDate?: string;
 }
 
 export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
@@ -38,6 +41,8 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
   open,
   onClose,
   onCreateTask,
+  startDate,
+  endDate,
 }) => {
   const { user: currentUser } = useAuth();
   const isAdmin = currentUser?.role === 'ADMIN';
@@ -53,9 +58,11 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
 
   // Fetch workload summary
   const { data: workloadData, isLoading: isWorkloadLoading } = useQuery<TeamWorkload>({
-    queryKey: ['teamWorkload', memberId],
+    queryKey: ['teamWorkload', memberId, startDate, endDate],
     queryFn: async () => {
-      const response = await api.get(`/team/${memberId}/workload/`);
+      const response = await api.get(`/team/${memberId}/workload/`, {
+        params: startDate && endDate ? { start_date: startDate, end_date: endDate } : {}
+      });
       return response.data;
     },
     enabled: !!memberId && open,
@@ -63,11 +70,14 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
 
   // Fetch filtered tasks list
   const { data: tasks, isLoading: isTasksLoading } = useQuery<Task[]>({
-    queryKey: ['teamTasks', memberId, activeFilter],
+    queryKey: ['teamTasks', memberId, activeFilter, startDate, endDate],
     queryFn: async () => {
       const statusParam = activeFilter === 'all' ? '' : activeFilter;
       const response = await api.get(`/team/${memberId}/tasks/`, {
-        params: statusParam ? { status: statusParam } : {},
+        params: {
+          ...(statusParam ? { status: statusParam } : {}),
+          ...(startDate && endDate ? { start_date: startDate, end_date: endDate } : {})
+        }
       });
       return response.data;
     },
@@ -111,15 +121,19 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
       .toUpperCase();
   };
 
-  const getHealthColor = (score: number) => {
+  const getHealthColor = (score: number | null | undefined, status?: string) => {
+    if (score === null || score === undefined || status === 'no_data') {
+      return 'text-zinc-500 bg-zinc-100 dark:bg-zinc-800 dark:text-zinc-400';
+    }
     if (score >= 90) return 'text-green-600 bg-green-50 dark:bg-green-950/20 dark:text-green-400';
     if (score >= 80) return 'text-green-500 bg-green-50/50 dark:bg-green-950/10 dark:text-green-400';
     if (score >= 60) return 'text-amber-500 bg-amber-50 dark:bg-amber-950/20 dark:text-amber-400';
     if (score >= 40) return 'text-orange-500 bg-orange-50 dark:bg-orange-950/20 dark:text-orange-400';
-    return 'text-red-600 bg-red-50 dark:bg-red-950/20 dark:text-red-400';
+    return 'text-red-650 bg-red-50 dark:bg-red-950/20 dark:text-red-400';
   };
 
-  const getHealthBarColor = (score: number) => {
+  const getHealthBarColor = (score: number | null | undefined, status?: string) => {
+    if (score === null || score === undefined || status === 'no_data') return 'inherit';
     if (score >= 80) return 'success';
     if (score >= 60) return 'warning';
     return 'error';
@@ -276,8 +290,8 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
                         <HelpCircle size={13} className="text-zinc-400 cursor-help" />
                       </Tooltip>
                     </Box>
-                    <span className={`text-[10px] font-bold py-0.5 px-2 rounded-full uppercase tracking-wide ${getHealthColor(summary.health_score || 0)}`}>
-                      {summary.health_status?.replace('_', ' ')}
+                    <span className={`text-[10px] font-bold py-0.5 px-2 rounded-full uppercase tracking-wide ${getHealthColor(summary.health_score, summary.health_status)}`}>
+                      {summary.health_status === 'no_data' ? 'no data' : summary.health_status?.replace('_', ' ')}
                     </span>
                   </Box>
 
@@ -285,13 +299,20 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
                     <Box className="flex-1">
                       <LinearProgress
                         variant="determinate"
-                        value={summary.health_score || 0}
-                        color={getHealthBarColor(summary.health_score || 0)}
-                        sx={{ height: 6, borderRadius: 3 }}
+                        value={summary.health_score !== null && summary.health_score !== undefined ? summary.health_score : 0}
+                        color={getHealthBarColor(summary.health_score, summary.health_status)}
+                        sx={{ 
+                          height: 6, 
+                          borderRadius: 3,
+                          ...(summary.health_score === null || summary.health_score === undefined ? {
+                            bgcolor: 'action.disabledBackground',
+                            '& .MuiLinearProgress-bar': { bgcolor: 'text.disabled' }
+                          } : {})
+                        }}
                       />
                     </Box>
                     <span className="text-sm font-bold tracking-tight">
-                      {summary.health_score}%
+                      {summary.health_score !== null && summary.health_score !== undefined ? `${summary.health_score}%` : '—'}
                     </span>
                   </Box>
                 </Box>
@@ -459,6 +480,12 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
                                 {task.name}
                               </h4>
                               <Box className="flex items-center gap-2 flex-wrap text-[10px] text-zinc-400 mt-0.5">
+                                {task.due_date && (
+                                  <Box className={`flex items-center gap-0.5 ${getDueDateStyleClass(task.due_date, task.status)}`}>
+                                    <Calendar className="h-2.5 w-2.5 shrink-0" />
+                                    <span>{formatDueDate(task.due_date)}</span>
+                                  </Box>
+                                )}
                                 {task.due_time && (
                                   <Box className="flex items-center gap-0.5">
                                     <Clock className="h-2.5 w-2.5" />

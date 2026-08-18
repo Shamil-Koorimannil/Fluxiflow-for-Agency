@@ -19,7 +19,7 @@ export interface User {
   today_tasks_count?: number;
   completed_tasks_count?: number;
   health_score?: number;
-  health_status?: 'excellent' | 'healthy' | 'needs_attention' | 'at_risk' | 'critical';
+  health_status?: 'excellent' | 'healthy' | 'needs_attention' | 'at_risk' | 'critical' | 'no_data';
   pending_tasks?: number;
   today_tasks?: number;
   overdue_tasks?: number;
@@ -139,7 +139,7 @@ export interface TeamWorkloadSummary {
   completed_this_week: number;
   completed_this_month: number;
   health_score?: number;
-  health_status?: 'excellent' | 'healthy' | 'needs_attention' | 'at_risk' | 'critical';
+  health_status?: 'excellent' | 'healthy' | 'needs_attention' | 'at_risk' | 'critical' | 'no_data';
   on_time_completion_rate?: number;
   email?: string;
   status?: 'INVITED' | 'ACTIVE' | 'INACTIVE';

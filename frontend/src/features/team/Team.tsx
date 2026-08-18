@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../../services/api';
@@ -29,6 +29,7 @@ import {
   InputAdornment,
   LinearProgress,
   Tooltip,
+  Popover,
 } from '@mui/material';
 import {
   MoreVertical,
@@ -38,6 +39,14 @@ import {
   Mail,
   Upload,
   HelpCircle,
+  Check,
+  Calendar,
+  Grid as GridIcon,
+  History,
+  CircleDot,
+  ArrowLeftRight,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 export const Team: React.FC = () => {
@@ -105,14 +114,106 @@ export const Team: React.FC = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastSeverity, setToastSeverity] = useState<'success' | 'error'>('success');
 
+  // Period filter states
+  const [periodOption, setPeriodOption] = useState<'current_month' | 'select_month' | 'last_3_months' | 'custom_range' | 'current_year'>('current_month');
+  
+  const currentYear = new Date().getFullYear();
+  const currentMonthIdx = new Date().getMonth();
+  
+  const [selectedMonth, setSelectedMonth] = useState<number>(currentMonthIdx);
+  const [selectedYear, setSelectedYear] = useState<number>(currentYear);
+  
+  // Custom range states (start and end months/years)
+  const [customStartMonth, setCustomStartMonth] = useState<number>(currentMonthIdx);
+  const [customStartYear, setCustomStartYear] = useState<number>(currentYear);
+  const [customEndMonth, setCustomEndMonth] = useState<number>(currentMonthIdx);
+  const [customEndYear, setCustomEndYear] = useState<number>(currentYear);
+
+  const [dropdownAnchorEl, setDropdownAnchorEl] = useState<null | HTMLElement>(null);
+  const [pickerAnchorEl, setPickerAnchorEl] = useState<null | HTMLElement>(null);
+  const [pickerType, setPickerType] = useState<'month' | 'range' | null>(null);
+  const [viewYear, setViewYear] = useState<number>(currentYear);
+  const mainButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  const [rangeStep, setRangeStep] = useState<'start' | 'end'>('start');
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 640);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 640);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const monthsList = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
+  const isCustomRangeValid = () => {
+    if (periodOption !== 'custom_range') return true;
+    if (customStartYear < customEndYear) return true;
+    if (customStartYear === customEndYear && customStartMonth <= customEndMonth) return true;
+    return false;
+  };
+
+  const getDateRange = () => {
+    const now = new Date();
+    let start: Date;
+    let end: Date;
+
+    switch (periodOption) {
+      case 'current_month': {
+        start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+        end = now;
+        break;
+      }
+      case 'select_month': {
+        start = new Date(selectedYear, selectedMonth, 1, 0, 0, 0, 0);
+        end = new Date(selectedYear, selectedMonth + 1, 0, 23, 59, 59, 999);
+        break;
+      }
+      case 'last_3_months': {
+        start = new Date(now.getFullYear(), now.getMonth() - 2, 1, 0, 0, 0, 0);
+        end = now;
+        break;
+      }
+      case 'custom_range': {
+        start = new Date(customStartYear, customStartMonth, 1, 0, 0, 0, 0);
+        end = new Date(customEndYear, customEndMonth + 1, 0, 23, 59, 59, 999);
+        break;
+      }
+      case 'current_year': {
+        start = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+        end = now;
+        break;
+      }
+      default: {
+        start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+        end = now;
+      }
+    }
+
+    return {
+      start_date: start.toISOString(),
+      end_date: end.toISOString()
+    };
+  };
+
+  const { start_date, end_date } = getDateRange();
+  const isPeriodValid = isCustomRangeValid();
+
   // Fetch Team List
   const { data: teamMembers, isLoading, error } = useQuery<User[]>({
-    queryKey: ['team'],
+    queryKey: ['team', periodOption, selectedMonth, selectedYear, customStartMonth, customStartYear, customEndMonth, customEndYear],
     queryFn: async () => {
-      const response = await api.get('/team/');
+      if (!isPeriodValid) return [];
+      const response = await api.get('/team/', {
+        params: { start_date, end_date }
+      });
       return response.data;
     },
   });
+
 
   // Invitation Mutation
   const inviteMutation = useMutation({
@@ -400,6 +501,31 @@ export const Team: React.FC = () => {
       setAvatarFile(file);
       setAvatarPreview(URL.createObjectURL(file));
     }
+  };  const getPeriodLabel = () => {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const fullMonths = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    
+    switch (periodOption) {
+      case 'current_month':
+        return 'Current Month';
+      case 'select_month':
+        return `${fullMonths[selectedMonth]} ${selectedYear}`;
+      case 'last_3_months':
+        return 'Last 3 Months';
+      case 'custom_range': {
+        if (customStartYear === customEndYear) {
+          if (customStartMonth === customEndMonth) {
+            return `${fullMonths[customStartMonth]} ${customStartYear}`;
+          }
+          return `${months[customStartMonth]} – ${months[customEndMonth]}, ${customStartYear}`;
+        }
+        return `${months[customStartMonth]} ${customStartYear} – ${months[customEndMonth]} ${customEndYear}`;
+      }
+      case 'current_year':
+        return 'Current Year';
+      default:
+        return 'Current Month';
+    }
   };
 
   if (isLoading) {
@@ -419,7 +545,10 @@ export const Team: React.FC = () => {
     );
   }
 
-  const getHealthColor = (score: number) => {
+  const getHealthColor = (score: number | null | undefined, status?: string) => {
+    if (score === null || score === undefined || status === 'no_data') {
+      return 'text-zinc-500 bg-zinc-100 dark:bg-zinc-800 dark:text-zinc-400';
+    }
     if (score >= 90) return 'text-green-600 bg-green-50 dark:bg-green-950/20 dark:text-green-400';
     if (score >= 80) return 'text-green-500 bg-green-50/50 dark:bg-green-950/10 dark:text-green-400';
     if (score >= 60) return 'text-amber-500 bg-amber-50 dark:bg-amber-950/20 dark:text-amber-400';
@@ -427,7 +556,8 @@ export const Team: React.FC = () => {
     return 'text-red-600 bg-red-50 dark:bg-red-950/20 dark:text-red-400';
   };
 
-  const getHealthBarColor = (score: number) => {
+  const getHealthBarColor = (score: number | null | undefined, status?: string) => {
+    if (score === null || score === undefined || status === 'no_data') return 'inherit';
     if (score >= 80) return 'success';
     if (score >= 60) return 'warning';
     return 'error';
@@ -520,6 +650,9 @@ export const Team: React.FC = () => {
         </Button>
       </Box>
 
+
+
+
       {/* Active vs Deactivated Tab Selection */}
       <Box sx={{ display: 'flex', gap: 1.5, borderBottom: '1px solid', borderColor: 'divider', pb: 2 }}>
         <Button
@@ -603,21 +736,500 @@ export const Team: React.FC = () => {
 
         {/* Health status filter */}
         {activeTab === 'active' && (
-          <FormControl size="small" sx={{ minWidth: 160, '& .MuiOutlinedInput-root': { borderRadius: '8px', bgcolor: 'background.paper' } }}>
-            <InputLabel>Health Status</InputLabel>
-            <Select
-              label="Health Status"
-              value={healthFilter}
-              onChange={(e) => setHealthFilter(e.target.value as any)}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+            <FormControl size="small" sx={{ minWidth: 140, '& .MuiOutlinedInput-root': { borderRadius: '8px', bgcolor: 'background.paper' } }}>
+              <InputLabel>Health Status</InputLabel>
+              <Select
+                label="Health Status"
+                value={healthFilter}
+                onChange={(e) => setHealthFilter(e.target.value as any)}
+              >
+                <MenuItem value="all">All Statuses</MenuItem>
+                <MenuItem value="excellent">Excellent</MenuItem>
+                <MenuItem value="healthy">Healthy</MenuItem>
+                <MenuItem value="needs_attention">Needs Attention</MenuItem>
+                <MenuItem value="at_risk">At Risk</MenuItem>
+                <MenuItem value="critical">Critical</MenuItem>
+              </Select>
+            </FormControl>
+
+            {/* Polished Period Selector Trigger */}
+            <Button
+              ref={mainButtonRef}
+              onClick={(e) => setDropdownAnchorEl(e.currentTarget)}
+              variant="outlined"
+              startIcon={<Calendar size={15} />}
+              endIcon={<span>▾</span>}
+              sx={{
+                textTransform: 'none',
+                fontWeight: 600,
+                borderRadius: '8px',
+                borderColor: 'divider',
+                color: 'text.primary',
+                height: '40px',
+                px: 2,
+                '&:hover': { borderColor: 'text.primary', bgcolor: 'action.hover' }
+              }}
             >
-              <MenuItem value="all">All Statuses</MenuItem>
-              <MenuItem value="excellent">Excellent</MenuItem>
-              <MenuItem value="healthy">Healthy</MenuItem>
-              <MenuItem value="needs_attention">Needs Attention</MenuItem>
-              <MenuItem value="at_risk">At Risk</MenuItem>
-              <MenuItem value="critical">Critical</MenuItem>
-            </Select>
-          </FormControl>
+              {getPeriodLabel()}
+            </Button>
+
+            {/* Dropdown Menu for options */}
+            <Menu
+              anchorEl={dropdownAnchorEl}
+              open={Boolean(dropdownAnchorEl)}
+              onClose={() => setDropdownAnchorEl(null)}
+              slotProps={{
+                paper: {
+                  elevation: 1,
+                  sx: {
+                    border: '1px solid #e4e4e7',
+                    borderRadius: '8px',
+                    minWidth: 180,
+                    '& .MuiMenuItem-root': {
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      py: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 1.5,
+                      '&:hover': { bgcolor: '#f4f4f5' },
+                    },
+                  },
+                },
+              }}
+            >
+              <MenuItem
+                onClick={() => {
+                  setPeriodOption('current_month');
+                  setDropdownAnchorEl(null);
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Calendar size={14} className="text-zinc-550" />
+                  <span>Current Month</span>
+                </Box>
+                {periodOption === 'current_month' && <Check size={14} className="text-zinc-800" />}
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  setDropdownAnchorEl(null);
+                  setPickerType('month');
+                  setViewYear(selectedYear);
+                  setPickerAnchorEl(mainButtonRef.current);
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <GridIcon size={14} className="text-zinc-550" />
+                  <span>Select Month</span>
+                </Box>
+                {periodOption === 'select_month' && <Check size={14} className="text-zinc-800" />}
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  setPeriodOption('last_3_months');
+                  setDropdownAnchorEl(null);
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <History size={14} className="text-zinc-550" />
+                  <span>Last 3 Months</span>
+                </Box>
+                {periodOption === 'last_3_months' && <Check size={14} className="text-zinc-800" />}
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  setDropdownAnchorEl(null);
+                  setPickerType('range');
+                  setPickerAnchorEl(mainButtonRef.current);
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <ArrowLeftRight size={14} className="text-zinc-550" />
+                  <span>Custom Range</span>
+                </Box>
+                {periodOption === 'custom_range' && <Check size={14} className="text-zinc-800" />}
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  setPeriodOption('current_year');
+                  setDropdownAnchorEl(null);
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <CircleDot size={14} className="text-zinc-550" />
+                  <span>Current Year</span>
+                </Box>
+                {periodOption === 'current_year' && <Check size={14} className="text-zinc-800" />}
+              </MenuItem>
+            </Menu>
+
+            {/* Dynamic Month/Range Picker Popover */}
+            <Popover
+              open={Boolean(pickerAnchorEl)}
+              anchorEl={pickerAnchorEl}
+              onClose={() => {
+                setPickerAnchorEl(null);
+                setPickerType(null);
+              }}
+              anchorOrigin={{
+                vertical: 'bottom',
+                horizontal: 'left',
+              }}
+              transformOrigin={{
+                vertical: 'top',
+                horizontal: 'left',
+              }}
+              slotProps={{
+                paper: {
+                  sx: {
+                    p: 2,
+                    border: '1px solid #e4e4e7',
+                    borderRadius: '12px',
+                    boxShadow: '0 10px 15px -3px rgba(0,0,0,0.05), 0 4px 6px -2px rgba(0,0,0,0.02)',
+                    mt: 1,
+                    maxWidth: 'calc(100vw - 32px)',
+                  }
+                }
+              }}
+            >
+              {pickerType === 'month' && (
+                <Box sx={{ width: 260 }}>
+                  {/* Header with year pagination */}
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                    <IconButton size="small" onClick={() => setViewYear(prev => prev - 1)}>
+                      <ChevronLeft size={16} />
+                    </IconButton>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                      {viewYear}
+                    </Typography>
+                    <IconButton size="small" onClick={() => setViewYear(prev => prev + 1)}>
+                      <ChevronRight size={16} />
+                    </IconButton>
+                  </Box>
+
+                  {/* Grid of months */}
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {monthsList.map((m, idx) => {
+                      const isSelected = selectedMonth === idx && selectedYear === viewYear;
+                      return (
+                        <Button
+                          key={idx}
+                          fullWidth
+                          size="small"
+                          variant={isSelected ? 'contained' : 'text'}
+                          onClick={() => {
+                            setSelectedMonth(idx);
+                            setSelectedYear(viewYear);
+                            setPeriodOption('select_month');
+                            setPickerAnchorEl(null);
+                            setPickerType(null);
+                          }}
+                          sx={{
+                            textTransform: 'none',
+                            fontWeight: isSelected ? 800 : 500,
+                            borderRadius: '6px',
+                            py: 1,
+                            fontSize: '12px',
+                            bgcolor: isSelected ? 'text.primary' : 'transparent',
+                            color: isSelected ? 'background.paper' : 'text.primary',
+                            '&:hover': {
+                              bgcolor: isSelected ? 'text.secondary' : 'action.hover',
+                            }
+                          }}
+                        >
+                          {m.substring(0, 3)}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </Box>
+              )}
+
+              {pickerType === 'range' && (
+                isMobile ? (
+                  /* Mobile View: Single Panel with tabs */
+                  <Box sx={{ width: 240 }}>
+                    {/* Step Toggle Tabs */}
+                    <Box sx={{ display: 'flex', borderBottom: '1px solid', borderColor: 'divider', mb: 2 }}>
+                      <Button
+                        fullWidth
+                        size="small"
+                        onClick={() => setRangeStep('start')}
+                        sx={{
+                          textTransform: 'none',
+                          fontWeight: 700,
+                          fontSize: '11px',
+                          borderRadius: 0,
+                          borderBottom: rangeStep === 'start' ? '2px solid' : '2px solid transparent',
+                          borderColor: rangeStep === 'start' ? 'text.primary' : 'transparent',
+                          color: rangeStep === 'start' ? 'text.primary' : 'text.secondary',
+                          py: 1,
+                          minWidth: 0
+                        }}
+                      >
+                        Start: {monthsList[customStartMonth].substring(0, 3)} {customStartYear}
+                      </Button>
+                      <Button
+                        fullWidth
+                        size="small"
+                        onClick={() => setRangeStep('end')}
+                        sx={{
+                          textTransform: 'none',
+                          fontWeight: 700,
+                          fontSize: '11px',
+                          borderRadius: 0,
+                          borderBottom: rangeStep === 'end' ? '2px solid' : '2px solid transparent',
+                          borderColor: rangeStep === 'end' ? 'text.primary' : 'transparent',
+                          color: rangeStep === 'end' ? 'text.primary' : 'text.secondary',
+                          py: 1,
+                          minWidth: 0
+                        }}
+                      >
+                        End: {monthsList[customEndMonth].substring(0, 3)} {customEndYear}
+                      </Button>
+                    </Box>
+
+                    {rangeStep === 'start' ? (
+                      <Box>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+                          <IconButton size="small" onClick={() => setCustomStartYear(prev => prev - 1)}>
+                            <ChevronLeft size={14} />
+                          </IconButton>
+                          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                            {customStartYear}
+                          </Typography>
+                          <IconButton size="small" onClick={() => setCustomStartYear(prev => prev + 1)}>
+                            <ChevronRight size={14} />
+                          </IconButton>
+                        </Box>
+                        <div className="grid grid-cols-3 gap-1">
+                          {monthsList.map((m, idx) => {
+                            const isSelected = customStartMonth === idx;
+                            return (
+                              <Button
+                                key={idx}
+                                fullWidth
+                                size="small"
+                                variant={isSelected ? 'contained' : 'text'}
+                                onClick={() => {
+                                  setCustomStartMonth(idx);
+                                  setRangeStep('end');
+                                }}
+                                sx={{
+                                  textTransform: 'none',
+                                  borderRadius: '4px',
+                                  fontSize: '11px',
+                                  py: 0.5,
+                                  bgcolor: isSelected ? 'text.primary' : 'transparent',
+                                  color: isSelected ? 'background.paper' : 'text.primary',
+                                  '&:hover': { bgcolor: isSelected ? 'text.secondary' : 'action.hover' }
+                                }}
+                              >
+                                {m.substring(0, 3)}
+                              </Button>
+                            );
+                          })}
+                        </div>
+                      </Box>
+                    ) : (
+                      <Box>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+                          <IconButton size="small" onClick={() => setCustomEndYear(prev => prev - 1)}>
+                            <ChevronLeft size={14} />
+                          </IconButton>
+                          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                            {customEndYear}
+                          </Typography>
+                          <IconButton size="small" onClick={() => setCustomEndYear(prev => prev + 1)}>
+                            <ChevronRight size={14} />
+                          </IconButton>
+                        </Box>
+                        <div className="grid grid-cols-3 gap-1">
+                          {monthsList.map((m, idx) => {
+                            const isSelected = customEndMonth === idx;
+                            return (
+                              <Button
+                                key={idx}
+                                fullWidth
+                                size="small"
+                                variant={isSelected ? 'contained' : 'text'}
+                                onClick={() => setCustomEndMonth(idx)}
+                                sx={{
+                                  textTransform: 'none',
+                                  borderRadius: '4px',
+                                  fontSize: '11px',
+                                  py: 0.5,
+                                  bgcolor: isSelected ? 'text.primary' : 'transparent',
+                                  color: isSelected ? 'background.paper' : 'text.primary',
+                                  '&:hover': { bgcolor: isSelected ? 'text.secondary' : 'action.hover' }
+                                }}
+                              >
+                                {m.substring(0, 3)}
+                              </Button>
+                            );
+                          })}
+                        </div>
+                      </Box>
+                    )}
+
+                    {/* Validation and Apply Button */}
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 2, pt: 1.5, borderTop: '1px solid', borderColor: 'divider' }}>
+                      {!isCustomRangeValid() && (
+                        <Typography variant="caption" sx={{ color: 'error.main', fontWeight: 650, textAlign: 'center' }}>
+                          Start month cannot be after End month.
+                        </Typography>
+                      )}
+                      <Button
+                        fullWidth
+                        size="small"
+                        variant="contained"
+                        disabled={!isCustomRangeValid()}
+                        onClick={() => {
+                          setPeriodOption('custom_range');
+                          setPickerAnchorEl(null);
+                          setPickerType(null);
+                        }}
+                        sx={{
+                          textTransform: 'none',
+                          fontWeight: 700,
+                          borderRadius: '6px',
+                          bgcolor: 'text.primary',
+                          color: 'background.paper',
+                          '&:hover': { bgcolor: 'text.secondary' }
+                        }}
+                      >
+                        Apply Range
+                      </Button>
+                    </Box>
+                  </Box>
+                ) : (
+                  /* Desktop View: Side-by-side Panels */
+                  <Box sx={{ width: 440 }}>
+                    <Box sx={{ display: 'flex', gap: 3 }}>
+                      {/* Left Side: Start Month Picker */}
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', display: 'block', mb: 1, textTransform: 'uppercase', fontSize: '9px', tracking: '0.05em' }}>
+                          Start Month
+                        </Typography>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+                          <IconButton size="small" onClick={() => setCustomStartYear(prev => prev - 1)}>
+                            <ChevronLeft size={14} />
+                          </IconButton>
+                          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                            {customStartYear}
+                          </Typography>
+                          <IconButton size="small" onClick={() => setCustomStartYear(prev => prev + 1)}>
+                            <ChevronRight size={14} />
+                          </IconButton>
+                        </Box>
+                        <div className="grid grid-cols-3 gap-1">
+                          {monthsList.map((m, idx) => {
+                            const isSelected = customStartMonth === idx;
+                            return (
+                              <Button
+                                key={idx}
+                                fullWidth
+                                size="small"
+                                variant={isSelected ? 'contained' : 'text'}
+                                onClick={() => setCustomStartMonth(idx)}
+                                sx={{
+                                  textTransform: 'none',
+                                  borderRadius: '4px',
+                                  fontSize: '11px',
+                                  py: 0.5,
+                                  bgcolor: isSelected ? 'text.primary' : 'transparent',
+                                  color: isSelected ? 'background.paper' : 'text.primary',
+                                  '&:hover': { bgcolor: isSelected ? 'text.secondary' : 'action.hover' }
+                                }}
+                              >
+                                {m.substring(0, 3)}
+                              </Button>
+                            );
+                          })}
+                        </div>
+                      </Box>
+
+                      {/* Right Side: End Month Picker */}
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', display: 'block', mb: 1, textTransform: 'uppercase', fontSize: '9px', tracking: '0.05em' }}>
+                          End Month
+                        </Typography>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+                          <IconButton size="small" onClick={() => setCustomEndYear(prev => prev - 1)}>
+                            <ChevronLeft size={14} />
+                          </IconButton>
+                          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                            {customEndYear}
+                          </Typography>
+                          <IconButton size="small" onClick={() => setCustomEndYear(prev => prev + 1)}>
+                            <ChevronRight size={14} />
+                          </IconButton>
+                        </Box>
+                        <div className="grid grid-cols-3 gap-1">
+                          {monthsList.map((m, idx) => {
+                            const isSelected = customEndMonth === idx;
+                            return (
+                              <Button
+                                key={idx}
+                                fullWidth
+                                size="small"
+                                variant={isSelected ? 'contained' : 'text'}
+                                onClick={() => setCustomEndMonth(idx)}
+                                sx={{
+                                  textTransform: 'none',
+                                  borderRadius: '4px',
+                                  fontSize: '11px',
+                                  py: 0.5,
+                                  bgcolor: isSelected ? 'text.primary' : 'transparent',
+                                  color: isSelected ? 'background.paper' : 'text.primary',
+                                  '&:hover': { bgcolor: isSelected ? 'text.secondary' : 'action.hover' }
+                                }}
+                              >
+                                {m.substring(0, 3)}
+                              </Button>
+                            );
+                          })}
+                        </div>
+                      </Box>
+                    </Box>
+
+                    {/* Validation and Apply Button */}
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, pt: 1.5, borderTop: '1px solid', borderColor: 'divider' }}>
+                      {!isCustomRangeValid() ? (
+                        <Typography variant="caption" sx={{ color: 'error.main', fontWeight: 650 }}>
+                          Start month cannot be after End month.
+                        </Typography>
+                      ) : (
+                        <div />
+                      )}
+                      <Button
+                        size="small"
+                        variant="contained"
+                        disabled={!isCustomRangeValid()}
+                        onClick={() => {
+                          setPeriodOption('custom_range');
+                          setPickerAnchorEl(null);
+                          setPickerType(null);
+                        }}
+                        sx={{
+                          textTransform: 'none',
+                          fontWeight: 700,
+                          borderRadius: '6px',
+                          bgcolor: 'text.primary',
+                          color: 'background.paper',
+                          '&:hover': { bgcolor: 'text.secondary' }
+                        }}
+                      >
+                        Apply Range
+                      </Button>
+                    </Box>
+                  </Box>
+                )
+              )}
+            </Popover>
+          </Box>
         )}
 
         {/* Sorting filter */}
@@ -721,19 +1333,27 @@ export const Team: React.FC = () => {
                         </Tooltip>
                       </Box>
                       <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.primary' }}>
-                        {member.health_score || 0}%
+                        {member.health_score !== null && member.health_score !== undefined ? `${member.health_score}%` : '—'}
                       </Typography>
                     </Box>
                     
                     <LinearProgress
                       variant="determinate"
-                      value={member.health_score || 0}
-                      color={getHealthBarColor(member.health_score || 0)}
-                      sx={{ height: 6, borderRadius: 3, mb: 1 }}
+                      value={member.health_score !== null && member.health_score !== undefined ? member.health_score : 0}
+                      color={getHealthBarColor(member.health_score, member.health_status)}
+                      sx={{ 
+                        height: 6, 
+                        borderRadius: 3, 
+                        mb: 1,
+                        ...(member.health_score === null || member.health_score === undefined ? {
+                          bgcolor: 'action.disabledBackground',
+                          '& .MuiLinearProgress-bar': { bgcolor: 'text.disabled' }
+                        } : {})
+                      }}
                     />
                     
-                    <span className={`text-[10px] font-bold py-0.5 px-2 rounded-full uppercase tracking-wide ${getHealthColor(member.health_score || 0)}`}>
-                      {member.health_status?.replace('_', ' ') || 'healthy'}
+                    <span className={`text-[10px] font-bold py-0.5 px-2 rounded-full uppercase tracking-wide ${getHealthColor(member.health_score, member.health_status)}`}>
+                      {member.health_status === 'no_data' ? 'no data' : (member.health_status?.replace('_', ' ') || 'healthy')}
                     </span>
                   </Box>
 
@@ -1319,7 +1939,10 @@ export const Team: React.FC = () => {
           setPreselectedMemberId(memberId);
           setIsTaskFormOpen(true);
         }}
+        startDate={start_date}
+        endDate={end_date}
       />
+
 
       {/* Task Creation Modal Form */}
       <TaskFormModal
