@@ -711,18 +711,26 @@ class BulkTaskImportTests(TestCase):
         errors = response.data['errors']
         fields = [e['field'] for e in errors]
         self.assertIn("Title", fields)
-        self.assertIn("Priority", fields)
-        self.assertIn("Status", fields)
+        self.assertNotIn("Priority", fields)
+        self.assertNotIn("Status", fields)
         
-        # Scenario B: Duplicate rows within file (warning only)
+        # Verify warnings are present for priority and status
+        warnings = response.data['warnings']
+        warn_fields = [w['field'] for w in warnings]
+        self.assertIn("Priority", warn_fields)
+        self.assertIn("Status", warn_fields)
+        
+        # Scenario B: Duplicate rows within file (blocking error now)
         excel_file = self.create_mock_excel([
             ["Task 1", "Desc", "High", "Pending", "2026-08-12", "12:00", ""],
             ["Task 1", "Desc", "High", "Pending", "2026-08-12", "12:00", ""]
         ])
         response = self.client.post(url, {'file': excel_file}, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.data['success'])
-        self.assertEqual(response.data['duplicate_count'], 1)
+        self.assertFalse(response.data['success'])
+        errors = response.data['errors']
+        messages = [e['message'] for e in errors]
+        self.assertTrue(any("already exists" in m for m in messages))
 
         # Scenario C: Invalid Assignee Email / Inactive Assignee
         excel_file = self.create_mock_excel([
@@ -733,8 +741,7 @@ class BulkTaskImportTests(TestCase):
         self.assertFalse(response.data['success'])
         errors = response.data['errors']
         messages = [e['message'] for e in errors]
-        self.assertTrue(any("not a member" in m for m in messages))
-        self.assertTrue(any("deactivated" in m for m in messages))
+        self.assertTrue(any("could not be found" in m for m in messages))
 
     def test_import_confirm_rollback_and_success(self):
         self.set_auth(self.admin_token)
@@ -1165,6 +1172,138 @@ class SubTaskIndependentWorkItemTests(TestCase):
         results = get_results(response.data)
         sub_item = next((t for t in results if t['id'] == f"subtask_{subtask_assigned.id}"), None)
         self.assertIsNone(sub_item)
+
+    def test_bulk_import_normalization_and_warnings(self):
+        """Verify priority/status normalization and warnings work as expected."""
+        from apps.tasks.bulk_import import validate_bulk_import_data
+        
+        tasks_list = [
+            {
+                "row_number": 2,
+                "title": "Task 1",
+                "priority": "Low",
+                "status": "Pending",
+                "due_date": "2026-08-20",
+                "due_time": "12:00"
+            },
+            {
+                "row_number": 3,
+                "title": "Task 2",
+                "priority": "Urgent",  # Invalid priority
+                "status": "InvalidStatus",  # Invalid status
+                "due_date": "2026-08-21",
+                "due_time": ""
+            },
+            {
+                "row_number": 4,
+                "title": "Task 3",
+                "priority": "",  # Empty priority
+                "status": "",  # Empty status
+                "due_date": "2026-08-22",
+                "due_time": ""
+            }
+        ]
+        
+        result = validate_bulk_import_data(tasks_list, self.project)
+        self.assertEqual(len(result["errors"]), 0)
+        self.assertEqual(len(result["warnings"]), 4)  # 2 for row 3 (priority & status), 2 for row 4 (priority & status)
+        
+        # Verify normalized values in list
+        self.assertEqual(tasks_list[0]["priority"], "LOW")
+        self.assertEqual(tasks_list[0]["status"], "PENDING")
+        
+        self.assertEqual(tasks_list[1]["priority"], "LOW")
+        self.assertEqual(tasks_list[1]["status"], "PENDING")
+        self.assertEqual(result["warnings"][0]["message"], 'Row 3: "Urgent" is not a supported priority. Low priority will be used.')
+        self.assertEqual(result["warnings"][1]["message"], 'Row 3: "InvalidStatus" is not a supported status. Pending status will be used instead.')
+        
+        self.assertEqual(tasks_list[2]["priority"], "LOW")
+        self.assertEqual(tasks_list[2]["status"], "PENDING")
+
+    def test_bulk_import_blocking_errors(self):
+        """Verify that validation flags errors for missing title, invalid date, and duplicate tasks."""
+        from apps.tasks.bulk_import import validate_bulk_import_data
+        
+        # Create an existing task to trigger duplicate check
+        Task.objects.create(
+            project=self.project,
+            name="Existing Task",
+            due_date="2026-08-20",
+            created_by=self.admin
+        )
+        
+        tasks_list = [
+            {
+                "row_number": 2,
+                "title": "",  # Missing title
+                "priority": "Low",
+                "status": "Pending",
+                "due_date": "2026-08-20",
+                "due_time": "12:00"
+            },
+            {
+                "row_number": 3,
+                "title": "Task 2",
+                "priority": "Low",
+                "status": "Pending",
+                "due_date": "invalid-date",  # Invalid date format
+                "due_time": ""
+            },
+            {
+                "row_number": 4,
+                "title": "Existing Task",  # Duplicate task name & due date
+                "priority": "Low",
+                "status": "Pending",
+                "due_date": "2026-08-20",
+                "due_time": ""
+            }
+        ]
+        
+        result = validate_bulk_import_data(tasks_list, self.project)
+        self.assertEqual(len(result["errors"]), 3)
+        self.assertEqual(result["errors"][0]["message"], "Row 2: Task name is missing.")
+        self.assertEqual(result["errors"][1]["message"], "Row 3: Due date is invalid. Please select a valid date.")
+        self.assertEqual(result["errors"][2]["message"], "Row 4: A task with this name and due date already exists in this project.")
+
+    def test_bulk_import_confirm_rollback_on_failure(self):
+        """Verify confirm API rolls back all creations if any row validation fails."""
+        # Use bulk_import_confirm API endpoint
+        url = reverse('project-detail', args=[self.project.id]) + 'tasks/bulk-import/confirm/'
+        # Generate token dynamically
+        refresh = RefreshToken.for_user(self.admin)
+        refresh['email'] = self.admin.email
+        refresh['name'] = self.admin.name
+        refresh['role'] = self.admin.role
+        token = str(refresh.access_token)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        
+        # Valid row and invalid row
+        tasks_data = [
+            {
+                "row_number": 2,
+                "title": "Should Not Be Created",
+                "priority": "Low",
+                "status": "Pending",
+                "due_date": "2026-08-20",
+                "due_time": "12:00"
+            },
+            {
+                "row_number": 3,
+                "title": "A" * 300,  # exceeds 255 max_length, throws ValidationError in serializer
+                "priority": "Low",
+                "status": "Pending",
+                "due_date": "2026-08-20",
+                "due_time": ""
+            }
+        ]
+        
+        response = self.client.post(url, {"tasks": tasks_data}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(response.data["success"])
+        self.assertEqual(response.data["message"], "Some tasks could not be imported.")
+        
+        # Ensure row 2 task was NOT created (rolled back)
+        self.assertFalse(Task.objects.filter(name="Should Not Be Created").exists())
 
 
 

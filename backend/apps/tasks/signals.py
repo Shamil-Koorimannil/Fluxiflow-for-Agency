@@ -300,3 +300,14 @@ def handle_subtask_assignee_realtime_delete(sender, instance, **kwargs):
         logger.error(f"Error in handle_subtask_assignee_realtime_delete: {e}", exc_info=True)
 
 
+@receiver(post_save, sender=SubTask)
+def handle_subtask_save_reopen_parent(sender, instance, created, **kwargs):
+    if created or instance.status == 'PENDING':
+        parent = instance.task
+        if parent.status == 'COMPLETED':
+            parent.status = 'PENDING'
+            parent.completed_by = None
+            parent.completed_at = None
+            parent.save()
+
+

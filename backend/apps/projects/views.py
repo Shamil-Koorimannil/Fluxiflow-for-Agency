@@ -6,9 +6,9 @@ from .models import Project
 from .serializers import ProjectSerializer
 from apps.core.permissions import IsAdminOrReadOnlyMember
 from apps.activity.models import ActivityLog
-from apps.tasks.bulk_import import generate_bulk_template, parse_excel_file, validate_bulk_import_data, import_tasks_confirm
+from apps.tasks.bulk_import import generate_bulk_template, parse_excel_file, validate_bulk_import_data, import_tasks_confirm, BulkImportValidationError
 
-class ProjectViewSet(viewsets.ModelSerializerViewSet if hasattr(viewsets, 'ModelSerializerViewSet') else viewsets.ModelViewSet):
+class ProjectViewSet(viewsets.ModelViewSet):
     queryset = Project.objects.all().order_by('-created_at')
     serializer_class = ProjectSerializer
     permission_classes = [IsAdminOrReadOnlyMember]
@@ -91,11 +91,13 @@ class ProjectViewSet(viewsets.ModelSerializerViewSet if hasattr(viewsets, 'Model
         assert isinstance(result, list)
         validation_result = validate_bulk_import_data(result, project)
         errors = validation_result["errors"]
+        warnings = validation_result.get("warnings", [])
         duplicate_count = validation_result["duplicate_count"]
         
         return Response({
             "success": len(errors) == 0,
             "errors": errors,
+            "warnings": warnings,
             "total_rows": len(result),
             "tasks_count": len(result),
             "subtasks_count": 0,
@@ -119,7 +121,8 @@ class ProjectViewSet(viewsets.ModelSerializerViewSet if hasattr(viewsets, 'Model
         errors = validation_result["errors"]
         if errors:
             return Response({
-                "detail": "Validation failed. Import payload was manipulated or contains errors.",
+                "success": False,
+                "message": "Validation failed. Import payload contains errors.",
                 "errors": errors
             }, status=status.HTTP_400_BAD_REQUEST)
             
@@ -135,10 +138,24 @@ class ProjectViewSet(viewsets.ModelSerializerViewSet if hasattr(viewsets, 'Model
                 "tasks_created": total_tasks,
                 "subtasks_created": total_subtasks
             }, status=status.HTTP_201_CREATED)
+        except BulkImportValidationError as e:
+            return Response({
+                "success": False,
+                "message": "Some tasks could not be imported.",
+                "errors": e.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             import traceback
             traceback.print_exc()
-            return Response({"detail": f"Import failed due to a server error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({
+                "success": False,
+                "message": "Unable to import tasks. Please try again. If the problem continues, contact your administrator.",
+                "errors": [{
+                    "row": 0,
+                    "field": "server",
+                    "message": "Unable to import tasks. Please try again. If the problem continues, contact your administrator."
+                }]
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=True, methods=['GET'], url_path='export-report')
     def export_report(self, request, pk=None):

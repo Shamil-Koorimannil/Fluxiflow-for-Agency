@@ -306,8 +306,35 @@ def parse_excel_file(file_obj):
         
     return True, parsed_rows
 
+def normalize_priority(value):
+    if not value:
+        return "LOW"
+    val_str = str(value).strip().upper()
+    if val_str == "LOW":
+        return "LOW"
+    if val_str == "MEDIUM":
+        return "MEDIUM"
+    if val_str == "HIGH":
+        return "HIGH"
+    return "LOW"
+
+def normalize_status(value):
+    if not value:
+        return "PENDING"
+    val_str = str(value).strip().upper()
+    if val_str == "COMPLETED":
+        return "COMPLETED"
+    if val_str == "PENDING":
+        return "PENDING"
+    return "PENDING"
+
+class BulkImportValidationError(Exception):
+    def __init__(self, errors):
+        self.errors = errors
+
 def validate_bulk_import_data(tasks_list, project):
     errors = []
+    warnings = []
     
     if project.organization:
         org_users = User.objects.filter(memberships__organization=project.organization)
@@ -315,25 +342,15 @@ def validate_bulk_import_data(tasks_list, project):
         org_users = User.objects.all()
     user_by_email = {u.email.lower(): u for u in org_users}
     
-    # 1. Row duplicates check (compares all key task columns)
-    seen_rows = []
-    duplicate_count = 0
-    for item in tasks_list:
-        row_key = (
-            (item.get("title") or "").strip().lower(),
-            (item.get("description") or "").strip().lower(),
-            (item.get("priority") or "").strip().lower(),
-            (item.get("status") or "").strip().lower(),
-            (item.get("due_date") or "").strip().lower(),
-            (item.get("due_time") or "").strip().lower(),
-            (item.get("assignee_emails_str") or "").strip().lower(),
-        )
-        if row_key in seen_rows:
-            duplicate_count += 1
-        else:
-            seen_rows.append(row_key)
-            
-    # 2. General validation
+    # Query existing tasks in the project to check for duplicates
+    existing_tasks = Task.objects.filter(project=project)
+    existing_task_keys = {
+        ((t.name or "").strip().lower(), (str(t.due_date) if t.due_date else ""))
+        for t in existing_tasks
+    }
+    
+    seen_row_keys = set()
+    
     for item in tasks_list:
         row_idx = item.get("row_number", 0)
         title = item.get("title")
@@ -349,30 +366,48 @@ def validate_bulk_import_data(tasks_list, project):
                 "row": row_idx,
                 "field": "Title",
                 "value": "",
-                "message": "Task Title is required."
+                "message": f"Row {row_idx}: Task name is missing."
             })
             
-        # Priority validation
-        if priority:
-            p_val = str(priority).strip().upper()
-            if p_val not in ["LOW", "MEDIUM", "HIGH"]:
-                errors.append({
+        # Priority normalization and warnings
+        normalized_priority = normalize_priority(priority)
+        orig_p_clean = str(priority).strip().upper() if priority else ""
+        if orig_p_clean not in ["LOW", "MEDIUM", "HIGH"]:
+            if not priority or str(priority).strip() in ["", "None", "N/A"]:
+                warnings.append({
+                    "row": row_idx,
+                    "field": "Priority",
+                    "value": str(priority) if priority is not None else "",
+                    "message": f"Row {row_idx}: Priority is missing. Low priority will be used."
+                })
+            else:
+                warnings.append({
                     "row": row_idx,
                     "field": "Priority",
                     "value": str(priority),
-                    "message": "Invalid Priority. Must be Low, Medium, or High."
+                    "message": f"Row {row_idx}: \"{priority}\" is not a supported priority. Low priority will be used."
                 })
+        item["priority"] = normalized_priority
                 
-        # Status validation
-        if status:
-            s_val = str(status).strip().upper()
-            if s_val not in ["PENDING", "COMPLETED"]:
-                errors.append({
+        # Status normalization and warnings
+        normalized_status = normalize_status(status)
+        orig_s_clean = str(status).strip().upper() if status else ""
+        if orig_s_clean not in ["PENDING", "COMPLETED"]:
+            if not status or str(status).strip() in ["", "None", "N/A"]:
+                warnings.append({
+                    "row": row_idx,
+                    "field": "Status",
+                    "value": str(status) if status is not None else "",
+                    "message": f"Row {row_idx}: Status is missing. Pending status will be used instead."
+                })
+            else:
+                warnings.append({
                     "row": row_idx,
                     "field": "Status",
                     "value": str(status),
-                    "message": "Invalid Status. Must be Pending or Completed."
+                    "message": f"Row {row_idx}: \"{status}\" is not a supported status. Pending status will be used instead."
                 })
+        item["status"] = normalized_status
 
         # Due date validation
         if not due_date or str(due_date).strip() == "":
@@ -380,7 +415,7 @@ def validate_bulk_import_data(tasks_list, project):
                 "row": row_idx,
                 "field": "Due Date",
                 "value": "",
-                "message": "Due Date is required."
+                "message": f"Row {row_idx}: Due date is invalid. Please select a valid date."
             })
         else:
             try:
@@ -390,7 +425,7 @@ def validate_bulk_import_data(tasks_list, project):
                     "row": row_idx,
                     "field": "Due Date",
                     "value": str(due_date),
-                    "message": "Invalid Due Date format. Use YYYY-MM-DD."
+                    "message": f"Row {row_idx}: Due date is invalid. Please select a valid date."
                 })
                 
         # Due time validation
@@ -402,35 +437,42 @@ def validate_bulk_import_data(tasks_list, project):
                     "row": row_idx,
                     "field": "Due Time",
                     "value": str(due_time),
-                    "message": "Invalid Due Time format. Use HH:MM."
+                    "message": f"Row {row_idx}: Due time is invalid. Please use a valid time."
                 })
                 
+        # Duplicate checks
+        if title and due_date:
+            title_val = str(title).strip().lower()
+            due_date_val = str(due_date).strip()
+            task_key = (title_val, due_date_val)
+            if task_key in existing_task_keys or task_key in seen_row_keys:
+                errors.append({
+                    "row": row_idx,
+                    "field": "Title",
+                    "value": title,
+                    "message": f"Row {row_idx}: A task with this name and due date already exists in this project."
+                })
+            else:
+                seen_row_keys.add(task_key)
+
         # Assignee emails validation
         if assignee_emails_str and str(assignee_emails_str).strip() != "":
             emails = [e.strip() for e in assignee_emails_str.split(",") if e.strip()]
             for email in emails:
                 email_lower = email.lower()
-                if email_lower not in user_by_email:
+                if email_lower not in user_by_email or not user_by_email[email_lower].is_active:
                     errors.append({
                         "row": row_idx,
                         "field": "Assignee Emails",
                         "value": email,
-                        "message": f"'{email}' is not a member of this workspace."
-                      })
-                else:
-                    target_user = user_by_email[email_lower]
-                    if not target_user.is_active:
-                        errors.append({
-                            "row": row_idx,
-                            "field": "Assignee Emails",
-                            "value": email,
-                            "message": f"Cannot assign task to deactivated member(s): {target_user.name}."
-                        })
+                        "message": f"Row {row_idx}: The selected team member could not be found."
+                    })
                         
-    return {"errors": errors, "duplicate_count": duplicate_count}
+    return {"errors": errors, "warnings": warnings, "duplicate_count": 0}
 
 def import_tasks_confirm(tasks_list, project, request_user, request=None):
     total_tasks_created = 0
+    import_errors = []
     
     if project.organization:
         org_users = User.objects.filter(memberships__organization=project.organization)
@@ -440,6 +482,8 @@ def import_tasks_confirm(tasks_list, project, request_user, request=None):
     
     with transaction.atomic():
         for row_data in tasks_list:
+            row_idx = row_data.get("row_number", 0)
+            
             # Resolve assignees
             assignees = []
             assignee_emails_str = row_data.get("assignee_emails_str")
@@ -450,11 +494,13 @@ def import_tasks_confirm(tasks_list, project, request_user, request=None):
                     if u:
                         assignees.append(u)
             
-            priority_val = str(row_data.get("priority", "MEDIUM")).strip().upper()
-            status_val = str(row_data.get("status", "PENDING")).strip().upper()
+            priority_val = normalize_priority(row_data.get("priority"))
+            status_val = normalize_status(row_data.get("status"))
+            
             due_time_val = row_data.get("due_time")
             if due_time_val:
-                due_time_val = f"{due_time_val}:00"
+                if len(due_time_val.split(':')) == 2:
+                    due_time_val = f"{due_time_val}:00"
                 
             serializer_data = {
                 'project': str(project.id),
@@ -468,31 +514,63 @@ def import_tasks_confirm(tasks_list, project, request_user, request=None):
             }
             
             serializer = TaskSerializer(data=serializer_data, context={'request': request})
-            serializer.is_valid(raise_exception=True)
-            task = serializer.save()
-            
-            # If project organization exists, save it on task
-            if project.organization:
-                task.organization = project.organization
-                task.save()
+            try:
+                serializer.is_valid(raise_exception=True)
+                task = serializer.save()
                 
-            # Apply task completion logic if imported as COMPLETED
-            if status_val == 'COMPLETED':
-                # Complete task assignees first
-                for assignee_rel in TaskAssignee.objects.filter(task=task):
-                    assignee_rel.completed = True
-                    assignee_rel.completed_at = timezone.now()
-                    assignee_rel.save()
+                # If project organization exists, save it on task
+                if project.organization:
+                    task.organization = project.organization
+                    task.save()
                     
-                # Complete the main task
-                task.status = 'COMPLETED'
-                task.completed_by = request_user
-                task.completed_at = timezone.now()
-                task.save()
-                
-            total_tasks_created += 1
+                # Apply task completion logic if imported as COMPLETED
+                if status_val == 'COMPLETED':
+                    for assignee_rel in TaskAssignee.objects.filter(task=task):
+                        assignee_rel.completed = True
+                        assignee_rel.completed_at = timezone.now()
+                        assignee_rel.save()
+                        
+                    task.status = 'COMPLETED'
+                    task.completed_by = request_user
+                    task.completed_at = timezone.now()
+                    task.save()
+                    
+                total_tasks_created += 1
+            except Exception as ex:
+                from rest_framework.exceptions import ValidationError as DRFValidationError
+                if isinstance(ex, DRFValidationError):
+                    detail = ex.detail
+                    if isinstance(detail, dict):
+                        for field, field_errors in detail.items():
+                            msg = field_errors[0] if isinstance(field_errors, list) else str(field_errors)
+                            import_errors.append({
+                                "row": row_idx,
+                                "field": field,
+                                "message": f"Row {row_idx}: {msg}"
+                            })
+                    elif isinstance(detail, list):
+                        for item_err in detail:
+                            import_errors.append({
+                                "row": row_idx,
+                                "field": "non_field_errors",
+                                "message": f"Row {row_idx}: {str(item_err)}"
+                            })
+                    else:
+                        import_errors.append({
+                            "row": row_idx,
+                            "field": "non_field_errors",
+                            "message": f"Row {row_idx}: {str(detail)}"
+                        })
+                else:
+                    import_errors.append({
+                        "row": row_idx,
+                        "field": "unknown",
+                        "message": f"Row {row_idx}: {str(ex)}"
+                    })
+                    
+        if import_errors:
+            raise BulkImportValidationError(import_errors)
             
-        # Log a single bulk import ActivityLog
         ActivityLog.objects.create(
             user=request_user,
             action='TASK_IMPORTED',

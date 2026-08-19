@@ -20,6 +20,7 @@ interface ValidationError {
 interface ValidationResponse {
   success: boolean;
   errors: ValidationError[];
+  warnings?: ValidationError[];
   total_rows: number;
   tasks_count: number;
   subtasks_count: number;
@@ -95,7 +96,12 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
       setStep(4);
     },
     onError: (err: any) => {
-      setErrorMsg(err.response?.data?.detail || 'Import failed. Please try again.');
+      const responseData = err.response?.data;
+      const finalMsg = responseData?.message || responseData?.detail || 'Unable to import tasks. Please try again. If the problem continues, contact your administrator.';
+      setErrorMsg(finalMsg);
+      if (responseData && Array.isArray(responseData.errors)) {
+        setValidationResult(prev => prev ? { ...prev, errors: responseData.errors } : null);
+      }
       setStep(2);
     },
   });
@@ -250,7 +256,7 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
         {step === 2 && validationResult && (
           <div className="space-y-4 flex-1 flex flex-col min-h-0">
             {/* Stats */}
-            <div className="grid grid-cols-3 gap-3 bg-zinc-50 dark:bg-zinc-950 p-4 border border-zinc-200 dark:border-zinc-850 rounded-xl select-none">
+            <div className="grid grid-cols-4 gap-3 bg-zinc-50 dark:bg-zinc-950 p-4 border border-zinc-200 dark:border-zinc-850 rounded-xl select-none">
               <div className="text-center">
                 <div className="text-lg font-bold text-black dark:text-white">
                   {validationResult.total_rows}
@@ -268,11 +274,19 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
                 </div>
               </div>
               <div className="text-center border-l border-zinc-200 dark:border-zinc-800">
-                <div className={`text-lg font-bold ${validationResult.errors.length > 0 ? 'text-red-500' : 'text-green-500'}`}>
+                <div className={`text-lg font-bold ${validationResult.errors.length > 0 ? 'text-red-500' : 'text-zinc-400'}`}>
                   {validationResult.errors.length}
                 </div>
                 <div className="text-[10px] font-bold text-zinc-450 dark:text-zinc-500 uppercase tracking-wide">
                   Errors
+                </div>
+              </div>
+              <div className="text-center border-l border-zinc-200 dark:border-zinc-800">
+                <div className={`text-lg font-bold ${(validationResult.warnings?.length || 0) > 0 ? 'text-amber-500' : 'text-zinc-400'}`}>
+                  {validationResult.warnings?.length || 0}
+                </div>
+                <div className="text-[10px] font-bold text-zinc-450 dark:text-zinc-500 uppercase tracking-wide">
+                  Warnings
                 </div>
               </div>
             </div>
@@ -288,7 +302,7 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
             )}
 
             {/* Error view */}
-            {validationResult.errors.length > 0 ? (
+            {validationResult.errors.length > 0 && (
               <div className="flex-1 flex flex-col min-h-0 space-y-2">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-red-500 flex items-center gap-1">
                   <AlertTriangle className="h-4 w-4" /> Please resolve errors before importing
@@ -327,7 +341,9 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
                   Upload a corrected Excel sheet
                 </button>
               </div>
-            ) : (
+            )}
+
+            {validationResult.errors.length === 0 && (
               <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-green-50/20 dark:bg-green-950/10 border border-dashed border-green-200 dark:border-green-900/50 rounded-xl space-y-2">
                 <CheckCircle2 className="h-8 w-8 text-green-500" />
                 <h4 className="font-bold text-sm text-green-600 dark:text-green-400">
@@ -336,6 +352,38 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
                 <p className="text-xs text-zinc-600 dark:text-zinc-400 max-w-sm">
                   Spreadsheet contains 0 errors. You are ready to import {validationResult.tasks_count} tasks into {projectName}.
                 </p>
+              </div>
+            )}
+
+            {/* Warnings list */}
+            {validationResult.warnings && validationResult.warnings.length > 0 && (
+              <div className="flex flex-col space-y-2 mt-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-amber-550 flex items-center gap-1">
+                  <AlertTriangle className="h-4 w-4" /> Warnings (Informational only)
+                </h4>
+                <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-y-auto max-h-[20vh] bg-white dark:bg-black">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-zinc-50 dark:bg-zinc-950 text-zinc-500 dark:text-zinc-400 font-bold border-b border-zinc-200 dark:border-zinc-800">
+                        <th className="p-2 border-r border-zinc-200 dark:border-zinc-800 w-16 text-center">Row</th>
+                        <th className="p-2 border-r border-zinc-200 dark:border-zinc-800 w-28">Field</th>
+                        <th className="p-2">Description</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {validationResult.warnings.map((warn, idx) => (
+                        <tr
+                          key={idx}
+                          className="border-b border-zinc-150 dark:border-zinc-850 hover:bg-zinc-50/50 dark:hover:bg-zinc-950/20 text-black dark:text-white"
+                        >
+                          <td className="p-2 border-r border-zinc-200 dark:border-zinc-800 text-center font-semibold">{warn.row}</td>
+                          <td className="p-2 border-r border-zinc-200 dark:border-zinc-800 font-semibold text-zinc-700 dark:text-zinc-300">{warn.field}</td>
+                          <td className="p-2 text-zinc-650 dark:text-zinc-400 font-medium">{warn.message}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 

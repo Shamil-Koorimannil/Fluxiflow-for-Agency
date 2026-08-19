@@ -6,6 +6,7 @@ import { useAuth } from '../auth/AuthContext';
 import { X, CheckSquare, Calendar, Clock, AlertCircle, Trash2, Edit, CheckCircle2, Circle, AlertTriangle } from 'lucide-react';
 import { formatLateDuration, formatDateOnly, formatTimeOnly } from '../../utils/time';
 import { TimePicker } from '../../components/common/TimePicker';
+import { DatePicker } from '../../components/common/DatePicker';
 
 interface TaskDetailPanelProps {
   taskId: string | null;
@@ -478,11 +479,9 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                             <div className="grid grid-cols-2 gap-2">
                               <div className="space-y-1">
                                 <label className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase">Due Date</label>
-                                <input
-                                  type="date"
+                                <DatePicker
                                   value={editSubDueDate}
-                                  onChange={(e) => setEditSubDueDate(e.target.value)}
-                                  className="w-full px-2.5 py-1.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-850 rounded-lg text-xs text-black dark:text-white focus:outline-none"
+                                  onChange={setEditSubDueDate}
                                 />
                               </div>
                               <div className="space-y-1">
@@ -719,11 +718,9 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                         <div className="grid grid-cols-2 gap-2">
                           <div className="space-y-1">
                             <label className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase">Due Date</label>
-                            <input
-                              type="date"
+                            <DatePicker
                               value={newSubDueDate}
-                              onChange={(e) => setNewSubDueDate(e.target.value)}
-                              className="w-full px-2.5 py-1.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-850 rounded-lg text-xs text-black dark:text-white focus:outline-none"
+                              onChange={setNewSubDueDate}
                             />
                           </div>
                           <div className="space-y-1">

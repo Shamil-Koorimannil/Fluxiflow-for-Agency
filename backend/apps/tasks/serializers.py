@@ -319,19 +319,6 @@ class TaskSerializer(serializers.ModelSerializer):
                 sub_status, late_mins = calculate_submission_status(assignee)
                 rep['submission_status'] = sub_status
                 rep['late_by_minutes'] = late_mins
-                
-                is_completed = assignee.completed
-                completed_at_val = assignee.completed_at
-                
-                # Override task fields with assignee-specific values
-                rep['status'] = 'COMPLETED' if assignee.completed else 'PENDING'
-                rep['completed_at'] = assignee.completed_at.isoformat() if assignee.completed_at else None
-                if not assignee.completed:
-                    rep['completed_by'] = None
-                    rep['completed_by_detail'] = None
-                else:
-                    rep['completed_by'] = str(user_to_check.id)
-                    rep['completed_by_detail'] = UserSerializer(user_to_check, context=self.context).data
             else:
                 is_completed = instance.status == 'COMPLETED'
                 completed_at_val = instance.completed_at
