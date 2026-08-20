@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import type { Task, TeamWorkload } from '../../types';
 import { TaskDetailPanel } from '../tasks/TaskDetailPanel';
+import { TaskFormModal } from '../tasks/TaskFormModal';
 import {
   Drawer,
   Box,
@@ -25,7 +26,7 @@ import {
   Calendar,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
-import { formatTimeOnly, formatDueDate, getDueDateStyleClass } from '../../utils/time';
+import { formatTimeOnly, formatDueDate, getDueDateStyleClass, getLocalDateString } from '../../utils/time';
 
 interface TeamDetailDrawerProps {
   memberId: string | null;
@@ -50,11 +51,15 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
-  // Filter state: 'all' | 'today' | 'pending' | 'upcoming' | 'completed'
-  const [activeFilter, setActiveFilter] = useState<'all' | 'today' | 'pending' | 'upcoming' | 'completed'>('all');
+  // Filter state: 'all' | 'today' | 'pending' | 'upcoming' | 'completed' | 'no_due_date'
+  const [activeFilter, setActiveFilter] = useState<'all' | 'today' | 'pending' | 'upcoming' | 'completed' | 'no_due_date'>('all');
 
   // Selected task to view detail panel
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+
+  // Selected task for editing
+  const [taskToEdit, setTaskToEdit] = useState<Task | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   // Fetch workload summary
   const { data: workloadData, isLoading: isWorkloadLoading } = useQuery<TeamWorkload>({
@@ -80,13 +85,6 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
     enabled: !!memberId && open,
   });
 
-  const getLocalDateString = (d: Date) => {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
   const todayStr = getLocalDateString(new Date());
 
   const deduplicateTasks = (taskList: Task[]): Task[] => {
@@ -106,6 +104,9 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
     
     // 2. Filter based on activeFilter tab using local calendar date
     return deduplicated.filter((task) => {
+      if (activeFilter === 'all') {
+        return true;
+      }
       if (activeFilter === 'completed') {
         return task.status === 'COMPLETED';
       }
@@ -119,12 +120,15 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
         return task.due_date === todayStr;
       }
       if (activeFilter === 'pending') {
-        return task.due_date < todayStr;
+        return !!task.due_date && task.due_date < todayStr;
       }
       if (activeFilter === 'upcoming') {
-        return task.due_date > todayStr;
+        return !!task.due_date && task.due_date > todayStr;
       }
-      return true; // 'all'
+      if (activeFilter === 'no_due_date') {
+        return !task.due_date;
+      }
+      return true;
     });
   }, [allTasksRaw, activeFilter, todayStr]);
 
@@ -137,11 +141,14 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
       return response.data;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
       queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
       queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
       queryClient.invalidateQueries({ queryKey: ['team'] });
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
     },
   });
 
@@ -152,11 +159,14 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
       return response.data;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
       queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
       queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
       queryClient.invalidateQueries({ queryKey: ['team'] });
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
     },
   });
 
@@ -451,17 +461,23 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
 
                 {/* Filter Pills */}
                 <Box className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-                  {(['all', 'today', 'pending', 'upcoming', 'completed'] as const).map((filter) => (
+                  {(['all', 'today', 'pending', 'upcoming', 'completed', 'no_due_date'] as const).map((filter) => (
                     <button
                       key={filter}
                       onClick={() => setActiveFilter(filter)}
-                      className={`text-[10px] font-bold px-3 py-1.5 rounded-full border transition-all capitalize whitespace-nowrap ${
+                      className={`text-[10px] font-bold px-3 py-1.5 rounded-full border transition-all whitespace-nowrap ${
                         activeFilter === filter
                           ? 'bg-black dark:bg-white text-white dark:text-black border-black dark:border-white'
                           : 'bg-white dark:bg-black text-zinc-650 dark:text-zinc-400 border-zinc-200 dark:border-zinc-850 hover:bg-zinc-50 dark:hover:bg-white/10'
                       }`}
                     >
-                      {filter}
+                      {filter === 'no_due_date' ? 'No Due Date' : 
+                       filter === 'pending' ? 'Pending / Overdue' : 
+                       filter === 'all' ? 'All' :
+                       filter === 'today' ? 'Today' :
+                       filter === 'upcoming' ? 'Upcoming' :
+                       filter === 'completed' ? 'Completed' :
+                       filter}
                     </button>
                   ))}
                 </Box>
@@ -579,9 +595,23 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
         <TaskDetailPanel
           taskId={selectedTaskId}
           onClose={() => setSelectedTaskId(null)}
-          onEdit={() => {}}
+          onEdit={(task) => {
+            setSelectedTaskId(null);
+            setTaskToEdit(task);
+            setIsEditModalOpen(true);
+          }}
         />
       )}
+
+      {/* Task Edit Form Modal */}
+      <TaskFormModal
+        isOpen={isEditModalOpen}
+        onClose={() => {
+          setIsEditModalOpen(false);
+          setTaskToEdit(null);
+        }}
+        taskToEdit={taskToEdit}
+      />
     </Drawer>
   );
 };

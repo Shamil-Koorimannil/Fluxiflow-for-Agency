@@ -465,7 +465,7 @@ def validate_bulk_import_data(tasks_list, project):
                         "row": row_idx,
                         "field": "Assignee Emails",
                         "value": email,
-                        "message": f"Row {row_idx}: The selected team member could not be found."
+                        "message": f"Row {row_idx}: The team member \"{email}\" could not be found."
                     })
                         
     return {"errors": errors, "warnings": warnings, "duplicate_count": 0}
@@ -491,8 +491,11 @@ def import_tasks_confirm(tasks_list, project, request_user, request=None):
                 emails = [e.strip() for e in assignee_emails_str.split(",") if e.strip()]
                 for email in emails:
                     u = user_by_email.get(email.lower())
-                    if u:
+                    if u and u.is_active:
                         assignees.append(u)
+                    else:
+                        from rest_framework.exceptions import ValidationError as DRFValidationError
+                        raise DRFValidationError({"assignee_ids": [f'The team member "{email}" could not be found.']})
             
             priority_val = normalize_priority(row_data.get("priority"))
             status_val = normalize_status(row_data.get("status"))

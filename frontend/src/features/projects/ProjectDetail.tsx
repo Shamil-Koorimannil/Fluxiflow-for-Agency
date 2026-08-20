@@ -136,8 +136,14 @@ export const ProjectDetail: React.FC = () => {
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks', { project: id }] });
-      queryClient.invalidateQueries({ queryKey: ['project', id] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
+      queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
+      queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
+      queryClient.invalidateQueries({ queryKey: ['team'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
     },
   });
 
@@ -148,8 +154,14 @@ export const ProjectDetail: React.FC = () => {
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks', { project: id }] });
-      queryClient.invalidateQueries({ queryKey: ['project', id] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
+      queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
+      queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
+      queryClient.invalidateQueries({ queryKey: ['team'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
     },
   });
 

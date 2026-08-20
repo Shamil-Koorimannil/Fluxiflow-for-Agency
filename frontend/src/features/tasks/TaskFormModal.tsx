@@ -101,6 +101,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
       queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
       queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
       queryClient.invalidateQueries({ queryKey: ['team'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       if (isEditMode) {
         queryClient.invalidateQueries({ queryKey: ['task', taskToEdit?.id] });
       }

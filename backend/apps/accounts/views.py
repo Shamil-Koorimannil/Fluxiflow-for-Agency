@@ -61,12 +61,12 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None):
     # Filter pending assignments to only those in the range
     pending_assignments = [
         a for a in assignments 
-        if not a.completed and a.task.status == 'PENDING' and 
-        start_date_val.date() <= a.task.due_date <= end_date_val.date()
+        if a.task.status != 'COMPLETED' and 
+        a.task.due_date and start_date_val.date() <= a.task.due_date <= end_date_val.date()
     ]
     pending_subtask_assignments = [
         sa for sa in subtask_assignments 
-        if not sa.completed and sa.subtask.status == 'PENDING' and 
+        if sa.subtask.status != 'COMPLETED' and 
         sa.subtask.due_date and start_date_val.date() <= sa.subtask.due_date <= end_date_val.date()
     ]
     
@@ -88,11 +88,11 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None):
     # 2. Historical Performance: Completed tasks/subtasks in the date range
     completed_assignments_30 = [
         a for a in assignments 
-        if a.completed and a.completed_at and start_date_val <= a.completed_at <= end_date_val
+        if a.task.status == 'COMPLETED' and a.task.completed_at and start_date_val <= a.task.completed_at <= end_date_val
     ]
     completed_subtask_assignments_30 = [
         sa for sa in subtask_assignments
-        if sa.completed and sa.completed_at and start_date_val <= sa.completed_at <= end_date_val
+        if sa.subtask.status == 'COMPLETED' and sa.subtask.completed_at and start_date_val <= sa.subtask.completed_at <= end_date_val
     ]
     
     total_completed_tasks = len(completed_assignments_30) + len(completed_subtask_assignments_30)
@@ -152,10 +152,10 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None):
     completed_this_month = total_completed_tasks
     
     for a in completed_assignments_30:
-        if a.completed_at >= start_of_week:
+        if a.completed_at and a.completed_at >= start_of_week:
             completed_this_week += 1
     for sa in completed_subtask_assignments_30:
-        if sa.completed_at >= start_of_week:
+        if sa.completed_at and sa.completed_at >= start_of_week:
             completed_this_week += 1
                 
     return {
@@ -806,46 +806,38 @@ class TeamTasksView(views.APIView):
         now = timezone.now()
         today_date = now.date()
 
-        # Query unique task IDs first to avoid duplicate results from joined tables
-        task_ids = Task.objects.filter(assignee_relationships__user=user).values_list('id', flat=True).distinct()
-        queryset = Task.objects.filter(id__in=task_ids).order_by('due_date', 'due_time')
+        # Query using the canonical assignment relationship
+        queryset = Task.objects.filter(assignee_relationships__user=user).distinct()
         
-        # Apply date range filtering if provided
+        # Apply date range filtering if provided (only filter COMPLETED tasks by date range)
         if start_date and end_date:
             from django.db.models import Q
             queryset = queryset.filter(
-                Q(assignee_relationships__user=user, assignee_relationships__completed=True, assignee_relationships__completed_at__range=(start_date, end_date)) |
-                Q(assignee_relationships__user=user, assignee_relationships__completed=False, due_date__range=(start_date.date(), end_date.date()))
+                Q(status='PENDING') |
+                Q(status='COMPLETED', completed_at__range=(start_date, end_date))
             )
 
         status_param = request.query_params.get('status')
         
         if status_param == 'completed':
-            queryset = queryset.filter(
-                assignee_relationships__user=user,
-                assignee_relationships__completed=True
-            ).order_by('-assignee_relationships__completed_at')
+            queryset = queryset.filter(status='COMPLETED').order_by('-completed_at')
         else:
-            # All other filters (all, today, pending, upcoming, overdue) show active tasks only
-            queryset = queryset.filter(
-                assignee_relationships__user=user,
-                assignee_relationships__completed=False,
-                status='PENDING'
-            )
-            
-            if status_param == 'today':
-                queryset = queryset.filter(due_date=today_date)
-            elif status_param == 'pending':
-                # Returns all pending active tasks
-                pass
-            elif status_param == 'upcoming':
-                queryset = queryset.filter(due_date__gt=today_date)
-            elif status_param == 'overdue':
-                from django.db.models import Q
-                queryset = queryset.filter(
-                    Q(due_date__lt=today_date) | 
-                    Q(due_date=today_date, due_time__lt=now.time())
-                )
+            if status_param in ['today', 'pending', 'upcoming', 'overdue']:
+                queryset = queryset.filter(status='PENDING')
+                
+                now = timezone.now()
+                today_date = now.date()
+                if status_param == 'today':
+                    queryset = queryset.filter(due_date=today_date)
+                elif status_param == 'upcoming':
+                    queryset = queryset.filter(due_date__gt=today_date)
+                elif status_param == 'overdue':
+                    from django.db.models import Q
+                    queryset = queryset.filter(
+                        Q(due_date__lt=today_date) | 
+                        Q(due_date=today_date, due_time__lt=now.time())
+                    )
+            queryset = queryset.order_by('due_date', 'due_time', 'created_at')
             
         context = {'request': request, 'target_user': user}
         serializer = TaskSerializer(queryset, many=True, context=context)

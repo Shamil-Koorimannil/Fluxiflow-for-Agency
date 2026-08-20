@@ -871,6 +871,7 @@ class TeamHealthDateFilteringTests(APITestCase):
             organization=self.org,
             name='Task 1',
             status='COMPLETED',
+            completed_at=timezone.now() - timedelta(days=15),
             due_date=timezone.now().date() - timedelta(days=15),
             created_by=self.admin
         )
@@ -886,6 +887,7 @@ class TeamHealthDateFilteringTests(APITestCase):
             organization=self.org,
             name='Task 2',
             status='COMPLETED',
+            completed_at=timezone.now(),
             due_date=timezone.now().date(),
             created_by=self.admin
         )
@@ -925,4 +927,496 @@ class TeamHealthDateFilteringTests(APITestCase):
         self.assertEqual(response_all.status_code, status.HTTP_200_OK)
         member_data_all = next(u for u in response_all.data if u['id'] == str(self.member.id))
         self.assertEqual(member_data_all['completed_this_month'], 2)
+
+
+class TeamMemberTasksTests(APITestCase):
+    def setUp(self):
+        from django.urls import reverse
+        # Create default organization
+        self.org = Organization.objects.create(name='Fluxiflow Agency')
+
+        # Create active Admin
+        self.admin = User.objects.create_user(
+            email='admin@tasks.com',
+            name='Admin User',
+            password='password123',
+            role='ADMIN',
+            status='ACTIVE'
+        )
+        ProfileClass = User._meta.get_field('profile').related_model
+        ProfileClass.objects.create(user=self.admin)
+        Membership.objects.create(organization=self.org, user=self.admin)
+
+        # Create Member A
+        self.member_a = User.objects.create_user(
+            email='membera@tasks.com',
+            name='Member A',
+            password='password123',
+            role='MEMBER',
+            status='ACTIVE'
+        )
+        ProfileClass.objects.create(user=self.member_a)
+        Membership.objects.create(organization=self.org, user=self.member_a)
+
+        # Create Member B
+        self.member_b = User.objects.create_user(
+            email='memberb@tasks.com',
+            name='Member B',
+            password='password123',
+            role='MEMBER',
+            status='ACTIVE'
+        )
+        ProfileClass.objects.create(user=self.member_b)
+        Membership.objects.create(organization=self.org, user=self.member_b)
+
+        # Set authentication
+        token = self._get_token(self.admin)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+    def _get_token(self, user):
+        from rest_framework_simplejwt.tokens import RefreshToken
+        refresh = RefreshToken.for_user(user)
+        refresh['email'] = user.email
+        refresh['name'] = user.name
+        refresh['role'] = user.role
+        return str(refresh.access_token)
+
+    def test_team_member_visibility(self):
+        """Test 1: Verify endpoint returns all assigned tasks before frontend filtering."""
+        from django.urls import reverse
+        from apps.tasks.models import Task, TaskAssignee
+        now = timezone.now()
+        today = now.date()
+
+        # 1. Pending task (due in future)
+        t_pending = Task.objects.create(
+            name='Pending Task',
+            status='PENDING',
+            due_date=today + timedelta(days=5),
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=t_pending, user=self.member_a)
+
+        # 2. Completed task
+        t_completed = Task.objects.create(
+            name='Completed Task',
+            status='COMPLETED',
+            due_date=today,
+            completed_at=now,
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=t_completed, user=self.member_a, completed=True, completed_at=now)
+
+        # 3. Today task
+        t_today = Task.objects.create(
+            name='Today Task',
+            status='PENDING',
+            due_date=today,
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=t_today, user=self.member_a)
+
+        # 4. Future task
+        t_future = Task.objects.create(
+            name='Future Task',
+            status='PENDING',
+            due_date=today + timedelta(days=10),
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=t_future, user=self.member_a)
+
+        # 5. Overdue task
+        t_overdue = Task.objects.create(
+            name='Overdue Task',
+            status='PENDING',
+            due_date=today - timedelta(days=5),
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=t_overdue, user=self.member_a)
+
+        # 6. Task with no due date
+        t_nodue = Task.objects.create(
+            name='No Due Date Task',
+            status='PENDING',
+            due_date=None,
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=t_nodue, user=self.member_a)
+
+        # Request with a date range filter that covers only today (e.g. today to today + 1)
+        # Verify that all tasks (including future, overdue, no due date) are still returned
+        start_date = now - timedelta(days=1)
+        end_date = now + timedelta(days=1)
+
+        url = reverse('team_tasks', args=[self.member_a.id])
+        response = self.client.get(url, {
+            'start_date': start_date.isoformat(),
+            'end_date': end_date.isoformat()
+        })
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        task_ids = [t['id'] for t in response.data]
+        # Expect all 6 tasks to be present
+        self.assertEqual(len(task_ids), 6)
+        self.assertIn(str(t_pending.id), task_ids)
+        self.assertIn(str(t_completed.id), task_ids)
+        self.assertIn(str(t_today.id), task_ids)
+        self.assertIn(str(t_future.id), task_ids)
+        self.assertIn(str(t_overdue.id), task_ids)
+        self.assertIn(str(t_nodue.id), task_ids)
+
+    def test_multiple_assignees(self):
+        """Test 2: Verify a task assigned to A and B can be retrieved by both and appears once."""
+        from django.urls import reverse
+        from apps.tasks.models import Task, TaskAssignee
+        
+        task = Task.objects.create(
+            name='Shared Task',
+            status='PENDING',
+            due_date=timezone.now().date(),
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=task, user=self.member_a)
+        TaskAssignee.objects.create(task=task, user=self.member_b)
+
+        # Verify Member A retrieves it once
+        url_a = reverse('team_tasks', args=[self.member_a.id])
+        res_a = self.client.get(url_a)
+        self.assertEqual(res_a.status_code, status.HTTP_200_OK)
+        task_ids_a = [t['id'] for t in res_a.data]
+        self.assertEqual(task_ids_a.count(str(task.id)), 1)
+
+        # Verify Member B retrieves it once
+        url_b = reverse('team_tasks', args=[self.member_b.id])
+        res_b = self.client.get(url_b)
+        self.assertEqual(res_b.status_code, status.HTTP_200_OK)
+        task_ids_b = [t['id'] for t in res_b.data]
+        self.assertEqual(task_ids_b.count(str(task.id)), 1)
+
+    def test_edit_from_team_member_view(self):
+        """Test 3: Update fields and verify canonical task changes."""
+        from django.urls import reverse
+        from apps.tasks.models import Task, TaskAssignee
+        
+        task = Task.objects.create(
+            name='Original Title',
+            status='PENDING',
+            due_date=timezone.now().date(),
+            priority='MEDIUM',
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=task, user=self.member_a)
+
+        # Edit using canonical task detail/patch endpoint
+        url = reverse('task-detail', args=[task.id])
+        new_due_date = timezone.now().date() + timedelta(days=2)
+        payload = {
+            'name': 'Updated Title',
+            'priority': 'HIGH',
+            'due_date': str(new_due_date),
+            'project': None
+        }
+        
+        response = self.client.patch(url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify canonical DB record changed
+        task.refresh_from_db()
+        self.assertEqual(task.name, 'Updated Title')
+        self.assertEqual(task.priority, 'HIGH')
+        self.assertEqual(task.due_date, new_due_date)
+
+    def test_edit_assignment(self):
+        """Test 4: Edit task assignees from A to B and verify visibility transfers correctly."""
+        from django.urls import reverse
+        from apps.tasks.models import Task, TaskAssignee
+        
+        task = Task.objects.create(
+            name='Assignment Task',
+            status='PENDING',
+            due_date=timezone.now().date(),
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=task, user=self.member_a)
+
+        # Verify Member A sees it, Member B does not
+        res_a_before = self.client.get(reverse('team_tasks', args=[self.member_a.id]))
+        self.assertIn(str(task.id), [t['id'] for t in res_a_before.data])
+        res_b_before = self.client.get(reverse('team_tasks', args=[self.member_b.id]))
+        self.assertNotIn(str(task.id), [t['id'] for t in res_b_before.data])
+
+        # Reassign to Member B (and remove A) via task update
+        url = reverse('task-detail', args=[task.id])
+        payload = {
+            'name': task.name,
+            'due_date': str(task.due_date),
+            'assignee_ids': [str(self.member_b.id)]
+        }
+        response = self.client.put(url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify A no longer sees it, B sees it
+        res_a_after = self.client.get(reverse('team_tasks', args=[self.member_a.id]))
+        self.assertNotIn(str(task.id), [t['id'] for t in res_a_after.data])
+        res_b_after = self.client.get(reverse('team_tasks', args=[self.member_b.id]))
+        self.assertIn(str(task.id), [t['id'] for t in res_b_after.data])
+
+
+class TaskCompletionAndSyncTests(APITestCase):
+    def setUp(self):
+        from django.urls import reverse
+        # Create default organization
+        self.org = Organization.objects.create(name='Fluxiflow Agency')
+
+        # Create active Admin
+        self.admin = User.objects.create_user(
+            email='admin@tasks.com',
+            name='Admin User',
+            password='password123',
+            role='ADMIN',
+            status='ACTIVE'
+        )
+        ProfileClass = User._meta.get_field('profile').related_model
+        ProfileClass.objects.create(user=self.admin)
+        Membership.objects.create(organization=self.org, user=self.admin)
+
+        # Create Member
+        self.member = User.objects.create_user(
+            email='member@tasks.com',
+            name='Member User',
+            password='password123',
+            role='MEMBER',
+            status='ACTIVE'
+        )
+        ProfileClass.objects.create(user=self.member)
+        Membership.objects.create(organization=self.org, user=self.member)
+
+        # Set authentication
+        token = self._get_token(self.member)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+    def _get_token(self, user):
+        from rest_framework_simplejwt.tokens import RefreshToken
+        refresh = RefreshToken.for_user(user)
+        refresh['email'] = user.email
+        refresh['name'] = user.name
+        refresh['role'] = user.role
+        return str(refresh.access_token)
+
+    def test_a_normal_completion(self):
+        """Test A — Normal completion: PENDING -> complete -> status = COMPLETED"""
+        from django.urls import reverse
+        from apps.tasks.models import Task, TaskAssignee
+        task = Task.objects.create(
+            name='Task A',
+            status='PENDING',
+            due_date=timezone.now().date(),
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=task, user=self.member)
+
+        url = reverse('task-complete', args=[task.id])
+        response = self.client.post(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['status'], 'COMPLETED')
+
+        task.refresh_from_db()
+        self.assertEqual(task.status, 'COMPLETED')
+
+    def test_b_page_refresh(self):
+        """Test B — Page refresh: Complete task -> refetch endpoint -> status = COMPLETED"""
+        from django.urls import reverse
+        from apps.tasks.models import Task, TaskAssignee
+        task = Task.objects.create(
+            name='Task B',
+            status='PENDING',
+            due_date=timezone.now().date(),
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=task, user=self.member)
+
+        self.client.post(reverse('task-complete', args=[task.id]))
+
+        # Refetch using task-detail endpoint
+        url = reverse('task-detail', args=[task.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['status'], 'COMPLETED')
+
+    def test_c_member_admin_consistency(self):
+        """Test C — Member/Admin consistency: member completes -> both APIs show COMPLETED"""
+        from django.urls import reverse
+        from apps.tasks.models import Task, TaskAssignee
+        task = Task.objects.create(
+            name='Task C',
+            status='PENDING',
+            due_date=timezone.now().date(),
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=task, user=self.member)
+
+        # Member completes task
+        self.client.post(reverse('task-complete', args=[task.id]))
+
+        # 1. Fetch as member (through normal task list)
+        res_member = self.client.get(reverse('task-detail', args=[task.id]))
+        self.assertEqual(res_member.data['status'], 'COMPLETED')
+
+        # 2. Fetch as admin (through Team Member endpoint)
+        admin_token = self._get_token(self.admin)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {admin_token}')
+        res_admin = self.client.get(reverse('team_tasks', args=[self.member.id]))
+        self.assertEqual(res_admin.status_code, status.HTTP_200_OK)
+        
+        task_data_admin = next(t for t in res_admin.data if t['id'] == str(task.id))
+        self.assertEqual(task_data_admin['status'], 'COMPLETED')
+
+    def test_d_health_update(self):
+        """Test D — Health update: Complete task -> health recalculates immediately"""
+        from django.urls import reverse
+        from apps.tasks.models import Task, TaskAssignee
+        
+        # Admin gets token
+        admin_token = self._get_token(self.admin)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {admin_token}')
+
+        task = Task.objects.create(
+            name='Task D',
+            status='PENDING',
+            due_date=timezone.now().date(),
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=task, user=self.member)
+
+        # 1. Record health before completion
+        res_before = self.client.get('/api/team/')
+        member_before = next(m for m in res_before.data if m['id'] == str(self.member.id))
+        health_before = member_before['health_score']
+
+        # 2. Complete task
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self._get_token(self.member)}')
+        self.client.post(reverse('task-complete', args=[task.id]))
+
+        # 3. Recalculate health
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {admin_token}')
+        res_after = self.client.get('/api/team/')
+        member_after = next(m for m in res_after.data if m['id'] == str(self.member.id))
+        health_after = member_after['health_score']
+
+        # Health should improve after completing the pending task
+        self.assertNotEqual(health_before, health_after)
+
+    def test_e_reopen(self):
+        """Test E — Reopen: Complete -> Reopen -> status = PENDING, health recalculates"""
+        from django.urls import reverse
+        from apps.tasks.models import Task, TaskAssignee
+        task = Task.objects.create(
+            name='Task E',
+            status='PENDING',
+            due_date=timezone.now().date(),
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=task, user=self.member)
+
+        # Complete task
+        self.client.post(reverse('task-complete', args=[task.id]))
+
+        # Admin checks health while completed
+        admin_token = self._get_token(self.admin)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {admin_token}')
+        res_completed = self.client.get('/api/team/')
+        health_completed = next(m for m in res_completed.data if m['id'] == str(self.member.id))['health_score']
+
+        # Reopen task
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self._get_token(self.member)}')
+        self.client.post(reverse('task-reopen', args=[task.id]))
+
+        # Check status is PENDING
+        task.refresh_from_db()
+        self.assertEqual(task.status, 'PENDING')
+
+        # Recalculate health
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {admin_token}')
+        res_reopened = self.client.get('/api/team/')
+        health_reopened = next(m for m in res_reopened.data if m['id'] == str(self.member.id))['health_score']
+
+        self.assertNotEqual(health_completed, health_reopened)
+
+    def test_f_subtask_protection(self):
+        """Test F — Subtask protection: parent has incomplete subtask -> complete fails -> complete subtask -> complete parent works -> reopen subtask reopens parent"""
+        from django.urls import reverse
+        from apps.tasks.models import Task, TaskAssignee, SubTask, SubTaskAssignee
+        task = Task.objects.create(
+            name='Parent Task',
+            status='PENDING',
+            due_date=timezone.now().date(),
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=task, user=self.member)
+
+        subtask = SubTask.objects.create(
+            task=task,
+            name='Incomplete Subtask',
+            status='PENDING',
+            due_date=timezone.now().date()
+        )
+        SubTaskAssignee.objects.create(subtask=subtask, user=self.member)
+
+        # 1. Attempt to complete parent task (should fail with 400 Bad Request)
+        res_complete_parent_fail = self.client.post(reverse('task-complete', args=[task.id]))
+        self.assertEqual(res_complete_parent_fail.status_code, status.HTTP_400_BAD_REQUEST)
+        task.refresh_from_db()
+        self.assertEqual(task.status, 'PENDING')
+
+        # 2. Complete the subtask
+        res_sub_complete = self.client.post(reverse('subtask-complete', args=[subtask.id]))
+        self.assertEqual(res_sub_complete.status_code, status.HTTP_200_OK)
+        subtask.refresh_from_db()
+        self.assertEqual(subtask.status, 'COMPLETED')
+
+        # 3. Complete the parent task (should succeed now)
+        res_complete_parent_success = self.client.post(reverse('task-complete', args=[task.id]))
+        self.assertEqual(res_complete_parent_success.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.status, 'COMPLETED')
+
+        # 4. Reopen the subtask
+        res_sub_reopen = self.client.post(reverse('subtask-reopen', args=[subtask.id]))
+        self.assertEqual(res_sub_reopen.status_code, status.HTTP_200_OK)
+
+        # Verify parent task reverted to PENDING automatically via signal
+        task.refresh_from_db()
+        self.assertEqual(task.status, 'PENDING')
+
+    def test_g_no_random_reversion(self):
+        """Test G — No random reversion: Complete task, perform unrelated operations, verify status remains COMPLETED"""
+        from django.urls import reverse
+        from apps.tasks.models import Task, TaskAssignee
+        task = Task.objects.create(
+            name='Parent Task G',
+            status='PENDING',
+            due_date=timezone.now().date(),
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=task, user=self.member)
+
+        # Complete task
+        self.client.post(reverse('task-complete', args=[task.id]))
+        task.refresh_from_db()
+        self.assertEqual(task.status, 'COMPLETED')
+
+        # Unrelated Action 1: Fetch task
+        self.client.get(reverse('task-detail', args=[task.id]))
+
+        # Unrelated Action 2: Open admin team metrics
+        admin_token = self._get_token(self.admin)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {admin_token}')
+        self.client.get('/api/team/')
+
+        # Unrelated Action 3: Refetch member tasks
+        self.client.get(reverse('team_tasks', args=[self.member.id]))
+
+        # Verify parent task remains COMPLETED
+        task.refresh_from_db()
+        self.assertEqual(task.status, 'COMPLETED')
 

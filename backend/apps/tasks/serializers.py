@@ -11,7 +11,7 @@ class SubTaskAssigneeSerializer(serializers.ModelSerializer):
     submission_status = serializers.SerializerMethodField()
     late_by_minutes = serializers.SerializerMethodField()
 
-    class Meta:
+    class Meta:  # type: ignore
         model = SubTaskAssignee
         fields = ['user', 'completed', 'completed_at', 'submission_status', 'late_by_minutes']
 
@@ -37,7 +37,7 @@ class SubTaskSerializer(serializers.ModelSerializer):
     late_by_minutes = serializers.SerializerMethodField()
     due_datetime = serializers.SerializerMethodField()
 
-    class Meta:
+    class Meta:  # type: ignore
         model = SubTask
         fields = [
             'id', 'task', 'name', 'status', 'due_date', 'due_time', 'due_datetime',
@@ -186,7 +186,7 @@ class TaskSerializer(serializers.ModelSerializer):
     created_by_detail = UserSerializer(source='created_by', read_only=True)
     completed_by_detail = UserSerializer(source='completed_by', read_only=True)
 
-    class Meta:
+    class Meta:  # type: ignore
         model = Task
         fields = [
             'id', 'project', 'name', 'description', 'due_date', 'due_time',
@@ -213,14 +213,14 @@ class TaskSerializer(serializers.ModelSerializer):
             data.append(user_data)
         return data
 
-    def validate(self, data):
-        status_val = data.get('status')
+    def validate(self, attrs):
+        status_val = attrs.get('status')
         if status_val == 'COMPLETED':
             if self.instance and self.instance.subtasks.exclude(status='COMPLETED').exists():
                 raise serializers.ValidationError(
                     {"status": "All subtasks must be completed before the task can be completed."}
                 )
-        return data
+        return attrs
 
     def validate_assignee_ids(self, value):
         if not value:
@@ -310,8 +310,11 @@ class TaskSerializer(serializers.ModelSerializer):
         
         from apps.tasks.helpers import calculate_submission_status, get_task_due_datetime, get_task_due_datetime as get_due_dt_helper
         
-        due_dt = get_due_dt_helper(instance.due_date, instance.due_time)
-        rep['due_datetime'] = due_dt.isoformat()
+        if instance.due_date:
+            due_dt = get_due_dt_helper(instance.due_date, instance.due_time)
+            rep['due_datetime'] = due_dt.isoformat()
+        else:
+            rep['due_datetime'] = None
         
         if user_to_check:
             assignee = TaskAssignee.objects.filter(task=instance, user=user_to_check).first()
@@ -324,6 +327,36 @@ class TaskSerializer(serializers.ModelSerializer):
                 completed_at_val = instance.completed_at
                 
                 # Calculate based on overall task details
+                if not instance.due_date:
+                    sub_status = "COMPLETED_ON_TIME" if is_completed else "PENDING"
+                    late_mins = 0
+                else:
+                    from apps.tasks.helpers import get_task_due_datetime
+                    due_dt_task = get_task_due_datetime(instance.due_date, instance.due_time)
+                    if not is_completed:
+                        now = timezone.now()
+                        sub_status = "OVERDUE" if due_dt_task < now else "PENDING"
+                        late_mins = 0
+                    else:
+                        comp_at = completed_at_val or timezone.now()
+                        if comp_at > due_dt_task:
+                            sub_status = "LATE"
+                            late_mins = int((comp_at - due_dt_task).total_seconds() // 60)
+                        else:
+                            sub_status = "COMPLETED_ON_TIME"
+                            late_mins = 0
+                
+                rep['submission_status'] = sub_status
+                rep['late_by_minutes'] = late_mins
+        else:
+            is_completed = instance.status == 'COMPLETED'
+            completed_at_val = instance.completed_at
+            
+            # Calculate based on overall task details
+            if not instance.due_date:
+                sub_status = "COMPLETED_ON_TIME" if is_completed else "PENDING"
+                late_mins = 0
+            else:
                 from apps.tasks.helpers import get_task_due_datetime
                 due_dt_task = get_task_due_datetime(instance.due_date, instance.due_time)
                 if not is_completed:
@@ -338,28 +371,6 @@ class TaskSerializer(serializers.ModelSerializer):
                     else:
                         sub_status = "COMPLETED_ON_TIME"
                         late_mins = 0
-                
-                rep['submission_status'] = sub_status
-                rep['late_by_minutes'] = late_mins
-        else:
-            is_completed = instance.status == 'COMPLETED'
-            completed_at_val = instance.completed_at
-            
-            # Calculate based on overall task details
-            from apps.tasks.helpers import get_task_due_datetime
-            due_dt_task = get_task_due_datetime(instance.due_date, instance.due_time)
-            if not is_completed:
-                now = timezone.now()
-                sub_status = "OVERDUE" if due_dt_task < now else "PENDING"
-                late_mins = 0
-            else:
-                comp_at = completed_at_val or timezone.now()
-                if comp_at > due_dt_task:
-                    sub_status = "LATE"
-                    late_mins = int((comp_at - due_dt_task).total_seconds() // 60)
-                else:
-                    sub_status = "COMPLETED_ON_TIME"
-                    late_mins = 0
             
             rep['submission_status'] = sub_status
             rep['late_by_minutes'] = late_mins
@@ -373,54 +384,58 @@ class TaskSerializer(serializers.ModelSerializer):
         due_date = instance.due_date
         due_time = instance.due_time
         
-        # Combine due date & time to make aware datetime for comparison
-        if due_time:
-            due_dt = datetime.combine(due_date, due_time)
+        if not due_date:
+            date_display = "No due date"
+            date_color = "gray"
         else:
-            due_dt = datetime.combine(due_date, time(23, 59, 59))
-        
-        if timezone.is_naive(due_dt):
-            due_dt = timezone.make_aware(due_dt, timezone.get_current_timezone())
+            # Combine due date & time to make aware datetime for comparison
+            if due_time:
+                due_dt = datetime.combine(due_date, due_time)
+            else:
+                due_dt = datetime.combine(due_date, time(23, 59, 59))
             
-        due_dt = timezone.localtime(due_dt)
-        
-        time_str = ""
-        if due_time:
-            time_str = f" · {due_time.strftime('%I:%M %p')}"
+            if timezone.is_naive(due_dt):
+                due_dt = timezone.make_aware(due_dt, timezone.get_current_timezone())
+                
+            due_dt = timezone.localtime(due_dt)
+            
+            time_str = ""
+            if due_time:
+                time_str = f" · {due_time.strftime('%I:%M %p')}"
 
-        if is_completed:
-            date_color = 'gray'
-            if completed_at_val:
-                completed_local = timezone.localtime(completed_at_val)
-                completed_date = completed_local.date()
-                if completed_date == today:
-                    date_display = "Completed Today"
-                elif completed_date == today - timedelta(days=1):
-                    date_display = "Completed Yesterday"
+            if is_completed:
+                date_color = 'gray'
+                if completed_at_val:
+                    completed_local = timezone.localtime(completed_at_val)
+                    completed_date = completed_local.date()
+                    if completed_date == today:
+                        date_display = "Completed Today"
+                    elif completed_date == today - timedelta(days=1):
+                        date_display = "Completed Yesterday"
+                    else:
+                        date_display = f"Completed {completed_date.strftime('%b %d')}"
                 else:
-                    date_display = f"Completed {completed_date.strftime('%b %d')}"
+                    date_display = "Completed"
             else:
-                date_display = "Completed"
-        else:
-            # Incomplete
-            if due_dt < now_local:
-                # Overdue!
-                date_color = 'red'
-                if due_date == today - timedelta(days=1):
-                    date_display = f"Yesterday{time_str}"
+                # Incomplete
+                if due_dt < now_local:
+                    # Overdue!
+                    date_color = 'red'
+                    if due_date == today - timedelta(days=1):
+                        date_display = f"Yesterday{time_str}"
+                    else:
+                        date_display = f"{due_date.strftime('%b %d')}{time_str}"
                 else:
-                    date_display = f"{due_date.strftime('%b %d')}{time_str}"
-            else:
-                # Future or Today
-                if due_date == today:
-                    date_color = 'amber'
-                    date_display = f"Today{time_str}"
-                elif due_date == today + timedelta(days=1):
-                    date_color = 'green'
-                    date_display = f"Tomorrow{time_str}"
-                else:
-                    date_color = 'gray'
-                    date_display = f"{due_date.strftime('%b %d')}{time_str}"
+                    # Future or Today
+                    if due_date == today:
+                        date_color = 'amber'
+                        date_display = f"Today{time_str}"
+                    elif due_date == today + timedelta(days=1):
+                        date_color = 'green'
+                        date_display = f"Tomorrow{time_str}"
+                    else:
+                        date_color = 'gray'
+                        date_display = f"{due_date.strftime('%b %d')}{time_str}"
 
         rep['date_display'] = date_display
         rep['date_color'] = date_color

@@ -17,24 +17,31 @@ def calculate_assignee_submission_status(assignee_obj, due_date, due_time):
     Returns (status_str, late_by_minutes)
     status_str: PENDING, OVERDUE, COMPLETED_ON_TIME, LATE
     """
+    if hasattr(assignee_obj, 'task'):
+        is_completed = (assignee_obj.task.status == 'COMPLETED')
+        completed_at = assignee_obj.task.completed_at
+    else:
+        is_completed = (assignee_obj.subtask.status == 'COMPLETED')
+        completed_at = assignee_obj.subtask.completed_at
+
     if not due_date:
-        if not assignee_obj.completed:
+        if not is_completed:
             return "PENDING", 0
         else:
             return "COMPLETED_ON_TIME", 0
 
     due_dt = get_task_due_datetime(due_date, due_time)
     
-    if not assignee_obj.completed:
+    if not is_completed:
         now = timezone.now()
         if due_dt < now:
             return "OVERDUE", 0
         else:
             return "PENDING", 0
     else:
-        completed_at = assignee_obj.completed_at or timezone.now()
-        if completed_at > due_dt:
-            diff = completed_at - due_dt
+        completed_at_val = completed_at or timezone.now()
+        if completed_at_val > due_dt:
+            diff = completed_at_val - due_dt
             late_by_minutes = int(diff.total_seconds() // 60)
             return "LATE", late_by_minutes
         else:

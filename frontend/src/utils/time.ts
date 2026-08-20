@@ -156,3 +156,12 @@ export const getDueDateStyleClass = (dateStr: string | null | undefined, status?
   
   return 'text-zinc-500 dark:text-zinc-400 font-medium';
 };
+
+export const getLocalDateString = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+};
+

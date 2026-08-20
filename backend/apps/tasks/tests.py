@@ -480,13 +480,11 @@ class FluxiflowHealthAPITests(TestCase):
             project=self.project,
             name='On Time Task',
             due_date=timezone.now().date(),
+            status='COMPLETED',
+            completed_at=timezone.now(),
             created_by=self.admin
         )
-        assignee = TaskAssignee.objects.create(task=task, user=self.member1)
-        
-        assignee.completed = True
-        assignee.completed_at = timezone.now()
-        assignee.save()
+        assignee = TaskAssignee.objects.create(task=task, user=self.member1, completed=True, completed_at=timezone.now())
         
         metrics = calculate_user_health_metrics(self.member1)
         self.assertEqual(metrics['health_score'], 100)
@@ -496,13 +494,11 @@ class FluxiflowHealthAPITests(TestCase):
             project=self.project,
             name='Late Task',
             due_date=timezone.now().date() - datetime.timedelta(days=1),
+            status='COMPLETED',
+            completed_at=timezone.now(),
             created_by=self.admin
         )
-        assignee = TaskAssignee.objects.create(task=task, user=self.member1)
-        
-        assignee.completed = True
-        assignee.completed_at = timezone.now()
-        assignee.save()
+        assignee = TaskAssignee.objects.create(task=task, user=self.member1, completed=True, completed_at=timezone.now())
         
         metrics = calculate_user_health_metrics(self.member1)
         self.assertEqual(metrics['health_score'], 29)
@@ -522,26 +518,39 @@ class FluxiflowHealthAPITests(TestCase):
         self.assertEqual(metrics['health_score'], 0)
         
     def test_multi_assignee_independent_evaluation(self):
-        task = Task.objects.create(
+        # Member 1 has an on-time completed task
+        task1 = Task.objects.create(
             project=self.project,
-            name='Shared Task',
+            name='Task 1',
+            status='COMPLETED',
             due_date=timezone.now().date() - datetime.timedelta(days=1),
+            due_time=datetime.time(12, 0, 0),
+            completed_at=get_task_due_datetime(timezone.now().date() - datetime.timedelta(days=1), datetime.time(12, 0, 0)) - datetime.timedelta(hours=2),
             created_by=self.admin
         )
-        a1 = TaskAssignee.objects.create(task=task, user=self.member1)
-        a2 = TaskAssignee.objects.create(task=task, user=self.member2)
-        
-        task.due_date = timezone.now().date() - datetime.timedelta(days=1)
-        task.due_time = datetime.time(12, 0, 0)
-        task.save()
-        
-        a1.completed = True
-        a1.completed_at = get_task_due_datetime(task.due_date, task.due_time) - datetime.timedelta(hours=2)
-        a1.save()
-        
-        a2.completed = True
-        a2.completed_at = get_task_due_datetime(task.due_date, task.due_time) + datetime.timedelta(hours=2)
-        a2.save()
+        TaskAssignee.objects.create(
+            task=task1,
+            user=self.member1,
+            completed=True,
+            completed_at=task1.completed_at
+        )
+
+        # Member 2 has a late completed task
+        task2 = Task.objects.create(
+            project=self.project,
+            name='Task 2',
+            status='COMPLETED',
+            due_date=timezone.now().date() - datetime.timedelta(days=1),
+            due_time=datetime.time(12, 0, 0),
+            completed_at=get_task_due_datetime(timezone.now().date() - datetime.timedelta(days=1), datetime.time(12, 0, 0)) + datetime.timedelta(hours=2),
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(
+            task=task2,
+            user=self.member2,
+            completed=True,
+            completed_at=task2.completed_at
+        )
         
         metrics1 = calculate_user_health_metrics(self.member1)
         metrics2 = calculate_user_health_metrics(self.member2)

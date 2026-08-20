@@ -8,6 +8,9 @@ from apps.core.permissions import IsAdminOrReadOnlyMember
 from apps.activity.models import ActivityLog
 from apps.accounts.models import CustomUser as User
 
+import logging
+logger = logging.getLogger(__name__)
+
 class TaskViewSet(viewsets.ModelViewSet):
     serializer_class = TaskSerializer
 
@@ -229,103 +232,54 @@ class TaskViewSet(viewsets.ModelViewSet):
             
         from apps.notifications.services import NotificationService
 
-        if is_assigned:
-            # Mark this specific assignee as completed
-            assignee = TaskAssignee.objects.get(task=task, user=user)
+        # Set user context for logging
+        task._status_change_user = user
+
+        # Update the database
+        task.status = 'COMPLETED'
+        task.completed_by = user
+        task.completed_at = timezone.now()
+        task.save()
+
+        # Update all assignees to completed (synchronized metadata only)
+        for assignee in task.assignee_relationships.all():
             assignee.completed = True
             assignee.completed_at = timezone.now()
             assignee.save()
-            
-            # Check if submission is late using the centralized helper
-            from apps.tasks.helpers import calculate_submission_status, format_notification_duration
-            sub_status, late_mins = calculate_submission_status(assignee)
-            
-            if sub_status == "LATE":
-                duration_str = format_notification_duration(late_mins)
-                # Notify member: Task Completed Late
-                NotificationService.create_notification(
-                    recipient=user,
-                    notification_type='TASK_COMPLETED_LATE',
-                    title='Task Completed Late',
-                    message=f"You completed {task.name} {duration_str} after its deadline.",
-                    related_task=task,
-                    related_project=task.project,
-                    related_user=user
-                )
-                # Notify admins: Late Task Submission
-                NotificationService.notify_admins(
-                    notification_type='LATE_TASK_SUBMISSION',
-                    title='Late Task Submission',
-                    message=f"{user.name} completed {task.name} late.",
-                    related_task=task,
-                    related_project=task.project,
-                    related_user=user
-                )
-            else:
-                # Notify admins that user completed task
-                NotificationService.notify_admins(
-                    notification_type='TASK_COMPLETED',
-                    title='Task Completed',
-                    message=f"{user.name} completed {task.name}.",
-                    related_task=task,
-                    related_project=task.project,
-                    related_user=user
-                )
 
-            # Check if all assignees have completed
-            incomplete_exists = TaskAssignee.objects.filter(task=task, completed=False).exists()
-            if not incomplete_exists:
-                task.status = 'COMPLETED'
-                task.completed_by = user
-                task.completed_at = timezone.now()
-                task.save()
-                
-                # Notify admins that entire task is completed
-                NotificationService.notify_admins(
-                    notification_type='TASK_COMPLETED',
-                    title='Task Completed',
-                    message=f"{task.name} has been completed.",
-                    related_task=task,
-                    related_project=task.project,
-                    related_user=user
-                )
-        else:
-            # Admin completing the task globally
-            task.status = 'COMPLETED'
-            task.completed_by = user
-            task.completed_at = timezone.now()
-            task.save()
-            
-            # Notify admins that entire task is completed
+        logger.info(f"Task {task.id}: PENDING -> COMPLETED via complete action by {user.email} at {timezone.now()}")
+
+        # Notify admins that user completed task if they are assigned
+        if is_assigned:
             NotificationService.notify_admins(
                 notification_type='TASK_COMPLETED',
                 title='Task Completed',
-                message=f"{task.name} has been completed.",
+                message=f"{user.name} completed {task.name}.",
                 related_task=task,
                 related_project=task.project,
                 related_user=user
             )
+
+        # Notify admins that entire task is completed
+        NotificationService.notify_admins(
+            notification_type='TASK_COMPLETED',
+            title='Task Completed',
+            message=f"{task.name} has been completed.",
+            related_task=task,
+            related_project=task.project,
+            related_user=user
+        )
         
         # Log activity
-        desc = f"{user.name} completed task '{task.name}'."
-        if is_assigned:
-            from apps.tasks.helpers import calculate_submission_status
-            try:
-                assignee = TaskAssignee.objects.get(task=task, user=user)
-                sub_status, _ = calculate_submission_status(assignee)
-                if sub_status == "LATE":
-                    desc = f"{user.name} completed task '{task.name}' late."
-            except TaskAssignee.DoesNotExist:
-                pass
-                
         ActivityLog.objects.create(
             user=user,
             action='TASK_COMPLETED',
             entity_type='Task',
             entity_id=task.id,
-            description=desc
+            description=f"{user.name} completed task '{task.name}'."
         )
         
+        task.refresh_from_db()
         serializer = self.get_serializer(task)
         return Response(serializer.data)
 
@@ -341,17 +295,21 @@ class TaskViewSet(viewsets.ModelViewSet):
             
         from apps.notifications.services import NotificationService
 
-        if is_assigned:
-            # Mark this specific assignee as not completed
-            assignee = TaskAssignee.objects.get(task=task, user=user)
-            assignee.completed = False
-            assignee.completed_at = None
-            assignee.save()
-            
+        # Set user context for logging
+        task._status_change_user = user
+
         task.status = 'PENDING'
         task.completed_by = None
         task.completed_at = None
         task.save()
+
+        # Mark all assignee relationships as not completed (synchronized metadata only)
+        for assignee in task.assignee_relationships.all():
+            assignee.completed = False
+            assignee.completed_at = None
+            assignee.save()
+
+        logger.info(f"Task {task.id}: COMPLETED -> PENDING via reopen action by {user.email} at {timezone.now()}")
 
         # Notify relevant assignees
         for assignee_rel in task.assignee_relationships.all():
@@ -374,6 +332,7 @@ class TaskViewSet(viewsets.ModelViewSet):
             description=f"{user.name} reopened task '{task.name}'."
         )
         
+        task.refresh_from_db()
         serializer = self.get_serializer(task)
         return Response(serializer.data)
 
@@ -488,6 +447,7 @@ class SubTaskViewSet(viewsets.ModelViewSet):
             # Check if all assignees have completed
             incomplete_exists = SubTaskAssignee.objects.filter(subtask=subtask, completed=False).exists()
             if not incomplete_exists:
+                subtask._status_change_user = request.user
                 subtask.status = 'COMPLETED'
                 subtask.completed_by = request.user
                 subtask.completed_at = timezone.now()
@@ -502,6 +462,7 @@ class SubTaskViewSet(viewsets.ModelViewSet):
                     assignee.completed_at = timezone.now()
                     assignee.save()
                     
+            subtask._status_change_user = request.user
             subtask.status = 'COMPLETED'
             subtask.completed_by = request.user
             subtask.completed_at = timezone.now()
@@ -573,6 +534,7 @@ class SubTaskViewSet(viewsets.ModelViewSet):
             )
 
         # In both cases, overall subtask becomes PENDING
+        subtask._status_change_user = request.user
         subtask.status = 'PENDING'
         subtask.completed_by = None
         subtask.completed_at = None

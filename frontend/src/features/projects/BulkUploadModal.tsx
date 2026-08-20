@@ -88,10 +88,14 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
       return response.data;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['tasks', { project: projectId }] });
       queryClient.invalidateQueries({ queryKey: ['project', projectId] });
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       queryClient.invalidateQueries({ queryKey: ['team'] });
+      queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
+      queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
+      queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setStep(4);
     },

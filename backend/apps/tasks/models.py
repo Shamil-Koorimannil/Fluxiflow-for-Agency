@@ -20,7 +20,7 @@ class Task(models.Model):
     organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, related_name='tasks', null=True, blank=True)
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
-    due_date = models.DateField()
+    due_date = models.DateField(blank=True, null=True)
     due_time = models.TimeField(blank=True, null=True)
     priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default='MEDIUM', blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
@@ -122,7 +122,7 @@ class TaskAssignmentHistory(models.Model):
             models.Index(fields=['unassigned_at']),
         ]
         constraints = [
-            models.CheckConstraint(
+            models.CheckConstraint(  # type: ignore
                 check=(
                     models.Q(task__isnull=False, subtask__isnull=True) |
                     models.Q(task__isnull=True, subtask__isnull=False)

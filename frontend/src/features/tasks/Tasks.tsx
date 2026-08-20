@@ -7,7 +7,7 @@ import { useAuth } from '../auth/AuthContext';
 import { TaskFormModal } from './TaskFormModal';
 import { TaskDetailPanel } from './TaskDetailPanel';
 import { CheckSquare, Plus, CheckCircle2, Circle, AlertCircle } from 'lucide-react';
-import { formatLateDuration } from '../../utils/time';
+import { formatLateDuration, getLocalDateString } from '../../utils/time';
 type FilterType = 'all' | 'today' | 'pending' | 'upcoming' | 'completed' | 'late';
 
 export const Tasks: React.FC = () => {
@@ -68,7 +68,13 @@ export const Tasks: React.FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
+      queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
+      queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
+      queryClient.invalidateQueries({ queryKey: ['team'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
     },
   });
 
@@ -85,7 +91,13 @@ export const Tasks: React.FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
+      queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
+      queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
+      queryClient.invalidateQueries({ queryKey: ['team'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
     },
   });
 
@@ -148,19 +160,22 @@ export const Tasks: React.FC = () => {
   };
 
   // Grouping and Sorting Logic
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateString(new Date());
 
   const completedList: Task[] = [];
   const todayList: Task[] = [];
   const pendingList: Task[] = [];
   const upcomingList: Task[] = [];
+  const noDueDateList: Task[] = [];
 
   if (tasks) {
     tasks.forEach((task) => {
       if (task.status === 'COMPLETED') {
         completedList.push(task);
       } else {
-        if (task.due_date === todayStr) {
+        if (!task.due_date) {
+          noDueDateList.push(task);
+        } else if (task.due_date === todayStr) {
           todayList.push(task);
         } else if (task.due_date < todayStr) {
           pendingList.push(task);
@@ -170,6 +185,8 @@ export const Tasks: React.FC = () => {
       }
     });
   }
+
+  noDueDateList.sort((a, b) => a.created_at.localeCompare(b.created_at));
 
   // Sort helper functions
   todayList.sort((a, b) => {
@@ -421,7 +438,8 @@ export const Tasks: React.FC = () => {
       : completedList.length === 0 &&
         todayList.length === 0 &&
         pendingList.length === 0 &&
-        upcomingList.length === 0;
+        upcomingList.length === 0 &&
+        noDueDateList.length === 0;
 
   const filters: { value: FilterType; label: string }[] = [
     { value: 'all', label: 'All' },
@@ -493,6 +511,7 @@ export const Tasks: React.FC = () => {
           {(activeFilter === 'all' || activeFilter === 'today') && renderSection('Today', todayList)}
           {(activeFilter === 'all' || activeFilter === 'pending') && renderSection('Pending', pendingList, true)}
           {(activeFilter === 'all' || activeFilter === 'upcoming') && renderSection('Upcoming', upcomingList)}
+          {activeFilter === 'all' && renderSection('No Due Date', noDueDateList)}
           {(activeFilter === 'all' || activeFilter === 'completed') && renderSection('Completed', completedList)}
           {activeFilter === 'late' && renderSection('Late Submissions', lateList)}
         </div>

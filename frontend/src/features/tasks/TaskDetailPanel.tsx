@@ -57,11 +57,13 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['task', taskId] });
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
       queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
       queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
       queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
       queryClient.invalidateQueries({ queryKey: ['team'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
     },
   });
 
@@ -74,11 +76,13 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['task', taskId] });
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
       queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
       queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
       queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
       queryClient.invalidateQueries({ queryKey: ['team'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
     },
   });
 
@@ -89,12 +93,15 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['task', taskId] });
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['task', taskId] });
       queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
       queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
       queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
       queryClient.invalidateQueries({ queryKey: ['team'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
     },
   });
 
@@ -105,12 +112,15 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['task', taskId] });
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['task', taskId] });
       queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
       queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
       queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
       queryClient.invalidateQueries({ queryKey: ['team'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
     },
   });
 
@@ -193,6 +203,7 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
       queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
       queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
       queryClient.invalidateQueries({ queryKey: ['team'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setIsDeleteModalOpen(false);
       onClose();
     },
@@ -459,7 +470,7 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                   <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg divide-y divide-zinc-100 dark:divide-zinc-850 overflow-hidden bg-white dark:bg-black text-black dark:text-white">
                     {task.subtasks.map((sub) => {
                       const myAssignee = sub.assignees?.find((a) => a.user.id === user?.id);
-                      const isMyCompleted = myAssignee ? myAssignee.completed : (sub.status === 'COMPLETED');
+                      const isMyCompleted = sub.status === 'COMPLETED';
                       const isSubtaskAssignedToMe = !!myAssignee;
                       const subCanComplete = isAdmin || isSubtaskAssignedToMe;
 

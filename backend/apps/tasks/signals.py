@@ -1,4 +1,4 @@
-from django.db.models.signals import post_save, pre_delete
+from django.db.models.signals import post_save, pre_delete, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
 from .models import TaskAssignee, TaskAssignmentHistory, SubTaskAssignee
@@ -300,14 +300,74 @@ def handle_subtask_assignee_realtime_delete(sender, instance, **kwargs):
         logger.error(f"Error in handle_subtask_assignee_realtime_delete: {e}", exc_info=True)
 
 
+@receiver(pre_save, sender=SubTask)
+def track_subtask_status_pre_save(sender, instance, **kwargs):
+    if instance.id:
+        try:
+            old_instance = SubTask.objects.get(id=instance.id)
+            instance._previous_status = old_instance.status
+        except SubTask.DoesNotExist:
+            instance._previous_status = None
+    else:
+        instance._previous_status = None
+
+@receiver(pre_save, sender=Task)
+def log_task_status_change_pre_save(sender, instance, **kwargs):
+    if instance.id:
+        try:
+            old_instance = Task.objects.get(id=instance.id)
+            if old_instance.status != instance.status:
+                user_email = "System/Signal"
+                if hasattr(instance, '_status_change_user') and instance._status_change_user:
+                    user_email = instance._status_change_user.email
+                logger.info(
+                    f"STATUS_CHANGE - Task {instance.id}: {old_instance.status} -> {instance.status} via pre_save by {user_email} at {timezone.now()}"
+                )
+        except Task.DoesNotExist:
+            pass
+    else:
+        user_email = "System/Signal"
+        if hasattr(instance, '_status_change_user') and instance._status_change_user:
+            user_email = instance._status_change_user.email
+        logger.info(
+            f"STATUS_CHANGE - Task [NEW]: -> {instance.status} via pre_save by {user_email} at {timezone.now()}"
+        )
+
+@receiver(pre_save, sender=SubTask)
+def log_subtask_status_change_pre_save(sender, instance, **kwargs):
+    if instance.id:
+        try:
+            old_instance = SubTask.objects.get(id=instance.id)
+            if old_instance.status != instance.status:
+                user_email = "System/Signal"
+                if hasattr(instance, '_status_change_user') and instance._status_change_user:
+                    user_email = instance._status_change_user.email
+                logger.info(
+                    f"STATUS_CHANGE - SubTask {instance.id}: {old_instance.status} -> {instance.status} via pre_save by {user_email} at {timezone.now()}"
+                )
+        except SubTask.DoesNotExist:
+            pass
+    else:
+        user_email = "System/Signal"
+        if hasattr(instance, '_status_change_user') and instance._status_change_user:
+            user_email = instance._status_change_user.email
+        logger.info(
+            f"STATUS_CHANGE - SubTask [NEW]: -> {instance.status} via pre_save by {user_email} at {timezone.now()}"
+        )
+
 @receiver(post_save, sender=SubTask)
 def handle_subtask_save_reopen_parent(sender, instance, created, **kwargs):
-    if created or instance.status == 'PENDING':
-        parent = instance.task
+    previous_status = getattr(instance, '_previous_status', None)
+    current_status = instance.status
+    parent = instance.task
+
+    if previous_status == 'COMPLETED' and current_status != 'COMPLETED':
         if parent.status == 'COMPLETED':
             parent.status = 'PENDING'
             parent.completed_by = None
             parent.completed_at = None
-            parent.save()
+            parent.save(update_fields=['status', 'completed_by', 'completed_at'])
+            # Also synchronize assignee relationships metadata (if retained)
+            parent.assignee_relationships.all().update(completed=False, completed_at=None)
 
 
