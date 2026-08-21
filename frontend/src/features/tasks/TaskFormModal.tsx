@@ -12,6 +12,7 @@ interface TaskFormModalProps {
   taskToEdit?: Task | null;
   defaultProjectId?: string | null;
   defaultAssigneeId?: string | null;
+  projectId?: string;
 }
 
 export const TaskFormModal: React.FC<TaskFormModalProps> = ({
@@ -20,6 +21,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
   taskToEdit,
   defaultProjectId,
   defaultAssigneeId,
+  projectId: projectIdProp,
 }) => {
   const queryClient = useQueryClient();
   const isEditMode = !!taskToEdit;
@@ -42,7 +44,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
       setDueTime(taskToEdit.due_time ? taskToEdit.due_time.substring(0, 5) : '');
       setPriority(taskToEdit.priority || 'MEDIUM');
       setDescription(taskToEdit.description || '');
-      setProjectId(taskToEdit.project || '');
+      setProjectId(taskToEdit.project || projectIdProp || defaultProjectId || '');
       setSelectedAssigneeIds(taskToEdit.assignees.map((a) => a.id));
     } else {
       setName('');
@@ -50,11 +52,11 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
       setDueTime('');
       setPriority('MEDIUM');
       setDescription('');
-      setProjectId(defaultProjectId || '');
+      setProjectId(projectIdProp || defaultProjectId || '');
       setSelectedAssigneeIds(defaultAssigneeId ? [defaultAssigneeId] : []);
     }
     setError(null);
-  }, [taskToEdit, defaultProjectId, defaultAssigneeId, isOpen]);
+  }, [taskToEdit, defaultProjectId, defaultAssigneeId, isOpen, projectIdProp]);
 
   // Fetch projects list for selection
   const { data: projects } = useQuery<Project[]>({
@@ -95,19 +97,24 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
         return response.data;
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
-      queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
-      queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
-      queryClient.invalidateQueries({ queryKey: ['team'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['tasks'] }),
+        queryClient.invalidateQueries({ queryKey: ['teamTasks'] }),
+        queryClient.invalidateQueries({ queryKey: ['teamWorkload'] }),
+        queryClient.invalidateQueries({ queryKey: ['employee-workload'] }),
+        queryClient.invalidateQueries({ queryKey: ['team'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+        queryClient.invalidateQueries({ queryKey: ['projects'] }),
+      ]);
       if (isEditMode) {
-        queryClient.invalidateQueries({ queryKey: ['task', taskToEdit?.id] });
+        await queryClient.invalidateQueries({ queryKey: ['task', taskToEdit?.id] });
       }
       if (projectId) {
-        queryClient.invalidateQueries({ queryKey: ['project', projectId] });
-        queryClient.invalidateQueries({ queryKey: ['tasks', { project: projectId }] });
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['project', projectId] }),
+          queryClient.invalidateQueries({ queryKey: ['tasks', { project: projectId }] }),
+        ]);
       }
       onClose();
     },
@@ -232,7 +239,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
             <select
               value={projectId}
               onChange={(e) => setProjectId(e.target.value)}
-              disabled={submitMutation.isPending}
+              disabled={submitMutation.isPending || !!projectIdProp}
               className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
             >
               <option value="">No Project</option>

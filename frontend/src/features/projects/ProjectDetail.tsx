@@ -33,6 +33,7 @@ export const ProjectDetail: React.FC = () => {
   const [editProjError, setEditProjError] = useState<string | null>(null);
 
   const [isDownloadingReport, setIsDownloadingReport] = useState(false);
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
 
   const handleDownloadReport = async () => {
     if (isDownloadingReport) return;
@@ -527,7 +528,7 @@ export const ProjectDetail: React.FC = () => {
                   setTaskToEdit(null);
                   setIsDeleteProjModalOpen(false);
                   setSelectedTaskId(null);
-                  navigate(`/app/tasks?create_project_id=${project.id}`);
+                  setIsTaskModalOpen(true);
                 }}
                 className="flex items-center gap-1 px-2.5 py-1.5 md:gap-1.5 md:px-3 md:py-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-white/10 text-xs font-semibold rounded-lg transition-colors text-black dark:text-white"
               >
@@ -571,7 +572,7 @@ export const ProjectDetail: React.FC = () => {
             <h3 className="font-semibold text-sm">No tasks match this filter</h3>
             {isAdmin && (
               <button
-                onClick={() => navigate(`/app/tasks?create_project_id=${project.id}`)}
+                onClick={() => setIsTaskModalOpen(true)}
                 className="mt-3 px-3 py-1.5 bg-black dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-100 text-white dark:text-black font-semibold rounded-lg text-xs transition-colors"
               >
                 Create Project Task
@@ -633,6 +634,13 @@ export const ProjectDetail: React.FC = () => {
           defaultProjectId={project.id}
         />
       )}
+
+      {/* CREATE TASK MODAL OVERLAY */}
+      <TaskFormModal
+        isOpen={isTaskModalOpen}
+        onClose={() => setIsTaskModalOpen(false)}
+        projectId={project.id}
+      />
 
       {/* BULK UPLOAD MODAL */}
       <BulkUploadModal
