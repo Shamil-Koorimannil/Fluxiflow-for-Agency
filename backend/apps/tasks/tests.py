@@ -1315,5 +1315,72 @@ class SubTaskIndependentWorkItemTests(TestCase):
         self.assertFalse(Task.objects.filter(name="Should Not Be Created").exists())
 
 
+class FluxiflowTaskConsistencyTests(FluxiflowAPITests):
+    def setUp(self):
+        super().setUp()
+        from apps.accounts.models import Organization, Membership
+        self.org = Organization.objects.create(name='Test Org')
+        self.project.organization = self.org
+        self.project.save(update_fields=['organization'])
+        
+        Membership.objects.create(organization=self.org, user=self.admin)
+        Membership.objects.create(organization=self.org, user=self.member1)
+        Membership.objects.create(organization=self.org, user=self.member2)
+
+    def test_completion_consistency_and_refreshed_db(self):
+        """Verify task status remains absolute source of truth."""
+        self.set_auth(self.admin_token)
+        url = reverse('task-complete', args=[self.task.id])
+        response = self.client.post(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, 'COMPLETED')
+        self.assertEqual(self.task.completed_by, self.admin)
+        
+    def test_subtask_reopen_parent_signal(self):
+        """Verify signals propagate status changes to parent tasks."""
+        parent = Task.objects.create(
+            project=self.project,
+            name='Parent Task',
+            status='COMPLETED',
+            due_date=timezone.now().date(),
+            created_by=self.admin
+        )
+        subtask = SubTask.objects.create(
+            task=parent,
+            name='Subtask',
+            status='COMPLETED'
+        )
+        
+        # When subtask is reopened, parent should reopen
+        subtask.status = 'PENDING'
+        subtask.save()
+        
+        parent.refresh_from_db()
+        self.assertEqual(parent.status, 'PENDING')
+        
+    def test_bulk_copy_paste_atomic_transaction(self):
+        """Verify transaction rollback during bulk copy/paste failures."""
+        self.set_auth(self.admin_token)
+        
+        # Post to bulk_paste with empty/invalid payload to trigger error and ensure atomic rollback
+        url = reverse('task-list') + 'bulk_paste/'
+        payload = {
+            "destination_project_id": self.project.id,
+            "destination_assignee_id": self.member1.id,
+            "tasks": [
+                {
+                    "name": "" # Invalid empty name, raises validation error
+                }
+            ]
+        }
+        response = self.client.post(url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        
+        # Ensure only the original task exists because of atomic transaction rollback
+        self.assertEqual(Task.objects.filter(project=self.project).count(), 1)
+
+
 
 

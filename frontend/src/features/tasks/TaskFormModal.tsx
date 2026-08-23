@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import type { Task, Project, User } from '../../types';
 import { X } from 'lucide-react';
 import { TimePicker } from '../../components/common/TimePicker';
 import { DatePicker } from '../../components/common/DatePicker';
+import { getLocalDateString } from '../../utils/time';
 
 interface TaskFormModalProps {
   isOpen: boolean;
@@ -35,28 +37,37 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
   const [projectId, setProjectId] = useState<string>('');
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [hasInitialized, setHasInitialized] = useState(false);
 
   // Load data on edit or defaults
   useEffect(() => {
-    if (taskToEdit) {
-      setName(taskToEdit.name);
-      setDueDate(taskToEdit.due_date);
-      setDueTime(taskToEdit.due_time ? taskToEdit.due_time.substring(0, 5) : '');
-      setPriority(taskToEdit.priority || 'MEDIUM');
-      setDescription(taskToEdit.description || '');
-      setProjectId(taskToEdit.project || projectIdProp || defaultProjectId || '');
-      setSelectedAssigneeIds(taskToEdit.assignees.map((a) => a.id));
-    } else {
-      setName('');
-      setDueDate(new Date().toISOString().split('T')[0]); // default to today
-      setDueTime('');
-      setPriority('MEDIUM');
-      setDescription('');
-      setProjectId(projectIdProp || defaultProjectId || '');
-      setSelectedAssigneeIds(defaultAssigneeId ? [defaultAssigneeId] : []);
+    if (!isOpen) {
+      setHasInitialized(false);
+      return;
     }
-    setError(null);
-  }, [taskToEdit, defaultProjectId, defaultAssigneeId, isOpen, projectIdProp]);
+
+    if (isOpen && !hasInitialized) {
+      if (taskToEdit) {
+        setName(taskToEdit.name);
+        setDueDate(taskToEdit.due_date);
+        setDueTime(taskToEdit.due_time ? taskToEdit.due_time.substring(0, 5) : '');
+        setPriority(taskToEdit.priority || 'MEDIUM');
+        setDescription(taskToEdit.description || '');
+        setProjectId(taskToEdit.project || projectIdProp || defaultProjectId || '');
+        setSelectedAssigneeIds(taskToEdit.assignees.map((a) => a.id));
+      } else {
+        setName('');
+        setDueDate(getLocalDateString(new Date())); // timezone-safe local date
+        setDueTime('');
+        setPriority('MEDIUM');
+        setDescription('');
+        setProjectId(projectIdProp || defaultProjectId || '');
+        setSelectedAssigneeIds(defaultAssigneeId ? [defaultAssigneeId] : []);
+      }
+      setError(null);
+      setHasInitialized(true);
+    }
+  }, [isOpen, hasInitialized, taskToEdit, defaultProjectId, defaultAssigneeId, projectIdProp]);
 
   // Fetch projects list for selection
   const { data: projects } = useQuery<Project[]>({
@@ -168,11 +179,12 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl max-w-lg w-full p-6 shadow-lg relative max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150 text-black dark:text-white">
+  return createPortal(
+    <div className="fixed inset-0 bg-black/45 z-[9999] flex items-center justify-center p-4 pointer-events-auto">
+      <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl max-w-lg w-full p-6 shadow-lg relative max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150 text-black dark:text-white pointer-events-auto">
         <button
           onClick={onClose}
+          type="button"
           className="absolute right-4 top-4 text-zinc-400 hover:text-black dark:hover:text-white transition-colors"
         >
           <X className="h-4 w-4" />
@@ -187,7 +199,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
-            <div className="rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/50 p-3 text-xs font-medium text-red-650 dark:text-red-400">
+            <div className="rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/50 p-3 text-xs font-medium text-red-655 dark:text-red-400">
               {error}
             </div>
           )}
@@ -222,7 +234,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
 
             <div className="space-y-1">
               <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider block mb-1">
-                Due Time (optional)
+                Due Time
               </label>
               <TimePicker
                 value={dueTime}
@@ -260,23 +272,23 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 value={priority}
                 onChange={(e) => setPriority(e.target.value as any)}
                 disabled={submitMutation.isPending}
-                className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
+                className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors text-black dark:text-white"
               >
-                <option value="LOW" className="bg-white dark:bg-black">Low</option>
-                <option value="MEDIUM" className="bg-white dark:bg-black">Medium</option>
-                <option value="HIGH" className="bg-white dark:bg-black">High</option>
+                <option value="LOW">Low</option>
+                <option value="MEDIUM">Medium</option>
+                <option value="HIGH">High</option>
               </select>
             </div>
 
             {/* Assignees list multiselect */}
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-1 block">
-                Assign To *
+              <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider block mb-1">
+                Assignees
               </label>
-              <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg p-2 max-h-32 overflow-y-auto space-y-1 bg-white dark:bg-black select-none">
+              <div className="max-h-36 overflow-y-auto border border-zinc-200 dark:border-zinc-800 rounded-lg p-2 space-y-1 bg-white dark:bg-black">
                 {teamMembers
-                  ?.filter((m) => m.status !== 'INACTIVE' || selectedAssigneeIds.includes(m.id))
-                  .map((m) => {
+                  ?.filter((m) => m.status === 'ACTIVE' || selectedAssigneeIds.includes(m.id))
+                  ?.map((m) => {
                     const isChecked = selectedAssigneeIds.includes(m.id);
                     const isDeactivated = m.status === 'INACTIVE';
                     return (
@@ -334,6 +346,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

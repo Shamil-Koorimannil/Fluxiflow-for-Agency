@@ -305,8 +305,8 @@ class TaskSerializer(serializers.ModelSerializer):
         target_user = self.context.get('target_user')
         user_to_check = target_user or (request.user if request and request.user.is_authenticated else None)
         
-        is_completed = False
-        completed_at_val = None
+        is_completed = instance.status == 'COMPLETED'
+        completed_at_val = instance.completed_at
         
         from apps.tasks.helpers import calculate_submission_status, get_task_due_datetime, get_task_due_datetime as get_due_dt_helper
         
@@ -323,9 +323,6 @@ class TaskSerializer(serializers.ModelSerializer):
                 rep['submission_status'] = sub_status
                 rep['late_by_minutes'] = late_mins
             else:
-                is_completed = instance.status == 'COMPLETED'
-                completed_at_val = instance.completed_at
-                
                 # Calculate based on overall task details
                 if not instance.due_date:
                     sub_status = "COMPLETED_ON_TIME" if is_completed else "PENDING"

@@ -1,9 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import type { Task, TeamWorkload } from '../../types';
 import { TaskDetailPanel } from '../tasks/TaskDetailPanel';
 import { TaskFormModal } from '../tasks/TaskFormModal';
+import { classifyTask } from '../../utils/taskClassifier';
+import { TaskDatePicker } from '../tasks/TaskDatePicker';
+import { PasteTasksModal } from '../tasks/PasteTasksModal';
 import {
   Drawer,
   Box,
@@ -18,15 +21,12 @@ import {
 } from '@mui/material';
 import {
   X,
-  Clock,
   CheckCircle2,
   Circle,
   HelpCircle,
   Plus,
-  Calendar,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
-import { formatTimeOnly, formatDueDate, getDueDateStyleClass, getLocalDateString } from '../../utils/time';
 
 interface TeamDetailDrawerProps {
   memberId: string | null;
@@ -51,8 +51,9 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
-  // Filter state: 'all' | 'today' | 'pending' | 'upcoming' | 'completed' | 'no_due_date'
-  const [activeFilter, setActiveFilter] = useState<'all' | 'today' | 'pending' | 'upcoming' | 'completed' | 'no_due_date'>('all');
+  // Filter state: 'all' | 'today' | 'tomorrow' | 'upcoming' | 'overdue' | 'no_due_date' | 'completed'
+  type FilterType = 'all' | 'today' | 'tomorrow' | 'upcoming' | 'overdue' | 'no_due_date' | 'completed';
+  const [activeFilter, setActiveFilter] = useState<FilterType>('all');
 
   // Selected task to view detail panel
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -60,6 +61,36 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
   // Selected task for editing
   const [taskToEdit, setTaskToEdit] = useState<Task | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  const [isPasteModalOpen, setIsPasteModalOpen] = useState(false);
+  const [copiedTasksCount, setCopiedTasksCount] = useState(0);
+
+  useEffect(() => {
+    const updateCount = () => {
+      const stored = localStorage.getItem('fluxiflow_copied_tasks');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          setCopiedTasksCount(Array.isArray(parsed) ? parsed.length : 0);
+        } catch {
+          setCopiedTasksCount(0);
+        }
+      } else {
+        setCopiedTasksCount(0);
+      }
+    };
+    updateCount();
+    window.addEventListener('fluxiflow_copied_tasks_changed', updateCount);
+    return () => window.removeEventListener('fluxiflow_copied_tasks_changed', updateCount);
+  }, []);
+
+  const [lastSelectedTaskId, setLastSelectedTaskId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedTaskIds([]);
+    setLastSelectedTaskId(null);
+  }, [activeFilter]);
 
   // Fetch workload summary
   const { data: workloadData, isLoading: isWorkloadLoading } = useQuery<TeamWorkload>({
@@ -85,54 +116,82 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
     enabled: !!memberId && open,
   });
 
-  const todayStr = getLocalDateString(new Date());
-
-  const deduplicateTasks = (taskList: Task[]): Task[] => {
-    const seen = new Set<string>();
-    return taskList.filter((t) => {
-      if (seen.has(t.id)) return false;
-      seen.add(t.id);
-      return true;
-    });
-  };
 
   const processedTasks = React.useMemo(() => {
     if (!allTasksRaw) return [];
     
     // 1. Deduplicate by unique task ID
-    const deduplicated = deduplicateTasks(allTasksRaw);
+    const deduplicated = Array.from(new Map(allTasksRaw.map(t => [t.id, t])).values());
     
-    // 2. Filter based on activeFilter tab using local calendar date
-    return deduplicated.filter((task) => {
-      if (activeFilter === 'all') {
-        return true;
-      }
-      if (activeFilter === 'completed') {
-        return task.status === 'COMPLETED';
-      }
-      
-      // All other filters only show non-completed tasks
-      if (task.status === 'COMPLETED') {
-        return false;
-      }
-      
-      if (activeFilter === 'today') {
-        return task.due_date === todayStr;
-      }
-      if (activeFilter === 'pending') {
-        return !!task.due_date && task.due_date < todayStr;
-      }
-      if (activeFilter === 'upcoming') {
-        return !!task.due_date && task.due_date > todayStr;
-      }
-      if (activeFilter === 'no_due_date') {
-        return !task.due_date;
-      }
-      return true;
-    });
-  }, [allTasksRaw, activeFilter, todayStr]);
+    // 2. Filter based on activeFilter tab using local calendar date classifier
+    if (activeFilter === 'all') {
+      return deduplicated;
+    }
+    return deduplicated.filter((task) => classifyTask(task) === activeFilter);
+  }, [allTasksRaw, activeFilter]);
 
   const tasks = processedTasks;
+
+  const handleToggleSelect = (taskId: string, isShiftPressed?: boolean) => {
+    if (isShiftPressed && lastSelectedTaskId) {
+      const startIdx = processedTasks.findIndex(t => t.id === lastSelectedTaskId);
+      const endIdx = processedTasks.findIndex(t => t.id === taskId);
+      if (startIdx !== -1 && endIdx !== -1) {
+        const minIdx = Math.min(startIdx, endIdx);
+        const maxIdx = Math.max(startIdx, endIdx);
+        const rangeIds = processedTasks.slice(minIdx, maxIdx + 1).map(t => t.id);
+        setSelectedTaskIds(prev => {
+          const next = new Set(prev);
+          rangeIds.forEach(id => next.add(id));
+          return Array.from(next);
+        });
+        setLastSelectedTaskId(taskId);
+        return;
+      }
+    }
+    setSelectedTaskIds(prev =>
+      prev.includes(taskId) ? prev.filter(id => id !== taskId) : [...prev, taskId]
+    );
+    setLastSelectedTaskId(taskId);
+  };
+
+  const handleClearSelection = () => {
+    setSelectedTaskIds([]);
+  };
+
+  const handleBulkCopy = () => {
+    const tasksToCopy = processedTasks.filter(t => selectedTaskIds.includes(t.id));
+    const serialized = tasksToCopy.map(t => ({
+      name: t.name,
+      description: t.description,
+      priority: t.priority,
+      due_date: t.due_date,
+      due_time: t.due_time,
+      subtasks: t.subtasks?.map(s => ({
+        name: s.name,
+        due_date: s.due_date,
+        due_time: s.due_time
+      })) || []
+    }));
+    localStorage.setItem('fluxiflow_copied_tasks', JSON.stringify(serialized));
+    setSelectedTaskIds([]);
+    window.dispatchEvent(new Event('fluxiflow_copied_tasks_changed'));
+  };
+
+  const areAllVisibleSelected = processedTasks.length > 0 && processedTasks.every(t => selectedTaskIds.includes(t.id));
+
+  const handleSelectAllToggle = () => {
+    if (areAllVisibleSelected) {
+      const visibleIds = processedTasks.map(t => t.id);
+      setSelectedTaskIds(prev => prev.filter(id => !visibleIds.includes(id)));
+    } else {
+      setSelectedTaskIds(prev => {
+        const next = new Set(prev);
+        processedTasks.forEach(t => next.add(t.id));
+        return Array.from(next);
+      });
+    }
+  };
 
   // Task Completion Mutation
   const completeTaskMutation = useMutation({
@@ -442,13 +501,23 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
 
               {/* [+ Create Task] button for Admin */}
               {isAdmin && onCreateTask && summary.status !== 'INACTIVE' && (
-                <button
-                  onClick={() => onCreateTask(memberId!)}
-                  className="w-full flex items-center justify-center gap-1.5 py-2 px-4 bg-black dark:bg-white text-white dark:text-black font-semibold rounded-lg text-xs hover:bg-zinc-800 dark:hover:bg-zinc-100 transition-colors"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Create Task
-                </button>
+                <div className="flex gap-2">
+                  {copiedTasksCount > 0 && (
+                    <button
+                      onClick={() => setIsPasteModalOpen(true)}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 px-4 border border-dashed border-zinc-300 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-white/10 text-xs font-semibold rounded-lg transition-colors text-black dark:text-white"
+                    >
+                      Paste ({copiedTasksCount})
+                    </button>
+                  )}
+                  <button
+                    onClick={() => onCreateTask(memberId!)}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 px-4 bg-black dark:bg-white text-white dark:text-black font-semibold rounded-lg text-xs hover:bg-zinc-800 dark:hover:bg-zinc-100 transition-colors"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Create Task
+                  </button>
+                </div>
               )}
 
               {/* Tasks List Section */}
@@ -457,24 +526,31 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
                   <Typography variant="body2" sx={{ fontWeight: 800, textTransform: 'uppercase' }}>
                     Assigned Tasks
                   </Typography>
-                </Box>
-
-                {/* Filter Pills */}
+                  {processedTasks.length > 0 && (
+                    <button
+                      onClick={handleSelectAllToggle}
+                      className="text-xs font-bold text-zinc-555 hover:text-black dark:text-zinc-400 dark:hover:text-white transition-colors"
+                    >
+                      {areAllVisibleSelected ? 'Deselect All' : 'Select All'}
+                    </button>
+                  )}
+                </Box>                {/* Filter Pills */}
                 <Box className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-                  {(['all', 'today', 'pending', 'upcoming', 'completed', 'no_due_date'] as const).map((filter) => (
+                  {(['all', 'today', 'tomorrow', 'upcoming', 'overdue', 'no_due_date', 'completed'] as const).map((filter) => (
                     <button
                       key={filter}
                       onClick={() => setActiveFilter(filter)}
                       className={`text-[10px] font-bold px-3 py-1.5 rounded-full border transition-all whitespace-nowrap ${
                         activeFilter === filter
                           ? 'bg-black dark:bg-white text-white dark:text-black border-black dark:border-white'
-                          : 'bg-white dark:bg-black text-zinc-650 dark:text-zinc-400 border-zinc-200 dark:border-zinc-850 hover:bg-zinc-50 dark:hover:bg-white/10'
+                          : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-650 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-white/10'
                       }`}
                     >
                       {filter === 'no_due_date' ? 'No Due Date' : 
-                       filter === 'pending' ? 'Pending / Overdue' : 
+                       filter === 'overdue' ? 'Overdue' : 
                        filter === 'all' ? 'All' :
                        filter === 'today' ? 'Today' :
+                       filter === 'tomorrow' ? 'Tomorrow' :
                        filter === 'upcoming' ? 'Upcoming' :
                        filter === 'completed' ? 'Completed' :
                        filter}
@@ -499,6 +575,7 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
                 ) : (
                   <Box className="space-y-2">
                     {tasks.map((task) => {
+                      const isSelected = selectedTaskIds.includes(task.id);
                       return (
                         <Box
                           key={task.id}
@@ -507,7 +584,7 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
                           )}`}
                           onClick={() => setSelectedTaskId(task.id)}
                         >
-                          <Box className="flex items-center gap-2.5 min-w-0">
+                          <Box className="flex items-center gap-2.5 min-w-0 flex-1">
                             {/* Checkbox */}
                             <button
                               type="button"
@@ -526,14 +603,14 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
                               className="text-zinc-450 hover:text-black dark:hover:text-white shrink-0 transition-all duration-200 active:scale-90"
                             >
                               {task.status === 'COMPLETED' ? (
-                                <CheckCircle2 className="h-4.5 w-4.5 text-green-500" />
+                                <CheckCircle2 className="h-4.5 w-4.5 text-green-550 dark:text-green-400 shrink-0" />
                               ) : (
-                                <Circle className="h-4.5 w-4.5" />
+                                <Circle className="h-4.5 w-4.5 shrink-0" />
                               )}
                             </button>
-
+ 
                             {/* Details */}
-                            <Box className="min-w-0">
+                            <Box className="min-w-0 flex-1">
                               <h4
                                 className={`text-xs font-semibold truncate ${
                                   task.status === 'COMPLETED'
@@ -544,27 +621,16 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
                                 {task.name}
                               </h4>
                               <Box className="flex items-center gap-2 flex-wrap text-[10px] text-zinc-400 mt-0.5">
-                                {task.due_date && (
-                                  <Box className={`flex items-center gap-0.5 ${getDueDateStyleClass(task.due_date, task.status)}`}>
-                                    <Calendar className="h-2.5 w-2.5 shrink-0" />
-                                    <span>{formatDueDate(task.due_date)}</span>
-                                  </Box>
-                                )}
-                                {task.due_time && (
-                                  <Box className="flex items-center gap-0.5">
-                                    <Clock className="h-2.5 w-2.5" />
-                                    <span>{formatTimeOnly(task.due_time)}</span>
-                                  </Box>
-                                )}
+                                <TaskDatePicker task={task} />
                                 {task.project_detail && (
-                                  <span className="font-semibold text-zinc-500 dark:text-zinc-450 uppercase tracking-wide">
+                                  <span className="font-semibold text-zinc-555 dark:text-zinc-450 uppercase tracking-wide">
                                     {task.project_detail.name}
                                   </span>
                                 )}
                               </Box>
                             </Box>
                           </Box>
-
+ 
                           {/* Priority Badge */}
                           {task.priority && (
                             <span
@@ -579,6 +645,20 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
                               {task.priority}
                             </span>
                           )}
+
+                          {/* Selection Checkbox (Moved to right) */}
+                          <div className="flex items-center shrink-0 px-1" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleToggleSelect(task.id, e.shiftKey);
+                              }}
+                              onChange={() => {}}
+                              className="rounded border-zinc-300 dark:border-zinc-700 text-black focus:ring-black focus:ring-0 cursor-pointer w-4 h-4"
+                            />
+                          </div>
                         </Box>
                       );
                     })}
@@ -589,6 +669,33 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
           )}
         </Box>
       </Box>
+
+      {/* Floating Bulk Action Toolbar */}
+      {selectedTaskIds.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 shadow-lg z-[9999] flex items-center gap-4 animate-in fade-in slide-in-from-bottom duration-200 text-xs text-black dark:text-white">
+          <span className="font-bold">{selectedTaskIds.length} Task{selectedTaskIds.length > 1 ? 's' : ''} Selected</span>
+          <div className="h-4 w-px bg-zinc-250 dark:bg-zinc-800" />
+          <button
+            onClick={handleBulkCopy}
+            className="font-bold text-zinc-650 hover:text-black dark:text-zinc-400 dark:hover:text-white transition-colors"
+          >
+            Copy
+          </button>
+          <button
+            onClick={handleClearSelection}
+            className="font-bold text-zinc-400 hover:text-zinc-655 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Paste Tasks Modal */}
+      <PasteTasksModal
+        isOpen={isPasteModalOpen}
+        onClose={() => setIsPasteModalOpen(false)}
+        defaultAssigneeId={memberId || undefined}
+      />
 
       {/* Embedded Task Detail Overlay Panel */}
       {selectedTaskId && (

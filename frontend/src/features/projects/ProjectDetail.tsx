@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
@@ -9,8 +9,11 @@ import { TaskFormModal } from '../tasks/TaskFormModal';
 import { ArrowLeft, Plus, Upload, Trash2, CheckSquare, CheckCircle2, Circle, X, Pencil, Download, Loader2 } from 'lucide-react';
 import { formatLateDuration } from '../../utils/time';
 import { BulkUploadModal } from './BulkUploadModal';
+import { classifyTask } from '../../utils/taskClassifier';
+import { TaskDatePicker } from '../tasks/TaskDatePicker';
+import { PasteTasksModal } from '../tasks/PasteTasksModal';
 
-type ProjectFilterType = 'all' | 'today' | 'pending' | 'upcoming' | 'completed' | 'assigned_to_me';
+type ProjectFilterType = 'all' | 'today' | 'tomorrow' | 'upcoming' | 'overdue' | 'no_due_date' | 'completed' | 'assigned_to_me';
 
 export const ProjectDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -34,6 +37,36 @@ export const ProjectDetail: React.FC = () => {
 
   const [isDownloadingReport, setIsDownloadingReport] = useState(false);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  const [isPasteModalOpen, setIsPasteModalOpen] = useState(false);
+  const [copiedTasksCount, setCopiedTasksCount] = useState(0);
+
+  useEffect(() => {
+    const updateCount = () => {
+      const stored = localStorage.getItem('fluxiflow_copied_tasks');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          setCopiedTasksCount(Array.isArray(parsed) ? parsed.length : 0);
+        } catch {
+          setCopiedTasksCount(0);
+        }
+      } else {
+        setCopiedTasksCount(0);
+      }
+    };
+    updateCount();
+    window.addEventListener('fluxiflow_copied_tasks_changed', updateCount);
+    return () => window.removeEventListener('fluxiflow_copied_tasks_changed', updateCount);
+  }, []);
+
+  const [lastSelectedTaskId, setLastSelectedTaskId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedTaskIds([]);
+    setLastSelectedTaskId(null);
+  }, [activeFilter]);
 
   const handleDownloadReport = async () => {
     if (isDownloadingReport) return;
@@ -290,26 +323,79 @@ export const ProjectDetail: React.FC = () => {
   }
 
   // Local filtering logic
-  const todayStr = new Date().toISOString().split('T')[0];
-  let filteredTasks = tasks || [];
+  const deduplicatedTasks = tasks ? Array.from(new Map(tasks.map(t => [t.id, t])).values()) : [];
+  let filteredTasks = deduplicatedTasks;
 
-  if (tasks) {
-    if (activeFilter === 'today') {
-      filteredTasks = tasks.filter((t) => t.status !== 'COMPLETED' && t.due_date === todayStr);
-    } else if (activeFilter === 'pending') {
-      filteredTasks = tasks.filter((t) => t.status !== 'COMPLETED' && t.due_date < todayStr);
-    } else if (activeFilter === 'upcoming') {
-      filteredTasks = tasks.filter((t) => t.status !== 'COMPLETED' && t.due_date > todayStr);
-    } else if (activeFilter === 'completed') {
-      filteredTasks = tasks.filter((t) => t.status === 'COMPLETED');
-    } else if (activeFilter === 'assigned_to_me') {
-      filteredTasks = tasks.filter((t) => t.assignees.some((a) => a.id === user?.id));
-    }
+  if (activeFilter === 'assigned_to_me') {
+    filteredTasks = deduplicatedTasks.filter((t) => t.assignees.some((a) => a.id === user?.id));
+  } else if (activeFilter !== 'all') {
+    filteredTasks = deduplicatedTasks.filter((t) => classifyTask(t) === activeFilter);
   }
+  const handleToggleSelect = (taskId: string, isShiftPressed?: boolean) => {
+    if (isShiftPressed && lastSelectedTaskId) {
+      const startIdx = filteredTasks.findIndex(t => t.id === lastSelectedTaskId);
+      const endIdx = filteredTasks.findIndex(t => t.id === taskId);
+      if (startIdx !== -1 && endIdx !== -1) {
+        const minIdx = Math.min(startIdx, endIdx);
+        const maxIdx = Math.max(startIdx, endIdx);
+        const rangeIds = filteredTasks.slice(minIdx, maxIdx + 1).map(t => t.id);
+        setSelectedTaskIds(prev => {
+          const next = new Set(prev);
+          rangeIds.forEach(id => next.add(id));
+          return Array.from(next);
+        });
+        setLastSelectedTaskId(taskId);
+        return;
+      }
+    }
+    setSelectedTaskIds(prev =>
+      prev.includes(taskId) ? prev.filter(id => id !== taskId) : [...prev, taskId]
+    );
+    setLastSelectedTaskId(taskId);
+  };
 
+  const handleClearSelection = () => {
+    setSelectedTaskIds([]);
+    setLastSelectedTaskId(null);
+  };
+
+  const handleBulkCopy = () => {
+    const tasksToCopy = filteredTasks.filter(t => selectedTaskIds.includes(t.id));
+    const serialized = tasksToCopy.map(t => ({
+      name: t.name,
+      description: t.description,
+      priority: t.priority,
+      due_date: t.due_date,
+      due_time: t.due_time,
+      subtasks: t.subtasks?.map(s => ({
+        name: s.name,
+        due_date: s.due_date,
+        due_time: s.due_time
+      })) || []
+    }));
+    localStorage.setItem('fluxiflow_copied_tasks', JSON.stringify(serialized));
+    setSelectedTaskIds([]);
+    window.dispatchEvent(new Event('fluxiflow_copied_tasks_changed'));
+  };
+
+  const areAllVisibleSelected = filteredTasks.length > 0 && filteredTasks.every(t => selectedTaskIds.includes(t.id));
+
+  const handleSelectAllToggle = () => {
+    if (areAllVisibleSelected) {
+      const visibleIds = filteredTasks.map(t => t.id);
+      setSelectedTaskIds(prev => prev.filter(id => !visibleIds.includes(id)));
+    } else {
+      setSelectedTaskIds(prev => {
+        const next = new Set(prev);
+        filteredTasks.forEach(t => next.add(t.id));
+        return Array.from(next);
+      });
+    }
+  };
   const renderTaskTile = (task: Task) => {
     const isAssigned = task.assignees.some((a) => a.id === user?.id);
     const canComplete = isAdmin || isAssigned;
+    const isSelected = selectedTaskIds.includes(task.id);
 
     return (
       <div
@@ -368,14 +454,7 @@ export const ProjectDetail: React.FC = () => {
                   task.date_color === 'green' ? 'bg-green-500' :
                   'bg-zinc-400'
                 }`} />
-                <span className={
-                  task.date_color === 'red' ? 'text-red-500 font-semibold' :
-                  task.date_color === 'amber' ? 'text-amber-550 font-semibold dark:text-amber-500' :
-                  task.date_color === 'green' ? 'text-green-500 font-semibold' :
-                  'text-zinc-450 dark:text-zinc-400'
-                }>
-                  {task.date_display}
-                </span>
+                <TaskDatePicker task={task} />
               </div>
 
               {task.priority && (
@@ -386,7 +465,7 @@ export const ProjectDetail: React.FC = () => {
               {task.overall_status && (
                 <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${
                   task.overall_status === 'COMPLETED'
-                    ? 'bg-green-100 dark:bg-green-950/40 text-green-800 dark:text-green-300'
+                    ? 'bg-green-105 dark:bg-green-950/30 text-green-755 dark:text-green-400'
                     : task.overall_status === 'IN_PROGRESS'
                     ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300'
                     : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-550'
@@ -417,6 +496,20 @@ export const ProjectDetail: React.FC = () => {
             )}
           </div>
         </div>
+
+        {/* Selection Checkbox (Moved to right) */}
+        <div className="flex items-center shrink-0 px-1" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleToggleSelect(task.id, e.shiftKey);
+            }}
+            onChange={() => {}}
+            className="rounded border-zinc-300 dark:border-zinc-700 text-black focus:ring-black focus:ring-0 cursor-pointer w-4 h-4"
+          />
+        </div>
       </div>
     );
   };
@@ -424,8 +517,10 @@ export const ProjectDetail: React.FC = () => {
   const projectFilters: { value: ProjectFilterType; label: string }[] = [
     { value: 'all', label: 'All' },
     { value: 'today', label: 'Today' },
-    { value: 'pending', label: 'Pending' },
+    { value: 'tomorrow', label: 'Tomorrow' },
     { value: 'upcoming', label: 'Upcoming' },
+    { value: 'overdue', label: 'Overdue' },
+    { value: 'no_due_date', label: 'No Due Date' },
     { value: 'completed', label: 'Completed' },
     { value: 'assigned_to_me', label: 'Assigned to Me' },
   ];
@@ -515,6 +610,14 @@ export const ProjectDetail: React.FC = () => {
           </h3>
           {isAdmin && (
             <div className="flex items-center gap-2">
+              {copiedTasksCount > 0 && (
+                <button
+                  onClick={() => setIsPasteModalOpen(true)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 border border-dashed border-zinc-300 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-white/10 text-xs font-semibold rounded-lg transition-colors text-black dark:text-white"
+                >
+                  Paste ({copiedTasksCount})
+                </button>
+              )}
               <button
                 onClick={() => setIsBulkUploadOpen(true)}
                 className="flex items-center gap-1 px-2.5 py-1.5 md:gap-1.5 md:px-3 md:py-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-white/10 text-xs font-semibold rounded-lg transition-colors text-black dark:text-white"
@@ -559,6 +662,18 @@ export const ProjectDetail: React.FC = () => {
             );
           })}
         </div>
+
+        {/* Select All Action Bar */}
+        {!isTasksLoading && filteredTasks.length > 0 && (
+          <div className="flex justify-end pr-1">
+            <button
+              onClick={handleSelectAllToggle}
+              className="text-xs font-bold text-zinc-555 hover:text-black dark:text-zinc-400 dark:hover:text-white transition-colors"
+            >
+              {areAllVisibleSelected ? 'Deselect All' : 'Select All'}
+            </button>
+          </div>
+        )}
 
         {isTasksLoading ? (
           <div className="space-y-2">
@@ -771,6 +886,32 @@ export const ProjectDetail: React.FC = () => {
           </div>
         </div>
       )}
+      {/* Floating Bulk Action Toolbar */}
+      {selectedTaskIds.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 shadow-lg z-50 flex items-center gap-4 animate-in fade-in slide-in-from-bottom duration-200 text-xs text-black dark:text-white">
+          <span className="font-bold">{selectedTaskIds.length} Task{selectedTaskIds.length > 1 ? 's' : ''} Selected</span>
+          <div className="h-4 w-px bg-zinc-250 dark:bg-zinc-800" />
+          <button
+            onClick={handleBulkCopy}
+            className="font-bold text-zinc-650 hover:text-black dark:text-zinc-400 dark:hover:text-white transition-colors"
+          >
+            Copy
+          </button>
+          <button
+            onClick={handleClearSelection}
+            className="font-bold text-zinc-400 hover:text-zinc-600 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Paste Tasks Modal */}
+      <PasteTasksModal
+        isOpen={isPasteModalOpen}
+        onClose={() => setIsPasteModalOpen(false)}
+        defaultProjectId={project.id}
+      />
     </div>
   );
 };

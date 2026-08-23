@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import type { Task } from '../../types';
 import { useAuth } from '../auth/AuthContext';
-import { TaskFormModal } from './TaskFormModal';
 import { TaskDetailPanel } from './TaskDetailPanel';
-import { CheckSquare, Plus, CheckCircle2, Circle, AlertCircle } from 'lucide-react';
-import { formatLateDuration, getLocalDateString } from '../../utils/time';
-type FilterType = 'all' | 'today' | 'pending' | 'upcoming' | 'completed' | 'late';
+import { TaskFormModal } from './TaskFormModal';
+import { Plus, CheckCircle2, Circle, CheckSquare, AlertCircle } from 'lucide-react';
+import { classifyTask } from '../../utils/taskClassifier';
+import { TaskDatePicker } from './TaskDatePicker';
+import { PasteTasksModal } from './PasteTasksModal';
+
+type FilterType = 'all' | 'today' | 'tomorrow' | 'upcoming' | 'overdue' | 'no_due_date' | 'completed' | 'late';
 
 export const Tasks: React.FC = () => {
   const queryClient = useQueryClient();
@@ -20,9 +23,50 @@ export const Tasks: React.FC = () => {
   const createProjectIdParam = searchParams.get('create_project_id');
 
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [taskToEdit, setTaskToEdit] = useState<Task | null>(null);
+
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  const [isPasteModalOpen, setIsPasteModalOpen] = useState(false);
+  const [copiedTasksCount, setCopiedTasksCount] = useState(0);
+
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
+
+  const [lastSelectedTaskId, setLastSelectedTaskId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedTaskIds([]);
+    setLastSelectedTaskId(null);
+  }, [activeFilter]);
+
+  const formatLateDuration = (minutes: number) => {
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    if (hours < 24) return `${hours}h ${mins}m`;
+    const days = Math.floor(hours / 24);
+    const hrs = hours % 24;
+    return `${days}d ${hrs}h`;
+  };
+
+  useEffect(() => {
+    const updateCount = () => {
+      const stored = localStorage.getItem('fluxiflow_copied_tasks');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          setCopiedTasksCount(Array.isArray(parsed) ? parsed.length : 0);
+        } catch {
+          setCopiedTasksCount(0);
+        }
+      } else {
+        setCopiedTasksCount(0);
+      }
+    };
+    updateCount();
+    window.addEventListener('fluxiflow_copied_tasks_changed', updateCount);
+    return () => window.removeEventListener('fluxiflow_copied_tasks_changed', updateCount);
+  }, []);
 
   useEffect(() => {
     if (activeTaskIdParam) {
@@ -159,32 +203,99 @@ export const Tasks: React.FC = () => {
     }
   };
 
-  // Grouping and Sorting Logic
-  const todayStr = getLocalDateString(new Date());
+  // Grouping and Sorting Logic using the classifier
+  const deduplicatedTasks = tasks ? Array.from(new Map(tasks.map(t => [t.id, t])).values()) : [];
+  let filteredTasks = deduplicatedTasks;
 
+  if (activeFilter === 'late') {
+    filteredTasks = deduplicatedTasks.filter((t) => t.status === 'COMPLETED' && t.submission_status === 'LATE');
+  } else if (activeFilter !== 'all') {
+    filteredTasks = deduplicatedTasks.filter((t) => classifyTask(t) === activeFilter);
+  }
+  const handleToggleSelect = (taskId: string, isShiftPressed?: boolean) => {
+    if (isShiftPressed && lastSelectedTaskId) {
+      const startIdx = filteredTasks.findIndex(t => t.id === lastSelectedTaskId);
+      const endIdx = filteredTasks.findIndex(t => t.id === taskId);
+      if (startIdx !== -1 && endIdx !== -1) {
+        const minIdx = Math.min(startIdx, endIdx);
+        const maxIdx = Math.max(startIdx, endIdx);
+        const rangeIds = filteredTasks.slice(minIdx, maxIdx + 1).map(t => t.id);
+        setSelectedTaskIds(prev => {
+          const next = new Set(prev);
+          rangeIds.forEach(id => next.add(id));
+          return Array.from(next);
+        });
+        setLastSelectedTaskId(taskId);
+        return;
+      }
+    }
+    setSelectedTaskIds(prev =>
+      prev.includes(taskId) ? prev.filter(id => id !== taskId) : [...prev, taskId]
+    );
+    setLastSelectedTaskId(taskId);
+  };
+
+  const handleClearSelection = () => {
+    setSelectedTaskIds([]);
+    setLastSelectedTaskId(null);
+  };
+
+  const handleBulkCopy = () => {
+    const tasksToCopy = filteredTasks.filter(t => selectedTaskIds.includes(t.id));
+    const serialized = tasksToCopy.map(t => ({
+      name: t.name,
+      description: t.description,
+      priority: t.priority,
+      due_date: t.due_date,
+      due_time: t.due_time,
+      subtasks: t.subtasks?.map(s => ({
+        name: s.name,
+        due_date: s.due_date,
+        due_time: s.due_time
+      })) || []
+    }));
+    localStorage.setItem('fluxiflow_copied_tasks', JSON.stringify(serialized));
+    setSelectedTaskIds([]);
+    window.dispatchEvent(new Event('fluxiflow_copied_tasks_changed'));
+  };
+
+  const areAllVisibleSelected = filteredTasks.length > 0 && filteredTasks.every(t => selectedTaskIds.includes(t.id));
+
+  const handleSelectAllToggle = () => {
+    if (areAllVisibleSelected) {
+      const visibleIds = filteredTasks.map(t => t.id);
+      setSelectedTaskIds(prev => prev.filter(id => !visibleIds.includes(id)));
+    } else {
+      setSelectedTaskIds(prev => {
+        const next = new Set(prev);
+        filteredTasks.forEach(t => next.add(t.id));
+        return Array.from(next);
+      });
+    }
+  };
   const completedList: Task[] = [];
   const todayList: Task[] = [];
-  const pendingList: Task[] = [];
+  const tomorrowList: Task[] = [];
   const upcomingList: Task[] = [];
+  const overdueList: Task[] = [];
   const noDueDateList: Task[] = [];
 
-  if (tasks) {
-    tasks.forEach((task) => {
-      if (task.status === 'COMPLETED') {
-        completedList.push(task);
-      } else {
-        if (!task.due_date) {
-          noDueDateList.push(task);
-        } else if (task.due_date === todayStr) {
-          todayList.push(task);
-        } else if (task.due_date < todayStr) {
-          pendingList.push(task);
-        } else {
-          upcomingList.push(task);
-        }
-      }
-    });
-  }
+  deduplicatedTasks.forEach((task) => {
+    const category = classifyTask(task);
+    if (category === 'completed') {
+      completedList.push(task);
+    } else if (category === 'today') {
+      todayList.push(task);
+    } else if (category === 'tomorrow') {
+      tomorrowList.push(task);
+    } else if (category === 'upcoming') {
+      upcomingList.push(task);
+    } else if (category === 'overdue') {
+      overdueList.push(task);
+    } else if (category === 'no_due_date') {
+      noDueDateList.push(task);
+    }
+  });
 
   noDueDateList.sort((a, b) => a.created_at.localeCompare(b.created_at));
 
@@ -196,7 +307,15 @@ export const Tasks: React.FC = () => {
     return a.created_at.localeCompare(b.created_at);
   });
 
+  tomorrowList.sort((a, b) => {
+    if (a.due_time && b.due_time) return a.due_time.localeCompare(b.due_time);
+    if (a.due_time) return -1;
+    if (b.due_time) return 1;
+    return a.created_at.localeCompare(b.created_at);
+  });
+
   upcomingList.sort((a, b) => {
+    if (!a.due_date || !b.due_date) return 0;
     const dateCompare = a.due_date.localeCompare(b.due_date);
     if (dateCompare !== 0) return dateCompare;
     if (a.due_time && b.due_time) return a.due_time.localeCompare(b.due_time);
@@ -205,7 +324,8 @@ export const Tasks: React.FC = () => {
     return a.created_at.localeCompare(b.created_at);
   });
 
-  pendingList.sort((a, b) => {
+  overdueList.sort((a, b) => {
+    if (!a.due_date || !b.due_date) return 0;
     const dateCompare = a.due_date.localeCompare(b.due_date);
     if (dateCompare !== 0) return dateCompare;
     if (a.due_time && b.due_time) return a.due_time.localeCompare(b.due_time);
@@ -220,7 +340,6 @@ export const Tasks: React.FC = () => {
     return completedAtB.localeCompare(completedAtA);
   });
 
-  const lateList = completedList.filter((t) => t.submission_status === 'LATE');
 
   const renderAssigneesList = (assignees: Task['assignees']) => {
     if (assignees.length === 0) {
@@ -274,6 +393,7 @@ export const Tasks: React.FC = () => {
   const renderTaskCard = (task: Task) => {
     const isAssigned = task.assignees.some((a) => a.id === user?.id);
     const canComplete = isAdmin || isAssigned;
+    const isSelected = selectedTaskIds.includes(task.id);
 
     return (
       <div
@@ -309,7 +429,7 @@ export const Tasks: React.FC = () => {
           <div className="min-w-0 flex-1 space-y-1.5">
             <h4
               className={`text-sm font-semibold truncate ${
-                task.status === 'COMPLETED' ? 'line-through text-zinc-400 dark:text-zinc-500' : 'text-black dark:text-white'
+                task.status === 'COMPLETED' ? 'line-through text-zinc-400 dark:text-zinc-555' : 'text-black dark:text-white'
               }`}
             >
               {task.name}
@@ -317,7 +437,7 @@ export const Tasks: React.FC = () => {
 
             {/* Project name row */}
             {task.project_detail && (
-              <div className="text-[10px] font-bold text-zinc-450 dark:text-zinc-550 uppercase tracking-widest leading-none">
+              <div className="text-[10px] font-bold text-zinc-450 dark:text-zinc-555 uppercase tracking-widest leading-none">
                 {task.project_detail.name} {task.is_subtask && task.parent_task_name && ` / Parent: ${task.parent_task_name}`}
               </div>
             )}
@@ -336,14 +456,7 @@ export const Tasks: React.FC = () => {
                   task.date_color === 'green' ? 'bg-green-500' :
                   'bg-zinc-400'
                 }`} />
-                <span className={
-                  task.date_color === 'red' ? 'text-red-500 font-semibold' :
-                  task.date_color === 'amber' ? 'text-amber-550 font-semibold dark:text-amber-550' :
-                  task.date_color === 'green' ? 'text-green-500 font-semibold' :
-                  'text-zinc-450 dark:text-zinc-400'
-                }>
-                  {task.date_display}
-                </span>
+                <TaskDatePicker task={task} />
               </div>
 
               {task.priority && (
@@ -383,6 +496,20 @@ export const Tasks: React.FC = () => {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Selection Checkbox (Moved to right) */}
+        <div className="flex items-center shrink-0 px-1" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleToggleSelect(task.id, e.shiftKey);
+            }}
+            onChange={() => {}}
+            className="rounded border-zinc-300 dark:border-zinc-700 text-black focus:ring-black focus:ring-0 cursor-pointer w-4 h-4"
+          />
         </div>
       </div>
     );
@@ -432,20 +559,15 @@ export const Tasks: React.FC = () => {
     );
   }
 
-  const hasNoTasks =
-    activeFilter === 'late'
-      ? lateList.length === 0
-      : completedList.length === 0 &&
-        todayList.length === 0 &&
-        pendingList.length === 0 &&
-        upcomingList.length === 0 &&
-        noDueDateList.length === 0;
+  const hasNoTasks = filteredTasks.length === 0;
 
   const filters: { value: FilterType; label: string }[] = [
     { value: 'all', label: 'All' },
     { value: 'today', label: 'Today' },
-    { value: 'pending', label: 'Pending' },
+    { value: 'tomorrow', label: 'Tomorrow' },
     { value: 'upcoming', label: 'Upcoming' },
+    { value: 'overdue', label: 'Overdue' },
+    { value: 'no_due_date', label: 'No Due Date' },
     { value: 'completed', label: 'Completed' },
     { value: 'late', label: 'Late' },
   ];
@@ -462,14 +584,24 @@ export const Tasks: React.FC = () => {
         </div>
 
         {isAdmin && (
-          <button
-            onClick={() => setIsFormModalOpen(true)}
-            className="flex items-center gap-1 px-3 py-1.5 md:gap-2 md:px-4 md:py-2 bg-black dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-100 text-white dark:text-black font-semibold rounded-lg text-xs md:text-sm transition-colors"
-          >
-            <Plus className="h-4 w-4 shrink-0" />
-            <span className="hidden md:inline">Create Task</span>
-            <span className="inline md:hidden">Task</span>
-          </button>
+          <div className="flex items-center gap-2">
+            {copiedTasksCount > 0 && (
+              <button
+                onClick={() => setIsPasteModalOpen(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 border border-dashed border-zinc-300 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-white/10 text-xs font-semibold rounded-lg transition-colors text-black dark:text-white"
+              >
+                Paste ({copiedTasksCount})
+              </button>
+            )}
+            <button
+              onClick={() => setIsFormModalOpen(true)}
+              className="flex items-center gap-1 px-3 py-1.5 md:gap-2 md:px-4 md:py-2 bg-black dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-100 text-white dark:text-black font-semibold rounded-lg text-xs md:text-sm transition-colors"
+            >
+              <Plus className="h-4 w-4 shrink-0" />
+              <span className="hidden md:inline">Create Task</span>
+              <span className="inline md:hidden">Task</span>
+            </button>
+          </div>
         )}
       </div>
 
@@ -493,6 +625,18 @@ export const Tasks: React.FC = () => {
         })}
       </div>
 
+      {/* Select All Action Bar */}
+      {!hasNoTasks && (
+        <div className="flex justify-end pr-1">
+          <button
+            onClick={handleSelectAllToggle}
+            className="text-xs font-bold text-zinc-555 hover:text-black dark:text-zinc-400 dark:hover:text-white transition-colors"
+          >
+            {areAllVisibleSelected ? 'Deselect All' : 'Select All'}
+          </button>
+        </div>
+      )}
+
       {/* Grouped lists */}
       {hasNoTasks ? (
         <div className="flex flex-col items-center justify-center border border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-black p-12 text-center">
@@ -508,12 +652,22 @@ export const Tasks: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-8 pt-2">
-          {(activeFilter === 'all' || activeFilter === 'today') && renderSection('Today', todayList)}
-          {(activeFilter === 'all' || activeFilter === 'pending') && renderSection('Pending', pendingList, true)}
-          {(activeFilter === 'all' || activeFilter === 'upcoming') && renderSection('Upcoming', upcomingList)}
-          {activeFilter === 'all' && renderSection('No Due Date', noDueDateList)}
-          {(activeFilter === 'all' || activeFilter === 'completed') && renderSection('Completed', completedList)}
-          {activeFilter === 'late' && renderSection('Late Submissions', lateList)}
+          {activeFilter === 'all' ? (
+            <>
+              {renderSection('Today', todayList)}
+              {renderSection('Tomorrow', tomorrowList)}
+              {renderSection('Overdue', overdueList, true)}
+              {renderSection('Upcoming', upcomingList)}
+              {renderSection('No Due Date', noDueDateList)}
+              {renderSection('Completed', completedList)}
+            </>
+          ) : (
+            renderSection(
+              filters.find((f) => f.value === activeFilter)?.label || 'Tasks',
+              filteredTasks,
+              activeFilter === 'overdue'
+            )
+          )}
         </div>
       )}
 
@@ -536,6 +690,32 @@ export const Tasks: React.FC = () => {
           }}
         />
       )}
+
+      {/* Floating Bulk Action Toolbar */}
+      {selectedTaskIds.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 shadow-lg z-50 flex items-center gap-4 animate-in fade-in slide-in-from-bottom duration-200 text-xs text-black dark:text-white">
+          <span className="font-bold">{selectedTaskIds.length} Task{selectedTaskIds.length > 1 ? 's' : ''} Selected</span>
+          <div className="h-4 w-px bg-zinc-250 dark:bg-zinc-800" />
+          <button
+            onClick={handleBulkCopy}
+            className="font-bold text-zinc-650 hover:text-black dark:text-zinc-400 dark:hover:text-white transition-colors"
+          >
+            Copy
+          </button>
+          <button
+            onClick={handleClearSelection}
+            className="font-bold text-zinc-400 hover:text-zinc-600 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Paste Tasks Modal */}
+      <PasteTasksModal
+        isOpen={isPasteModalOpen}
+        onClose={() => setIsPasteModalOpen(false)}
+      />
     </div>
   );
 };

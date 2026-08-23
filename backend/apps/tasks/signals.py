@@ -357,17 +357,13 @@ def log_subtask_status_change_pre_save(sender, instance, **kwargs):
 
 @receiver(post_save, sender=SubTask)
 def handle_subtask_save_reopen_parent(sender, instance, created, **kwargs):
-    previous_status = getattr(instance, '_previous_status', None)
-    current_status = instance.status
     parent = instance.task
-
-    if previous_status == 'COMPLETED' and current_status != 'COMPLETED':
+    if instance.status != 'COMPLETED':
         if parent.status == 'COMPLETED':
             parent.status = 'PENDING'
             parent.completed_by = None
             parent.completed_at = None
             parent.save(update_fields=['status', 'completed_by', 'completed_at'])
-            # Also synchronize assignee relationships metadata (if retained)
             parent.assignee_relationships.all().update(completed=False, completed_at=None)
 
 

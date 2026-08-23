@@ -8,6 +8,7 @@ interface DatePickerProps {
   placeholder?: string;
   disabled?: boolean;
   required?: boolean;
+  variant?: 'standard' | 'inline';
 }
 
 export const DatePicker: React.FC<DatePickerProps> = ({
@@ -15,7 +16,8 @@ export const DatePicker: React.FC<DatePickerProps> = ({
   onChange,
   placeholder = 'Select date',
   disabled = false,
-  required = false
+  required = false,
+  variant = 'standard'
 }) => {
   const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null);
   
@@ -110,20 +112,23 @@ export const DatePicker: React.FC<DatePickerProps> = ({
   };
 
   return (
-    <div className="relative w-full">
+    <div className={variant === 'inline' ? 'inline-block' : 'relative w-full'}>
       <button
         type="button"
         disabled={disabled}
         onClick={handleOpen}
-        className="w-full flex items-center justify-between px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-left text-black dark:text-white hover:border-black dark:hover:border-white focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
+        className={variant === 'inline'
+          ? "inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-black dark:hover:text-white transition-colors cursor-pointer select-none font-medium border border-transparent hover:border-zinc-200 dark:hover:border-zinc-800 px-1.5 py-0.5 rounded-md"
+          : "w-full flex items-center justify-between px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-left text-black dark:text-white hover:border-black dark:hover:border-white focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
+        }
       >
         <div className="flex items-center gap-2 min-w-0">
-          <Calendar size={16} className="text-zinc-400 shrink-0" />
+          <Calendar size={variant === 'inline' ? 13 : 16} className="text-zinc-400 shrink-0" />
           <span className={getDisplayValue() ? 'truncate' : 'text-zinc-400 truncate'}>
             {getDisplayValue() || placeholder}
           </span>
         </div>
-        {!required && value && !disabled && (
+        {variant !== 'inline' && !required && value && !disabled && (
           <X
             size={14}
             onClick={handleClear}
@@ -134,6 +139,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
 
       <Popover
         open={Boolean(anchorEl)}
+        sx={{ zIndex: 10002 }}
         anchorEl={anchorEl}
         onClose={handleClose}
         anchorOrigin={{

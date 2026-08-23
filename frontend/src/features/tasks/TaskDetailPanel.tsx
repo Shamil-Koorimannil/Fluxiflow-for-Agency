@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import type { Task, User } from '../../types';
@@ -234,8 +235,8 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
   const isAssigned = task?.assignees.some((a) => a.id === user?.id) || false;
   const canComplete = isAdmin || isAssigned;
 
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/40 animate-in fade-in duration-200">
+  return createPortal(
+    <div className="fixed inset-0 z-[9998] flex justify-end bg-black/40 animate-in fade-in duration-200">
       {/* Click outside backdrop */}
       <div className="absolute inset-0" onClick={onClose}></div>
 
@@ -863,7 +864,7 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
 
       {/* CONFIRM TASK DELETE DIALOG */}
       {isDeleteModalOpen && (
-        <div className="fixed inset-0 bg-black/40 z-60 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/40 z-[11000] flex items-center justify-center p-4">
           <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl max-w-sm w-full p-6 shadow-lg text-center relative animate-in fade-in zoom-in-95 duration-150 text-black dark:text-white">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/50 text-red-600 mb-4">
               <AlertTriangle className="h-5 w-5" />
@@ -890,6 +891,7 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
           </div>
         </div>
       )}
-    </div>
+    </div>,
+    document.body
   );
 };

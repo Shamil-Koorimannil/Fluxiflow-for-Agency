@@ -216,6 +216,7 @@ class TaskViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['POST'])
     def complete(self, request, pk=None):
         task = self.get_object()
+        task.refresh_from_db()
         user = request.user
         
         # Prevent completion if task has incomplete subtasks
@@ -239,7 +240,8 @@ class TaskViewSet(viewsets.ModelViewSet):
         task.status = 'COMPLETED'
         task.completed_by = user
         task.completed_at = timezone.now()
-        task.save()
+        task.save(update_fields=['status', 'completed_by', 'completed_at'])
+        task.refresh_from_db()
 
         # Update all assignees to completed (synchronized metadata only)
         for assignee in task.assignee_relationships.all():
@@ -286,6 +288,7 @@ class TaskViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['POST'])
     def reopen(self, request, pk=None):
         task = self.get_object()
+        task.refresh_from_db()
         user = request.user
         
         # Check permission: Admin, or Member assigned to the task
@@ -301,7 +304,8 @@ class TaskViewSet(viewsets.ModelViewSet):
         task.status = 'PENDING'
         task.completed_by = None
         task.completed_at = None
-        task.save()
+        task.save(update_fields=['status', 'completed_by', 'completed_at'])
+        task.refresh_from_db()
 
         # Mark all assignee relationships as not completed (synchronized metadata only)
         for assignee in task.assignee_relationships.all():
@@ -359,6 +363,104 @@ class TaskViewSet(viewsets.ModelViewSet):
             )
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['POST'])
+    def bulk_paste(self, request):
+        user = request.user
+        tasks_data = request.data.get('tasks', [])
+        destination_project_id = request.data.get('destination_project_id')
+        assignee_ids = request.data.get('assignee_ids', [])
+        
+        if not tasks_data:
+            return Response({"detail": "No tasks provided to paste."}, status=status.HTTP_400_BAD_REQUEST)
+            
+        from django.db import transaction
+        from apps.projects.models import Project
+        from rest_framework.exceptions import ValidationError
+        
+        project = None
+        if destination_project_id:
+            try:
+                project = Project.objects.get(id=destination_project_id)
+            except (Project.DoesNotExist, ValueError):
+                return Response({"detail": "Destination project not found."}, status=status.HTTP_404_NOT_FOUND)
+                
+            from apps.accounts.models import Membership
+            user_membership = Membership.objects.filter(user=user).first()
+            if not user_membership or project.organization != user_membership.organization:
+                return Response({"detail": "You do not have permission to paste into this project."}, status=status.HTTP_403_FORBIDDEN)
+        else:
+            from apps.accounts.models import Membership
+            user_membership = Membership.objects.filter(user=user).first()
+            if not user_membership:
+                return Response({"detail": "User has no organization membership."}, status=status.HTTP_403_FORBIDDEN)
+                
+        target_users = User.objects.filter(id__in=assignee_ids)
+        created_tasks = []
+        
+        with transaction.atomic():
+            for task_item in tasks_data:
+                name = task_item.get('name')
+                description = task_item.get('description', '')
+                priority = task_item.get('priority', 'MEDIUM')
+                due_date = task_item.get('due_date')
+                due_time = task_item.get('due_time')
+                
+                if not name:
+                    raise ValidationError("Task name is required.")
+                    
+                from apps.accounts.models import Membership
+                user_membership = Membership.objects.filter(user=user).first()
+                org = project.organization if project else (user_membership.organization if user_membership else None)
+                
+                new_task = Task.objects.create(
+                    project=project,
+                    organization=org,
+                    name=name,
+                    description=description,
+                    priority=priority,
+                    due_date=due_date or None,
+                    due_time=due_time or None,
+                    status='PENDING',
+                    created_by=user,
+                    completed_by=None,
+                    completed_at=None
+                )
+                
+                # Assignees
+                for u in target_users:
+                    TaskAssignee.objects.create(task=new_task, user=u, completed=False, completed_at=None)
+                    
+                # Subtasks
+                subtasks_data = task_item.get('subtasks', [])
+                for sub_item in subtasks_data:
+                    sub_name = sub_item.get('name')
+                    sub_due_date = sub_item.get('due_date')
+                    sub_due_time = sub_item.get('due_time')
+                    if sub_name:
+                        new_sub = SubTask.objects.create(
+                            task=new_task,
+                            name=sub_name,
+                            due_date=sub_due_date or None,
+                            due_time=sub_due_time or None,
+                            status='PENDING',
+                            completed_by=None,
+                            completed_at=None
+                        )
+                        for u in target_users:
+                            SubTaskAssignee.objects.create(subtask=new_sub, user=u, completed=False, completed_at=None)
+                
+                ActivityLog.objects.create(
+                    user=user,
+                    action='TASK_CREATED',
+                    entity_type='Task',
+                    entity_id=new_task.id,
+                    description=f"{user.name} created task '{new_task.name}' via paste."
+                )
+                created_tasks.append(new_task)
+                
+        serializer = self.get_serializer(created_tasks, many=True)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 class SubTaskViewSet(viewsets.ModelViewSet):
     queryset = SubTask.objects.all()

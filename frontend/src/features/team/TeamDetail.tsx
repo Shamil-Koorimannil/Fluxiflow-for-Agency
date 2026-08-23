@@ -1,8 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import type { TeamWorkload, Task } from '../../types';
+import { useAuth } from '../auth/AuthContext';
+import { TaskDetailPanel } from '../tasks/TaskDetailPanel';
+import { TaskFormModal } from '../tasks/TaskFormModal';
+import { classifyTask } from '../../utils/taskClassifier';
+import { TaskDatePicker } from '../tasks/TaskDatePicker';
+import { PasteTasksModal } from '../tasks/PasteTasksModal';
 import {
   Box,
   Button,
@@ -26,10 +32,76 @@ import {
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
-import { formatDueDateTime, getDueDateStyleClass } from '../../utils/time';
 
 export const TeamDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
+
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [taskToEdit, setTaskToEdit] = useState<Task | null>(null);
+  const [isFormModalOpen, setIsFormModalOpen] = useState(false);
+
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  const [isPasteModalOpen, setIsPasteModalOpen] = useState(false);
+  const [copiedTasksCount, setCopiedTasksCount] = useState(0);
+
+  useEffect(() => {
+    const updateCount = () => {
+      const stored = localStorage.getItem('fluxiflow_copied_tasks');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          setCopiedTasksCount(Array.isArray(parsed) ? parsed.length : 0);
+        } catch {
+          setCopiedTasksCount(0);
+        }
+      } else {
+        setCopiedTasksCount(0);
+      }
+    };
+    updateCount();
+    window.addEventListener('fluxiflow_copied_tasks_changed', updateCount);
+    return () => window.removeEventListener('fluxiflow_copied_tasks_changed', updateCount);
+  }, []);
+
+
+
+  // Task mutations
+  const completeTaskMutation = useMutation({
+    mutationFn: async (taskId: string) => {
+      const response = await api.post(`/tasks/${taskId}/complete/`);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
+      queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
+      queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
+      queryClient.invalidateQueries({ queryKey: ['team'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
+    },
+  });
+
+  const reopenTaskMutation = useMutation({
+    mutationFn: async (taskId: string) => {
+      const response = await api.post(`/tasks/${taskId}/reopen/`);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
+      queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
+      queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
+      queryClient.invalidateQueries({ queryKey: ['team'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
+    },
+  });
 
   // Period filter states
   const [periodOption, setPeriodOption] = useState<'current_month' | 'select_month' | 'last_3_months' | 'custom_range' | 'current_year'>('current_month');
@@ -132,6 +204,120 @@ export const TeamDetail: React.FC = () => {
     enabled: !!id,
   });
 
+  const visibleTasks = React.useMemo(() => {
+    if (!workloadData) return [];
+    const { workload } = workloadData;
+    const allTasks = [
+      ...(workload.today || []),
+      ...(workload.tomorrow || []),
+      ...(workload.yesterday || []),
+      ...(workload.pending || []),
+      ...(workload.upcoming || []),
+      ...(workload.completed || [])
+    ];
+    
+    // Deduplicate by ID
+    const unique = Array.from(new Map(allTasks.map(t => [t.id, t])).values());
+    
+    // Split and rebuild visible order: Today, Tomorrow, Overdue, Upcoming, No Due Date, Completed
+    const todayList: Task[] = [];
+    const tomorrowList: Task[] = [];
+    const upcomingList: Task[] = [];
+    const overdueList: Task[] = [];
+    const noDueDateList: Task[] = [];
+    const completedList: Task[] = [];
+
+    unique.forEach((task) => {
+      const category = classifyTask(task);
+      if (category === 'completed') {
+        completedList.push(task);
+      } else if (category === 'today') {
+        todayList.push(task);
+      } else if (category === 'tomorrow') {
+        tomorrowList.push(task);
+      } else if (category === 'upcoming') {
+        upcomingList.push(task);
+      } else if (category === 'overdue') {
+        overdueList.push(task);
+      } else if (category === 'no_due_date') {
+        noDueDateList.push(task);
+      }
+    });
+
+    return [
+      ...todayList,
+      ...tomorrowList,
+      ...overdueList,
+      ...upcomingList,
+      ...noDueDateList,
+      ...completedList
+    ];
+  }, [workloadData]);
+
+  const [lastSelectedTaskId, setLastSelectedTaskId] = useState<string | null>(null);
+
+  const handleToggleSelect = (taskId: string, isShiftPressed?: boolean) => {
+    if (isShiftPressed && lastSelectedTaskId) {
+      const startIdx = visibleTasks.findIndex(t => t.id === lastSelectedTaskId);
+      const endIdx = visibleTasks.findIndex(t => t.id === taskId);
+      if (startIdx !== -1 && endIdx !== -1) {
+        const minIdx = Math.min(startIdx, endIdx);
+        const maxIdx = Math.max(startIdx, endIdx);
+        const rangeIds = visibleTasks.slice(minIdx, maxIdx + 1).map(t => t.id);
+        setSelectedTaskIds(prev => {
+          const next = new Set(prev);
+          rangeIds.forEach(id => next.add(id));
+          return Array.from(next);
+        });
+        setLastSelectedTaskId(taskId);
+        return;
+      }
+    }
+    setSelectedTaskIds(prev =>
+      prev.includes(taskId) ? prev.filter(id => id !== taskId) : [...prev, taskId]
+    );
+    setLastSelectedTaskId(taskId);
+  };
+
+  const handleClearSelection = () => {
+    setSelectedTaskIds([]);
+    setLastSelectedTaskId(null);
+  };
+
+  const handleBulkCopy = () => {
+    const tasksToCopy = visibleTasks.filter(t => selectedTaskIds.includes(t.id));
+    const serialized = tasksToCopy.map(t => ({
+      name: t.name,
+      description: t.description,
+      priority: t.priority,
+      due_date: t.due_date,
+      due_time: t.due_time,
+      subtasks: t.subtasks?.map(s => ({
+        name: s.name,
+        due_date: s.due_date,
+        due_time: s.due_time
+      })) || []
+    }));
+    localStorage.setItem('fluxiflow_copied_tasks', JSON.stringify(serialized));
+    setSelectedTaskIds([]);
+    window.dispatchEvent(new Event('fluxiflow_copied_tasks_changed'));
+  };
+
+  const areAllVisibleSelected = visibleTasks.length > 0 && visibleTasks.every(t => selectedTaskIds.includes(t.id));
+
+  const handleSelectAllToggle = () => {
+    if (areAllVisibleSelected) {
+      const visibleIds = visibleTasks.map(t => t.id);
+      setSelectedTaskIds(prev => prev.filter(id => !visibleIds.includes(id)));
+    } else {
+      setSelectedTaskIds(prev => {
+        const next = new Set(prev);
+        visibleTasks.forEach(t => next.add(t.id));
+        return Array.from(next);
+      });
+    }
+  };
+
   const getPeriodLabel = () => {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const fullMonths = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -225,42 +411,70 @@ export const TeamDetail: React.FC = () => {
         </h3>
         
         <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl divide-y divide-zinc-100 dark:divide-zinc-800 overflow-hidden text-black dark:text-white">
-          {tasks.map((task) => (
-            <div
-              key={task.id}
-              className={`flex items-start md:items-center justify-between p-4 gap-3 transition-colors ${getPriorityColor(
-                task.priority
-              )}`}
-            >
-              <div className="flex items-start md:items-center gap-3">
-                {task.status === 'COMPLETED' ? (
-                  <CheckCircle2 className="h-4 w-4 text-green-500 dark:text-green-400 shrink-0 mt-0.5 md:mt-0" />
-                ) : (
-                  <Circle className="h-4 w-4 text-zinc-400 dark:text-zinc-550 shrink-0 mt-0.5 md:mt-0" />
-                )}
+          {tasks.map((task) => {
+            const isAssigned = task.assignees.some((a) => a.id === user?.id);
+            const canComplete = isAdmin || isAssigned;
+            return (
+              <div
+                key={task.id}
+                className={`flex items-start md:items-center justify-between p-4 gap-3 transition-colors cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900/40 ${getPriorityColor(
+                  task.priority
+                )}`}
+                onClick={() => setSelectedTaskId(task.id)}
+              >
+                <div className="flex items-start md:items-center gap-3">
+                  <button
+                    type="button"
+                    disabled={!canComplete || completeTaskMutation.isPending || reopenTaskMutation.isPending}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (task.status === 'COMPLETED') {
+                        reopenTaskMutation.mutate(task.id);
+                      } else {
+                        completeTaskMutation.mutate(task.id);
+                      }
+                    }}
+                    className="text-zinc-400 hover:text-black dark:hover:text-white shrink-0 disabled:opacity-50 transition-all duration-200 mt-0.5 md:mt-0"
+                  >
+                    {task.status === 'COMPLETED' ? (
+                      <CheckCircle2 className="h-4 w-4 text-green-550 dark:text-green-400 shrink-0" />
+                    ) : (
+                      <Circle className="h-4 w-4 shrink-0" />
+                    )}
+                  </button>
+                  
+                  <div>
+                    <h4 className={`text-sm font-semibold ${task.status === 'COMPLETED' ? 'line-through text-zinc-400 dark:text-zinc-550' : 'text-black dark:text-white'}`}>
+                      {task.name}
+                    </h4>
+                    {task.project_detail && (
+                      <span className="text-[11px] text-zinc-400 dark:text-zinc-555 font-medium mt-0.5 block">
+                        {task.project_detail.name}
+                      </span>
+                    )}
+                  </div>
+                </div>
                 
-                <div>
-                  <h4 className={`text-sm font-semibold ${task.status === 'COMPLETED' ? 'line-through text-zinc-400 dark:text-zinc-500' : 'text-black dark:text-white'}`}>
-                    {task.name}
-                  </h4>
-                  {task.project_detail && (
-                    <span className="text-[11px] text-zinc-400 dark:text-zinc-500 font-medium mt-0.5 block">
-                      {task.project_detail.name}
-                    </span>
-                  )}
+                <div className="text-right shrink-0 flex items-center gap-1.5">
+                  <TaskDatePicker task={task} />
+                  
+                  {/* Selection Checkbox (Moved to right) */}
+                  <div className="flex items-center shrink-0 px-1" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selectedTaskIds.includes(task.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleSelect(task.id, e.shiftKey);
+                      }}
+                      onChange={() => {}}
+                      className="rounded border-zinc-300 dark:border-zinc-700 text-black focus:ring-black focus:ring-0 cursor-pointer w-4 h-4"
+                    />
+                  </div>
                 </div>
               </div>
-              
-              <div className="text-right shrink-0 flex items-center gap-1.5">
-                {task.due_date && (
-                  <Calendar className={`h-3.5 w-3.5 shrink-0 ${getDueDateStyleClass(task.due_date, task.status)}`} />
-                )}
-                <span className={`text-xs ${getDueDateStyleClass(task.due_date, task.status)}`}>
-                  {formatDueDateTime(task.due_date, task.due_time)}
-                </span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     );
@@ -293,6 +507,14 @@ export const TeamDetail: React.FC = () => {
         {/* Period Selector dropdown */}
         <div className="flex flex-col gap-1 shrink-0">
           <div className="flex items-center gap-2 justify-end">
+            {copiedTasksCount > 0 && isAdmin && (
+              <button
+                onClick={() => setIsPasteModalOpen(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 border border-dashed border-zinc-300 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-white/10 text-xs font-semibold rounded-lg transition-colors text-black dark:text-white font-bold"
+              >
+                Paste ({copiedTasksCount})
+              </button>
+            )}
             <span className="text-xs font-bold text-zinc-400 dark:text-zinc-550 uppercase tracking-wider">Period:</span>
             
             {/* Polished Period Selector Trigger */}
@@ -835,19 +1057,112 @@ export const TeamDetail: React.FC = () => {
             </div>
           );
         }
+
+        const allTasks = [
+          ...(workload.today || []),
+          ...(workload.tomorrow || []),
+          ...(workload.yesterday || []),
+          ...(workload.pending || []),
+          ...(workload.upcoming || []),
+          ...(workload.completed || [])
+        ];
+        const deduplicated = deduplicateTasks(allTasks);
+
+        const todayList: Task[] = [];
+        const tomorrowList: Task[] = [];
+        const upcomingList: Task[] = [];
+        const overdueList: Task[] = [];
+        const noDueDateList: Task[] = [];
+        const completedList: Task[] = [];
+
+        deduplicated.forEach((task) => {
+          const category = classifyTask(task);
+          if (category === 'completed') {
+            completedList.push(task);
+          } else if (category === 'today') {
+            todayList.push(task);
+          } else if (category === 'tomorrow') {
+            tomorrowList.push(task);
+          } else if (category === 'upcoming') {
+            upcomingList.push(task);
+          } else if (category === 'overdue') {
+            overdueList.push(task);
+          } else if (category === 'no_due_date') {
+            noDueDateList.push(task);
+          }
+        });
         
         return (
           <div className="space-y-6 pt-4">
-            {renderTaskSection('Today', deduplicateTasks(workload.today))}
-            {renderTaskSection('Tomorrow', deduplicateTasks(workload.tomorrow))}
-            {renderTaskSection('Yesterday', deduplicateTasks(workload.yesterday))}
-            {renderTaskSection('Pending / Overdue', deduplicateTasks(workload.pending), true)}
-            {renderTaskSection('Upcoming', deduplicateTasks(workload.upcoming))}
-            {renderTaskSection('Completed', deduplicateTasks(workload.completed))}
+            <div className="flex justify-end pr-1">
+              {visibleTasks.length > 0 && (
+                <button
+                  onClick={handleSelectAllToggle}
+                  className="text-xs font-bold text-zinc-555 hover:text-black dark:text-zinc-400 dark:hover:text-white transition-colors"
+                >
+                  {areAllVisibleSelected ? 'Deselect All' : 'Select All'}
+                </button>
+              )}
+            </div>
+            {renderTaskSection('Today', todayList)}
+            {renderTaskSection('Tomorrow', tomorrowList)}
+            {renderTaskSection('Overdue', overdueList, true)}
+            {renderTaskSection('Upcoming', upcomingList)}
+            {renderTaskSection('No Due Date', noDueDateList)}
+            {renderTaskSection('Completed', completedList)}
           </div>
         );
       })()}
 
+      {/* Floating Bulk Action Toolbar */}
+      {selectedTaskIds.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 shadow-lg z-50 flex items-center gap-4 animate-in fade-in slide-in-from-bottom duration-200 text-xs text-black dark:text-white">
+          <span className="font-bold">{selectedTaskIds.length} Task{selectedTaskIds.length > 1 ? 's' : ''} Selected</span>
+          <div className="h-4 w-px bg-zinc-250 dark:bg-zinc-800" />
+          <button
+            onClick={handleBulkCopy}
+            className="font-bold text-zinc-650 hover:text-black dark:text-zinc-400 dark:hover:text-white transition-colors"
+          >
+            Copy
+          </button>
+          <button
+            onClick={handleClearSelection}
+            className="font-bold text-zinc-400 hover:text-zinc-650 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Paste Tasks Modal */}
+      <PasteTasksModal
+        isOpen={isPasteModalOpen}
+        onClose={() => setIsPasteModalOpen(false)}
+        defaultAssigneeId={id}
+      />
+
+      {/* DETAIL SIDE PANEL DRAWER */}
+      {selectedTaskId && (
+        <TaskDetailPanel
+          taskId={selectedTaskId}
+          onClose={() => setSelectedTaskId(null)}
+          onEdit={(task) => {
+            setSelectedTaskId(null); // close detail
+            setTaskToEdit(task);
+            setIsFormModalOpen(true); // open edit form
+          }}
+        />
+      )}
+
+      {/* CREATE / EDIT TASK MODAL */}
+      <TaskFormModal
+        isOpen={isFormModalOpen}
+        onClose={() => {
+          setIsFormModalOpen(false);
+          setTaskToEdit(null);
+        }}
+        taskToEdit={taskToEdit}
+      />
     </div>
   );
 };
