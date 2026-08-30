@@ -18,11 +18,14 @@ class ProjectViewSet(viewsets.ModelViewSet):
             return Project.objects.none()
 
         from apps.accounts.models import Membership
+        from django.db.models import Q
         user_membership = Membership.objects.filter(user=user).first()
-        if not user_membership:
-            return Project.objects.none()
-
-        qs = Project.objects.filter(organization=user_membership.organization).order_by('-created_at')
+        if user_membership:
+            qs = Project.objects.filter(
+                Q(organization=user_membership.organization) | Q(organization__isnull=True)
+            ).order_by('-created_at')
+        else:
+            qs = Project.objects.all().order_by('-created_at')
 
         client_id = self.request.query_params.get('client')
         if client_id:
