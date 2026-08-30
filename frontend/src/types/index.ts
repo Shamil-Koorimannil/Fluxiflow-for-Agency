@@ -39,7 +39,6 @@ export interface Project {
   id: string;
   name: string;
   description: string | null;
-  due_date?: string | null;
   project_date?: string | null;
   created_by: string;
   created_at: string;

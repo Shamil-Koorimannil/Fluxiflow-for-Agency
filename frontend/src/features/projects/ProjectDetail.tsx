@@ -6,11 +6,12 @@ import type { Project, Task } from '../../types';
 import { useAuth } from '../auth/AuthContext';
 import { TaskDetailPanel } from '../tasks/TaskDetailPanel';
 import { TaskFormModal } from '../tasks/TaskFormModal';
-import { ArrowLeft, Plus, Upload, Trash2, CheckSquare, X, Pencil, Download, Loader2 } from 'lucide-react';
+import { ArrowLeft, Plus, Upload, Trash2, CheckSquare, X, Pencil, Download, Loader2, Calendar } from 'lucide-react';
 import { BulkUploadModal } from './BulkUploadModal';
 import { PasteTasksModal } from '../tasks/PasteTasksModal';
 import { TaskCard } from '../tasks/TaskCard';
 import { classifyTask } from '../../utils/taskClassifier';
+import { formatDateOnly } from '../../utils/time';
 
 type ProjectFilterType = 'all' | 'incompleted' | 'today' | 'tomorrow' | 'upcoming' | 'overdue' | 'no_due_date' | 'completed' | 'assigned_to_me';
 
@@ -29,6 +30,7 @@ export const ProjectDetail: React.FC = () => {
   const [isEditProjModalOpen, setIsEditProjModalOpen] = useState(false);
   const [editProjName, setEditProjName] = useState('');
   const [editProjDescription, setEditProjDescription] = useState('');
+  const [editProjDate, setEditProjDate] = useState('');
   const [editProjError, setEditProjError] = useState<string | null>(null);
 
   const [isDownloadingReport, setIsDownloadingReport] = useState(false);
@@ -100,6 +102,7 @@ export const ProjectDetail: React.FC = () => {
     if (project) {
       setEditProjName(project.name);
       setEditProjDescription(project.description || '');
+      setEditProjDate(project.project_date || '');
       setEditProjError(null);
       setIsEditProjModalOpen(true);
     }
@@ -109,6 +112,7 @@ export const ProjectDetail: React.FC = () => {
     mutationFn: async (data: {
       name: string;
       description: string;
+      project_date?: string | null;
     }) => {
       const response = await api.patch(`/projects/${id}/`, data);
       return response.data;
@@ -137,6 +141,7 @@ export const ProjectDetail: React.FC = () => {
     editProjectMutation.mutate({
       name: editProjName,
       description: editProjDescription,
+      project_date: editProjDate || null,
     });
   };
 
@@ -345,7 +350,15 @@ export const ProjectDetail: React.FC = () => {
       {/* Project Meta Details Header */}
       <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
         <div className="space-y-1.5 flex-1">
-          <h1 className="text-2xl font-bold tracking-tight">{project.name}</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold tracking-tight">{project.name}</h1>
+            {project.project_date && (
+              <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-900 px-2.5 py-1 rounded-lg border border-zinc-200/60 dark:border-zinc-800 flex items-center gap-1.5">
+                <Calendar className="h-3.5 w-3.5 text-zinc-400" />
+                {formatDateOnly(project.project_date)}
+              </span>
+            )}
+          </div>
           <p className="text-sm text-zinc-550 dark:text-zinc-400 leading-relaxed">
             {project.description || 'No description provided.'}
           </p>
@@ -612,6 +625,19 @@ export const ProjectDetail: React.FC = () => {
                   disabled={editProjectMutation.isPending}
                   rows={2}
                   className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors resize-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider">
+                  Project Date
+                </label>
+                <input
+                  type="date"
+                  value={editProjDate}
+                  onChange={(e) => setEditProjDate(e.target.value)}
+                  disabled={editProjectMutation.isPending}
+                  className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
                 />
               </div>
 
