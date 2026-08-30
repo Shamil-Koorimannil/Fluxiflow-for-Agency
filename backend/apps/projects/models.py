@@ -11,6 +11,7 @@ class Project(models.Model):
     client_name = models.CharField(max_length=255, blank=True, null=True)
     start_date = models.DateField(blank=True, null=True)
     due_date = models.DateField(blank=True, null=True)
+    project_date = models.DateField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -4,8 +4,10 @@ import { Link } from 'react-router-dom';
 import { api } from '../../services/api';
 import type { Project } from '../../types';
 import { useAuth } from '../auth/AuthContext';
-import { Folder, Plus, X, ArrowUpDown, Check } from 'lucide-react';
+import { Folder, Plus, X, ArrowUpDown, Check, Calendar, Filter } from 'lucide-react';
 import { Button, Menu, MenuItem } from '@mui/material';
+import { formatDateOnly } from '../../utils/time';
+import { ProjectMonthPickerModal } from './ProjectMonthPickerModal';
 
 export const Projects: React.FC = () => {
   const { user } = useAuth();
@@ -15,13 +17,21 @@ export const Projects: React.FC = () => {
   // Form fields
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [projectDate, setProjectDate] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  // Search, sort, and tab filters
+  // Search, sort, and date filters
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('newest');
   const [activeTab, setActiveTab] = useState<'active' | 'completed'>('active');
   const [sortAnchorEl, setSortAnchorEl] = useState<null | HTMLElement>(null);
+
+  // Project Date Filtering State
+  const [dateFilter, setDateFilter] = useState<'all' | 'this_month' | 'this_year' | 'custom'>('all');
+  const [customYear, setCustomYear] = useState<number>(new Date().getFullYear());
+  const [customMonth, setCustomMonth] = useState<number | null>(new Date().getMonth());
+  const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
+  const [dateFilterAnchorEl, setDateFilterAnchorEl] = useState<null | HTMLElement>(null);
 
   const isAdmin = user?.role === 'ADMIN';
 
@@ -39,9 +49,7 @@ export const Projects: React.FC = () => {
     mutationFn: async (data: {
       name: string;
       description: string;
-      client_name?: string | null;
-      start_date?: string | null;
-      due_date?: string | null;
+      project_date?: string | null;
     }) => {
       const response = await api.post('/projects/', data);
       return response.data;
@@ -51,6 +59,7 @@ export const Projects: React.FC = () => {
       setIsModalOpen(false);
       setName('');
       setDescription('');
+      setProjectDate('');
       setError(null);
     },
     onError: (err: any) => {
@@ -71,6 +80,7 @@ export const Projects: React.FC = () => {
     createProjectMutation.mutate({
       name,
       description,
+      project_date: projectDate || null,
     });
   };
 
@@ -83,17 +93,63 @@ export const Projects: React.FC = () => {
     return nameMatch || descMatch;
   });
 
+  // Helper for timezone-safe date parsing
+  const parseProjectDate = (dateStr?: string | null) => {
+    if (!dateStr) return null;
+    const parts = dateStr.split('T')[0].split('-');
+    if (parts.length < 3) return null;
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1; // 0-indexed
+    const day = parseInt(parts[2], 10);
+    if (isNaN(year) || isNaN(month) || isNaN(day)) return null;
+    return { year, month, day };
+  };
+
+  // Date Filtering
+  const dateFilteredProjects = searchedProjects.filter((project) => {
+    if (dateFilter === 'all') return true;
+    const parsed = parseProjectDate(project.project_date);
+    if (!parsed) return false;
+
+    const now = new Date();
+    if (dateFilter === 'this_month') {
+      return parsed.year === now.getFullYear() && parsed.month === now.getMonth();
+    }
+    if (dateFilter === 'this_year') {
+      return parsed.year === now.getFullYear();
+    }
+    if (dateFilter === 'custom') {
+      if (customYear !== null && customMonth !== null) {
+        return parsed.year === customYear && parsed.month === customMonth;
+      }
+      if (customYear !== null && customMonth === null) {
+        return parsed.year === customYear;
+      }
+    }
+    return true;
+  });
+
   // Split projects based on completeness rules:
-  // Completed: progress >= 100
-  // Active: progress < 100 or progress is null (no tasks yet)
-  const activeProjects = searchedProjects.filter((p) => p.progress === null || p.progress < 100);
-  const completedProjects = searchedProjects.filter((p) => p.progress !== null && p.progress >= 100);
+  const activeProjects = dateFilteredProjects.filter((p) => p.progress === null || p.progress < 100);
+  const completedProjects = dateFilteredProjects.filter((p) => p.progress !== null && p.progress >= 100);
 
   const displayedProjects = activeTab === 'active' ? activeProjects : completedProjects;
 
   // Sort projects
   const sortedProjects = [...displayedProjects].sort((a, b) => {
     switch (sortBy) {
+      case 'project_date_desc': {
+        if (!a.project_date && !b.project_date) return 0;
+        if (!a.project_date) return 1;
+        if (!b.project_date) return -1;
+        return b.project_date.localeCompare(a.project_date);
+      }
+      case 'project_date_asc': {
+        if (!a.project_date && !b.project_date) return 0;
+        if (!a.project_date) return 1;
+        if (!b.project_date) return -1;
+        return a.project_date.localeCompare(b.project_date);
+      }
       case 'newest':
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       case 'oldest':
@@ -115,15 +171,31 @@ export const Projects: React.FC = () => {
 
   const getSortLabel = () => {
     switch (sortBy) {
-      case 'newest': return 'Newest first';
-      case 'oldest': return 'Oldest first';
+      case 'project_date_desc': return 'Project Date — Newest First';
+      case 'project_date_asc': return 'Project Date — Oldest First';
+      case 'newest': return 'Newest created';
+      case 'oldest': return 'Oldest created';
       case 'name_asc': return 'Name A-Z';
       case 'name_desc': return 'Name Z-A';
       case 'progress_desc': return 'Progress: High to Low';
       case 'progress_asc': return 'Progress: Low to High';
       case 'recently_updated': return 'Recently updated';
-      default: return 'Newest first';
+      default: return 'Newest created';
     }
+  };
+
+  const getDateFilterLabel = () => {
+    if (dateFilter === 'all') return 'All Dates';
+    if (dateFilter === 'this_month') return 'This Month';
+    if (dateFilter === 'this_year') return 'This Year';
+    if (dateFilter === 'custom') {
+      if (customMonth !== null) {
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        return `${monthNames[customMonth]} ${customYear}`;
+      }
+      return `${customYear}`;
+    }
+    return 'All Dates';
   };
 
   if (isLoading) {
@@ -199,8 +271,8 @@ export const Projects: React.FC = () => {
           </button>
         </div>
 
-        {/* Search & Sort Controls */}
-        <div className="flex items-center gap-3 w-full sm:w-auto">
+        {/* Search, Date Filter, & Sort Controls */}
+        <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
           <input
             type="text"
             placeholder="Search projects..."
@@ -208,6 +280,94 @@ export const Projects: React.FC = () => {
             onChange={(e) => setSearchTerm(e.target.value)}
             className="flex-1 sm:w-64 px-3 py-1.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white transition-colors"
           />
+
+          {/* Date Filter Trigger */}
+          <Button
+            onClick={(e) => setDateFilterAnchorEl(e.currentTarget)}
+            variant="outlined"
+            startIcon={<Filter size={14} />}
+            endIcon={<span>▾</span>}
+            sx={{
+              textTransform: 'none',
+              fontWeight: 600,
+              borderRadius: '8px',
+              borderColor: 'divider',
+              color: 'text.primary',
+              height: '36px',
+              fontSize: '12px',
+              px: 1.5,
+              whiteSpace: 'nowrap',
+              '&:hover': { borderColor: 'text.primary', bgcolor: 'action.hover' }
+            }}
+          >
+            Date: {getDateFilterLabel()}
+          </Button>
+
+          {/* Date Filter Menu */}
+          <Menu
+            anchorEl={dateFilterAnchorEl}
+            open={Boolean(dateFilterAnchorEl)}
+            onClose={() => setDateFilterAnchorEl(null)}
+            slotProps={{
+              paper: {
+                elevation: 1,
+                sx: {
+                  border: '1px solid #e4e4e7',
+                  borderRadius: '8px',
+                  minWidth: 180,
+                  '& .MuiMenuItem-root': {
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    py: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 1.5,
+                    '&:hover': { bgcolor: '#f4f4f5' },
+                  },
+                },
+              },
+            }}
+          >
+            <MenuItem
+              onClick={() => {
+                setDateFilter('all');
+                setDateFilterAnchorEl(null);
+              }}
+            >
+              <span>All Dates</span>
+              {dateFilter === 'all' && <Check size={14} className="text-zinc-800" />}
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                setDateFilter('this_month');
+                setDateFilterAnchorEl(null);
+              }}
+            >
+              <span>This Month</span>
+              {dateFilter === 'this_month' && <Check size={14} className="text-zinc-800" />}
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                setDateFilter('this_year');
+                setDateFilterAnchorEl(null);
+              }}
+            >
+              <span>This Year</span>
+              {dateFilter === 'this_year' && <Check size={14} className="text-zinc-800" />}
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                setDateFilterAnchorEl(null);
+                setIsMonthPickerOpen(true);
+              }}
+            >
+              <span className="flex items-center gap-1.5">
+                <Calendar size={14} className="text-zinc-500" /> Select Month / Year...
+              </span>
+              {dateFilter === 'custom' && <Check size={14} className="text-zinc-800" />}
+            </MenuItem>
+          </Menu>
           
           {/* Polished Sort Trigger */}
           <Button
@@ -259,11 +419,29 @@ export const Projects: React.FC = () => {
           >
             <MenuItem
               onClick={() => {
+                setSortBy('project_date_desc');
+                setSortAnchorEl(null);
+              }}
+            >
+              <span>Project Date — Newest First</span>
+              {sortBy === 'project_date_desc' && <Check size={14} className="text-zinc-800" />}
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                setSortBy('project_date_asc');
+                setSortAnchorEl(null);
+              }}
+            >
+              <span>Project Date — Oldest First</span>
+              {sortBy === 'project_date_asc' && <Check size={14} className="text-zinc-800" />}
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
                 setSortBy('newest');
                 setSortAnchorEl(null);
               }}
             >
-              <span>Newest first</span>
+              <span>Newest created</span>
               {sortBy === 'newest' && <Check size={14} className="text-zinc-800" />}
             </MenuItem>
             <MenuItem
@@ -352,9 +530,11 @@ export const Projects: React.FC = () => {
       ) : sortedProjects.length === 0 ? (
         <div className="flex flex-col items-center justify-center border border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-black p-12 text-center text-zinc-500 dark:text-zinc-400">
           <Folder className="h-5 w-5 text-zinc-450 mb-2" />
-          <h3 className="font-semibold text-sm">No matching projects found</h3>
+          <h3 className="font-semibold text-sm">No projects found</h3>
           <p className="text-xs text-zinc-400 mt-1">
-            Try adjusting your search terms or filters.
+            {dateFilter !== 'all'
+              ? `There are no projects for ${getDateFilterLabel()}.`
+              : 'Try adjusting your search terms or filters.'}
           </p>
         </div>
       ) : (
@@ -366,9 +546,16 @@ export const Projects: React.FC = () => {
               className="group border border-zinc-200 dark:border-zinc-800 hover:border-black dark:hover:border-white bg-white dark:bg-black rounded-xl p-6 flex flex-col justify-between hover:shadow-sm transition-all duration-200 text-black dark:text-white"
             >
               <div className="space-y-3">
-                <div className="flex items-center gap-2.5">
-                  <Folder className="h-4 w-4 text-zinc-400 group-hover:text-black dark:group-hover:text-white shrink-0" />
-                  <h3 className="font-semibold text-sm text-black dark:text-white truncate">{project.name}</h3>
+                <div className="flex items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Folder className="h-4 w-4 text-zinc-400 group-hover:text-black dark:group-hover:text-white shrink-0" />
+                    <h3 className="font-semibold text-sm text-black dark:text-white truncate">{project.name}</h3>
+                  </div>
+                  {project.project_date && (
+                    <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 shrink-0 bg-zinc-100 dark:bg-zinc-900 px-2 py-0.5 rounded border border-zinc-200/50 dark:border-zinc-800">
+                      {formatDateOnly(project.project_date)}
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-zinc-550 dark:text-zinc-400 line-clamp-2 leading-relaxed">
                   {project.description || 'No description provided.'}
@@ -453,6 +640,19 @@ export const Projects: React.FC = () => {
                 />
               </div>
 
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider">
+                  Project Date
+                </label>
+                <input
+                  type="date"
+                  value={projectDate}
+                  onChange={(e) => setProjectDate(e.target.value)}
+                  disabled={createProjectMutation.isPending}
+                  className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
+                />
+              </div>
+
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-900">
                 <button
                   type="button"
@@ -481,6 +681,19 @@ export const Projects: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Month/Year Selection Modal */}
+      <ProjectMonthPickerModal
+        isOpen={isMonthPickerOpen}
+        onClose={() => setIsMonthPickerOpen(false)}
+        selectedYear={customYear}
+        selectedMonth={customMonth}
+        onSelect={(year, month) => {
+          setCustomYear(year);
+          setCustomMonth(month);
+          setDateFilter('custom');
+        }}
+      />
     </div>
   );
 };
