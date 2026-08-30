@@ -2,7 +2,7 @@ import React from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../features/auth/AuthContext';
 import { FluxiflowLogo } from '../components/common/FluxiflowLogo';
-import { CheckSquare, Folder, Users, List, User as UserIcon, LogOut, Search, Menu as MenuIcon, BarChart3, BookOpen } from 'lucide-react';
+import { CheckSquare, Folder, Users, List, User as UserIcon, LogOut, Search, Menu as MenuIcon, BarChart3, BookOpen, Briefcase } from 'lucide-react';
 import { NotificationBell } from '../features/notifications/NotificationBell';
 import { Drawer } from '@mui/material';
 import { useWebSockets } from '../hooks/useWebSockets';
@@ -119,6 +119,20 @@ export const MainLayout: React.FC = () => {
 
           {isAdmin && (
             <>
+              <NavLink
+                to="/app/clients"
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                    isActive
+                      ? 'bg-zinc-100 dark:bg-zinc-900 text-black dark:text-white font-semibold'
+                      : 'text-zinc-650 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900 hover:text-black dark:hover:text-white'
+                  }`
+                }
+              >
+                <Briefcase className="h-4 w-4" />
+                Clients
+              </NavLink>
+
               <NavLink
                 to="/app/team"
                 className={({ isActive }) =>

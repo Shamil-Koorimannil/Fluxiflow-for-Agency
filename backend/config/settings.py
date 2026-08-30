@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'apps.notifications.apps.NotificationsConfig',
     'apps.reports.apps.ReportsConfig',
     'apps.keep.apps.KeepConfig',
+    'apps.clients.apps.ClientsConfig',
 ]
 
 MIDDLEWARE = [

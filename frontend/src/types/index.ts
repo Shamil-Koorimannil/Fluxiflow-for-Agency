@@ -40,6 +40,9 @@ export interface Project {
   name: string;
   description: string | null;
   project_date?: string | null;
+  client?: string | null;
+  client_name?: string | null;
+  client_display_name?: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -296,5 +299,58 @@ export interface KeepAuditLog {
   action: string;
   description: string;
   timestamp: string;
+}
+
+export type ClientStatus = 'ACTIVE' | 'INACTIVE';
+
+export type AssetType =
+  | 'BRAND_GUIDELINES'
+  | 'LOGO'
+  | 'LOGO_VARIATION'
+  | 'TYPOGRAPHY'
+  | 'COLOR_GUIDELINES'
+  | 'BRAND_BOOK'
+  | 'OTHER';
+
+export interface Client {
+  id: string;
+  organization?: string;
+  name: string;
+  company_name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  description?: string | null;
+  notes?: string | null;
+  status: ClientStatus;
+  created_by?: string | null;
+  created_by_name?: string;
+  updated_by?: string | null;
+  updated_by_name?: string;
+  created_at: string;
+  updated_at: string;
+  projects_count: number;
+  brand_assets_count: number;
+}
+
+export interface ClientBrandAsset {
+  id: string;
+  client: string;
+  organization?: string;
+  name: string;
+  file: string;
+  file_url?: string | null;
+  asset_type: AssetType;
+  description?: string | null;
+  file_size: number;
+  file_type: string;
+  uploaded_by?: string | null;
+  uploaded_by_name?: string;
+  created_at: string;
+  updated_at: string;
 }
 

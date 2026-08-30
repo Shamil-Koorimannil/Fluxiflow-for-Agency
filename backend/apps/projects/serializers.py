@@ -11,14 +11,21 @@ class ProjectSerializer(serializers.ModelSerializer):
     task_count = serializers.SerializerMethodField()
     completed_task_count = serializers.SerializerMethodField()
 
+    client_display_name = serializers.SerializerMethodField()
+
     class Meta:
         model = Project
         fields = [
-            'id', 'name', 'description', 'project_date',
-            'created_by', 'created_at', 'updated_at',
+            'id', 'name', 'description', 'project_date', 'client', 'client_name',
+            'client_display_name', 'created_by', 'created_at', 'updated_at',
             'members', 'progress', 'task_count', 'completed_task_count'
         ]
         read_only_fields = ['id', 'created_by', 'created_at', 'updated_at']
+
+    def get_client_display_name(self, obj):
+        if obj.client:
+            return obj.client.name
+        return obj.client_name or None
 
     def get_members(self, obj):
         return []

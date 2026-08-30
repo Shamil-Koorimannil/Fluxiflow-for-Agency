@@ -352,6 +352,14 @@ export const ProjectDetail: React.FC = () => {
         <div className="space-y-1.5 flex-1">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold tracking-tight">{project.name}</h1>
+            {project.client_display_name && (
+              <Link
+                to={project.client ? `/app/clients/${project.client}` : '#'}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg hover:underline"
+              >
+                <span>Client: {project.client_display_name}</span>
+              </Link>
+            )}
             {project.project_date && (
               <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-900 px-2.5 py-1 rounded-lg border border-zinc-200/60 dark:border-zinc-800 flex items-center gap-1.5">
                 <Calendar className="h-3.5 w-3.5 text-zinc-400" />

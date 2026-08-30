@@ -9,9 +9,26 @@ from apps.activity.models import ActivityLog
 from apps.tasks.bulk_import import generate_bulk_template, parse_excel_file, validate_bulk_import_data, import_tasks_confirm, BulkImportValidationError
 
 class ProjectViewSet(viewsets.ModelViewSet):
-    queryset = Project.objects.all().order_by('-created_at')
     serializer_class = ProjectSerializer
     permission_classes = [IsAdminOrReadOnlyMember]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user.is_authenticated:
+            return Project.objects.none()
+
+        from apps.accounts.models import Membership
+        user_membership = Membership.objects.filter(user=user).first()
+        if not user_membership:
+            return Project.objects.none()
+
+        qs = Project.objects.filter(organization=user_membership.organization).order_by('-created_at')
+
+        client_id = self.request.query_params.get('client')
+        if client_id:
+            qs = qs.filter(client_id=client_id)
+
+        return qs
 
     def perform_create(self, serializer):
         from apps.accounts.models import Membership

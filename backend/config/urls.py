@@ -20,6 +20,7 @@ urlpatterns = [
     path('api/', include('apps.core.urls')),
     path('api/', include('apps.notifications.urls')),
     path('api/', include('apps.reports.urls')),
+    path('api/', include('apps.clients.urls')),
 ]
 
 # Serve media files in development

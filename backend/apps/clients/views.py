@@ -1,0 +1,202 @@
+import os
+import mimetypes
+from rest_framework import viewsets, status, permissions
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from django.shortcuts import get_object_or_404
+from django.http import FileResponse, Http404
+from django.db.models import Q
+
+from .models import Client, ClientBrandAsset, ClientStatus, AssetType
+from .serializers import ClientSerializer, ClientBrandAssetSerializer
+from .permissions import IsAdminUserRole
+from apps.projects.serializers import ProjectSerializer
+from apps.activity.models import ActivityLog
+
+# Disallowed executable/script extensions for upload safety
+FORBIDDEN_EXTENSIONS = {
+    '.exe', '.sh', '.bat', '.cmd', '.py', '.php', '.js', '.html', '.htm',
+    '.dll', '.so', '.dylib', '.jar', '.vbs', '.ps1', '.cgi', '.pl'
+}
+
+def validate_uploaded_file(file_obj):
+    filename = file_obj.name.lower()
+    ext = os.path.splitext(filename)[1]
+
+    if ext in FORBIDDEN_EXTENSIONS:
+        raise ValueError(f"File extension '{ext}' is not allowed for security reasons.")
+
+    # Max size 50 MB
+    if file_obj.size > 50 * 1024 * 1024:
+        raise ValueError("File size exceeds the 50 MB limit.")
+
+    return True
+
+
+class ClientViewSet(viewsets.ModelViewSet):
+    serializer_class = ClientSerializer
+    permission_classes = [permissions.IsAuthenticated, IsAdminUserRole]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user.is_authenticated or getattr(user, 'role', None) != 'ADMIN':
+            return Client.objects.none()
+
+        membership = user.memberships.first()
+        if not membership:
+            return Client.objects.none()
+
+        qs = Client.objects.filter(organization=membership.organization)
+
+        # Search filter
+        search_query = self.request.query_params.get('search') or self.request.query_params.get('q')
+        if search_query:
+            qs = qs.filter(
+                Q(name__icontains=search_query) |
+                Q(company_name__icontains=search_query) |
+                Q(email__icontains=search_query)
+            )
+
+        # Status filter
+        status_param = self.request.query_params.get('status')
+        if status_param in [ClientStatus.ACTIVE, ClientStatus.INACTIVE]:
+            qs = qs.filter(status=status_param)
+
+        return qs
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        membership = user.memberships.first()
+        client = serializer.save(
+            organization=membership.organization,
+            created_by=user,
+            updated_by=user
+        )
+
+        ActivityLog.objects.create(
+            user=user,
+            action='PROFILE_UPDATED',
+            entity_type='Client',
+            entity_id=client.id,
+            description=f"Created client '{client.name}'"
+        )
+
+    def perform_update(self, serializer):
+        user = self.request.user
+        client = serializer.save(updated_by=user)
+
+        ActivityLog.objects.create(
+            user=user,
+            action='PROFILE_UPDATED',
+            entity_type='Client',
+            entity_id=client.id,
+            description=f"Updated client '{client.name}'"
+        )
+
+    def destroy(self, request, *args, **kwargs):
+        client = self.get_object()
+        project_count = client.projects.count()
+
+        if project_count > 0:
+            return Response(
+                {"detail": f"This client has {project_count} projects. You cannot delete the client until the projects are reassigned or the client is archived."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        ActivityLog.objects.create(
+            user=request.user,
+            action='PROFILE_UPDATED',
+            entity_type='Client',
+            entity_id=client.id,
+            description=f"Deleted client '{client.name}'"
+        )
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=['get'])
+    def projects(self, request, pk=None):
+        client = self.get_object()
+        projects_qs = client.projects.filter(organization=client.organization)
+        serializer = ProjectSerializer(projects_qs, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['get', 'post'])
+    def brand_assets(self, request, pk=None):
+        client = self.get_object()
+
+        if request.method == 'GET':
+            assets = client.brand_assets.filter(organization=client.organization)
+            serializer = ClientBrandAssetSerializer(assets, many=True, context={'request': request})
+            return Response(serializer.data)
+
+        if request.method == 'POST':
+            file_obj = request.FILES.get('file')
+            if not file_obj:
+                return Response({"detail": "No file was uploaded."}, status=status.HTTP_400_BAD_REQUEST)
+
+            try:
+                validate_uploaded_file(file_obj)
+            except ValueError as e:
+                return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+            name = request.data.get('name') or file_obj.name
+            asset_type = request.data.get('asset_type') or AssetType.OTHER
+            description = request.data.get('description', '')
+
+            asset = ClientBrandAsset.objects.create(
+                client=client,
+                organization=client.organization,
+                name=name,
+                file=file_obj,
+                asset_type=asset_type,
+                description=description,
+                file_size=file_obj.size,
+                file_type=file_obj.content_type or mimetypes.guess_type(file_obj.name)[0] or 'application/octet-stream',
+                uploaded_by=request.user
+            )
+
+            ActivityLog.objects.create(
+                user=request.user,
+                action='PROFILE_UPDATED',
+                entity_type='ClientBrandAsset',
+                entity_id=asset.id,
+                description=f"Uploaded brand asset '{asset.name}' for client '{client.name}'"
+            )
+
+            serializer = ClientBrandAssetSerializer(asset, context={'request': request})
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class ClientBrandAssetViewSet(viewsets.ModelViewSet):
+    serializer_class = ClientBrandAssetSerializer
+    permission_classes = [permissions.IsAuthenticated, IsAdminUserRole]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user.is_authenticated or getattr(user, 'role', None) != 'ADMIN':
+            return ClientBrandAsset.objects.none()
+
+        membership = user.memberships.first()
+        if not membership:
+            return ClientBrandAsset.objects.none()
+
+        return ClientBrandAsset.objects.filter(organization=membership.organization)
+
+    def perform_destroy(self, instance):
+        ActivityLog.objects.create(
+            user=self.request.user,
+            action='PROFILE_UPDATED',
+            entity_type='ClientBrandAsset',
+            entity_id=instance.id,
+            description=f"Deleted brand asset '{instance.name}'"
+        )
+        instance.delete()
+
+    @action(detail=True, methods=['get'])
+    def download(self, request, pk=None):
+        asset = self.get_object()
+        if not asset.file or not os.path.exists(asset.file.path):
+            raise Http404("File does not exist.")
+
+        response = FileResponse(asset.file.open('rb'), content_type=asset.file_type)
+        response['Content-Disposition'] = f'attachment; filename="{os.path.basename(asset.file.name)}"'
+        return response

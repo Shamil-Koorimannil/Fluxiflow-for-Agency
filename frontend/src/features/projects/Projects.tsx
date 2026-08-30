@@ -1,24 +1,19 @@
 import React, { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../../services/api';
 import type { Project } from '../../types';
 import { useAuth } from '../auth/AuthContext';
-import { Folder, Plus, X, ArrowUpDown, Check, Calendar, Filter } from 'lucide-react';
+import { Folder, Plus, ArrowUpDown, Check, Calendar, Filter } from 'lucide-react';
 import { Button, Menu, MenuItem } from '@mui/material';
 import { formatDateOnly } from '../../utils/time';
 import { ProjectMonthPickerModal } from './ProjectMonthPickerModal';
+import { ProjectFormModal } from './ProjectFormModal';
 
 export const Projects: React.FC = () => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
-  
-  // Form fields
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [projectDate, setProjectDate] = useState('');
-  const [error, setError] = useState<string | null>(null);
 
   // Search, sort, and date filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -43,46 +38,6 @@ export const Projects: React.FC = () => {
       return response.data;
     },
   });
-
-  // Create project mutation
-  const createProjectMutation = useMutation({
-    mutationFn: async (data: {
-      name: string;
-      description: string;
-      project_date?: string | null;
-    }) => {
-      const response = await api.post('/projects/', data);
-      return response.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-      setIsModalOpen(false);
-      setName('');
-      setDescription('');
-      setProjectDate('');
-      setError(null);
-    },
-    onError: (err: any) => {
-      if (err.response?.data?.name) {
-        setError(err.response.data.name[0]);
-      } else {
-        setError('Failed to create project. Please try again.');
-      }
-    },
-  });
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) {
-      setError('Project name is required.');
-      return;
-    }
-    createProjectMutation.mutate({
-      name,
-      description,
-      project_date: projectDate || null,
-    });
-  };
 
   // Filter and Search projects
   const searchedProjects = (projects || []).filter((project) => {
@@ -557,6 +512,13 @@ export const Projects: React.FC = () => {
                     </span>
                   )}
                 </div>
+
+                {project.client_display_name && (
+                  <div className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-2.5 py-0.5 rounded-full border border-blue-200 dark:border-blue-800 w-fit">
+                    <span>Client: {project.client_display_name}</span>
+                  </div>
+                )}
+
                 <p className="text-xs text-zinc-550 dark:text-zinc-400 line-clamp-2 leading-relaxed">
                   {project.description || 'No description provided.'}
                 </p>
@@ -589,98 +551,11 @@ export const Projects: React.FC = () => {
       )}
 
       {/* CREATE PROJECT MODAL */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-none z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl max-w-md w-full p-6 shadow-lg relative animate-in fade-in zoom-in-95 duration-150 text-black dark:text-white">
-            <button
-              onClick={() => setIsModalOpen(false)}
-              className="absolute right-4 top-4 text-zinc-400 hover:text-black dark:hover:text-white transition-colors"
-            >
-              <X className="h-4 w-4" />
-            </button>
-
-            <h3 className="font-bold text-base text-black dark:text-white mb-1">Create Project</h3>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">
-              Add a new primary company scope to organize assignments.
-            </p>
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {error && (
-                <div className="rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/30 p-3 text-xs font-medium text-red-650 dark:text-red-400">
-                  {error}
-                </div>
-              )}
-
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider">
-                  Project Name *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Website Development"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  disabled={createProjectMutation.isPending}
-                  className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider">
-                  Description
-                </label>
-                <textarea
-                  placeholder="Provide details about the scope..."
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  disabled={createProjectMutation.isPending}
-                  rows={2}
-                  className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors resize-none"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider">
-                  Project Date
-                </label>
-                <input
-                  type="date"
-                  value={projectDate}
-                  onChange={(e) => setProjectDate(e.target.value)}
-                  disabled={createProjectMutation.isPending}
-                  className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-900">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  disabled={createProjectMutation.isPending}
-                  className="px-3 py-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-white/10 text-xs font-semibold rounded-lg transition-colors text-black dark:text-white"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={createProjectMutation.isPending}
-                  className="px-3 py-1.5 bg-black dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-100 text-white dark:text-black font-semibold rounded-lg text-xs tracking-wide transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
-                >
-                  {createProjectMutation.isPending ? (
-                    <>
-                      <div className="h-3 w-3 animate-spin rounded-full border-2 border-white dark:border-black border-t-transparent"></div>
-                      Creating...
-                    </>
-                  ) : (
-                    'Create'
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <ProjectFormModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onProjectCreated={() => queryClient.invalidateQueries({ queryKey: ['projects'] })}
+      />
 
       {/* Month/Year Selection Modal */}
       <ProjectMonthPickerModal
