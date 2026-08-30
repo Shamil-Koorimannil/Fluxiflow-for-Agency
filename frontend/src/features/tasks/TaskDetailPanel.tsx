@@ -4,10 +4,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import type { Task, User } from '../../types';
 import { useAuth } from '../auth/AuthContext';
-import { X, CheckSquare, Calendar, Clock, AlertCircle, Trash2, Edit, CheckCircle2, Circle, AlertTriangle } from 'lucide-react';
+import { X, CheckSquare, Calendar, Clock, AlertCircle, Trash2, Edit, CheckCircle2, Circle, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
 import { formatLateDuration, formatDateOnly, formatTimeOnly } from '../../utils/time';
 import { TimePicker } from '../../components/common/TimePicker';
 import { DatePicker } from '../../components/common/DatePicker';
+import { CommentsSection } from './CommentsSection';
+import { AttachmentsSection } from './AttachmentsSection';
 
 interface TaskDetailPanelProps {
   taskId: string | null;
@@ -38,6 +40,8 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
   const [editSubDueDate, setEditSubDueDate] = useState('');
   const [editSubDueTime, setEditSubDueTime] = useState('');
   const [editSubAssigneeIds, setEditSubAssigneeIds] = useState<string[]>([]);
+
+  const [expandedSubTaskId, setExpandedSubTaskId] = useState<string | null>(null);
 
   // Fetch individual Task details
   const { data: task, isLoading, error } = useQuery<Task>({
@@ -645,7 +649,6 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                                       : 'Pending'}
                                 </span>
                               )}
-
                               {isAdmin && (
                                 <button
                                   type="button"
@@ -661,6 +664,25 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                                   <Edit className="h-3 w-3" />
                                 </button>
                               )}
+
+                              <button
+                                type="button"
+                                onClick={() => setExpandedSubTaskId(expandedSubTaskId === sub.id ? null : sub.id)}
+                                className="p-1 border border-zinc-100 dark:border-zinc-850 hover:border-zinc-300 dark:hover:border-zinc-650 text-zinc-400 hover:text-black dark:hover:text-white rounded transition-colors flex items-center gap-1 text-[10px] font-semibold"
+                                title="Toggle subtask comments and attachments"
+                              >
+                                {expandedSubTaskId === sub.id ? (
+                                  <>
+                                    <ChevronDown className="h-3 w-3" />
+                                    <span>Hide</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <ChevronRight className="h-3 w-3" />
+                                    <span>Details</span>
+                                  </>
+                                )}
+                              </button>
                             </div>
                           </div>
 
@@ -695,6 +717,13 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                                   </div>
                                 );
                               })}
+                            </div>
+                          )}
+
+                          {expandedSubTaskId === sub.id && (
+                            <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-850 space-y-5 pl-2 sm:pl-7">
+                              <AttachmentsSection taskId={task.id} subtaskId={sub.id} title="Subtask Attachments" />
+                              <CommentsSection taskId={task.id} subtaskId={sub.id} title="Subtask Comments" />
                             </div>
                           )}
                         </div>
@@ -807,6 +836,16 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                     )}
                   </div>
                 )}
+              </div>
+
+              {/* Task Attachments Section */}
+              <div className="pt-2">
+                <AttachmentsSection taskId={task.id} title="Attachments" />
+              </div>
+
+              {/* Task Comments Section */}
+              <div className="pt-2">
+                <CommentsSection taskId={task.id} title="Comments" />
               </div>
             </div>
           )}

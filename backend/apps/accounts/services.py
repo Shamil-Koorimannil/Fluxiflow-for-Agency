@@ -106,7 +106,7 @@ class OTPService:
             f"{otp_code}\n\n"
             f"This code expires in 5 minutes.\n\n"
             f"If you did not request this code, you can safely ignore this email.\n\n"
-            f"Fluxiflow for Agency"
+            f"Fluxiflow for Project Management"
         )
         
         try:
@@ -132,7 +132,7 @@ class OTPService:
             f"{otp_code}\n\n"
             f"This code expires in 5 minutes.\n\n"
             f"If you did not request this, please ignore this email.\n\n"
-            f"Fluxiflow for Agency"
+            f"Fluxiflow for Project Management"
         )
         try:
             send_mail(
@@ -157,7 +157,7 @@ class OTPService:
             f"{otp_code}\n\n"
             f"This code expires in 5 minutes.\n\n"
             f"If you did not request this, please ignore this email.\n\n"
-            f"Fluxiflow for Agency"
+            f"Fluxiflow for Project Management"
         )
         try:
             send_mail(
@@ -196,7 +196,7 @@ class InvitationEmailService:
           <tr>
             <td style="background:#000000;padding:32px 40px;text-align:center;">
               <span style="color:#ffffff;font-size:22px;font-weight:700;letter-spacing:1px;">FLUXIFLOW</span><br/>
-              <span style="color:#a1a1aa;font-size:12px;letter-spacing:2px;text-transform:uppercase;">for Agency</span>
+              <span style="color:#a1a1aa;font-size:12px;letter-spacing:2px;text-transform:uppercase;">for Project Management</span>
             </td>
           </tr>
           <tr>
@@ -204,7 +204,7 @@ class InvitationEmailService:
               <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#09090b;">You're invited to Fluxiflow</h1>
               <p style="margin:0 0 24px;font-size:15px;color:#52525b;">Hello <strong>{member_name}</strong>,</p>
               <p style="margin:0 0 16px;font-size:15px;color:#52525b;line-height:1.6;">
-                You have been invited to join <strong>Fluxiflow for Agency</strong> by <strong>{invited_by_name}</strong>.
+                You have been invited to join <strong>Fluxiflow for Project Management</strong> by <strong>{invited_by_name}</strong>.
                 Your account has been created and is ready to use.
               </p>
               <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;border-radius:8px;margin:24px 0;">
@@ -240,7 +240,7 @@ class InvitationEmailService:
           <tr>
             <td style="background:#fafafa;border-top:1px solid #e4e4e7;padding:20px 40px;text-align:center;">
               <p style="margin:0;font-size:12px;color:#a1a1aa;">
-                Fluxiflow for Agency &mdash; If you were not expecting this invitation, you can safely ignore this email.
+                Fluxiflow for Project Management &mdash; If you were not expecting this invitation, you can safely ignore this email.
               </p>
             </td>
           </tr>
@@ -269,7 +269,7 @@ class InvitationEmailService:
           <tr>
             <td style="background:#000000;padding:32px 40px;text-align:center;">
               <span style="color:#ffffff;font-size:22px;font-weight:700;letter-spacing:1px;">FLUXIFLOW</span><br/>
-              <span style="color:#a1a1aa;font-size:12px;letter-spacing:2px;text-transform:uppercase;">for Agency</span>
+              <span style="color:#a1a1aa;font-size:12px;letter-spacing:2px;text-transform:uppercase;">for Project Management</span>
             </td>
           </tr>
           <tr>
@@ -277,7 +277,7 @@ class InvitationEmailService:
               <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#09090b;">Reminder: Your Invitation</h1>
               <p style="margin:0 0 24px;font-size:15px;color:#52525b;">Hello <strong>{member_name}</strong>,</p>
               <p style="margin:0 0 24px;font-size:15px;color:#52525b;line-height:1.6;">
-                This is a reminder that <strong>{invited_by_name}</strong> has invited you to join <strong>Fluxiflow for Agency</strong>.
+                This is a reminder that <strong>{invited_by_name}</strong> has invited you to join <strong>Fluxiflow for Project Management</strong>.
                 Your account is ready — just sign in using the button below.
               </p>
               <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;border-radius:8px;margin:0 0 24px;">
@@ -300,7 +300,7 @@ class InvitationEmailService:
           </tr>
           <tr>
             <td style="background:#fafafa;border-top:1px solid #e4e4e7;padding:20px 40px;text-align:center;">
-              <p style="margin:0;font-size:12px;color:#a1a1aa;">Fluxiflow for Agency &mdash; If you were not expecting this, you can safely ignore this email.</p>
+              <p style="margin:0;font-size:12px;color:#a1a1aa;">Fluxiflow for Project Management &mdash; If you were not expecting this, you can safely ignore this email.</p>
             </td>
           </tr>
         </table>
@@ -322,10 +322,10 @@ class InvitationEmailService:
         Returns (True, None) on success, (False, error_message) on failure.
         Does NOT include any password or OTP in the email.
         """
-        subject = "You're invited to Fluxiflow for Agency"
+        subject = "You're invited to Fluxiflow for Project Management"
         plain_body = (
             f"Hello {member_name},\n\n"
-            f"You have been invited to join Fluxiflow for Agency by {invited_by_name}.\n\n"
+            f"You have been invited to join Fluxiflow for Project Management by {invited_by_name}.\n\n"
             f"Your account has been created.\n\n"
             f"Email: {member_email}\n\n"
             f"To access your account:\n"
@@ -334,7 +334,7 @@ class InvitationEmailService:
             f"3. Request a verification code.\n"
             f"4. Enter the OTP sent to your email.\n\n"
             f"Sign in using your email and a one-time verification code — no credentials needed.\n\n"
-            f"Regards,\nFluxiflow for Agency"
+            f"Regards,\nFluxiflow for Project Management"
         )
         html_body = InvitationEmailService._build_invitation_html(
             member_name, member_email, invited_by_name, frontend_url
@@ -366,14 +366,14 @@ class InvitationEmailService:
         Sends a branded invitation reminder email to an existing INVITED member.
         Returns (True, None) on success, (False, error_message) on failure.
         """
-        subject = "Reminder: Your invitation to Fluxiflow for Agency"
+        subject = "Reminder: Your invitation to Fluxiflow for Project Management"
         plain_body = (
             f"Hello {member_name},\n\n"
-            f"This is a reminder that {invited_by_name} has invited you to join Fluxiflow for Agency.\n\n"
+            f"This is a reminder that {invited_by_name} has invited you to join Fluxiflow for Project Management.\n\n"
             f"Email: {member_email}\n\n"
             f"Sign in at: {frontend_url.rstrip('/')}/login\n\n"
             f"No password required — use your email and a one-time verification code.\n\n"
-            f"Regards,\nFluxiflow for Agency"
+            f"Regards,\nFluxiflow for Project Management"
         )
         html_body = InvitationEmailService._build_resend_html(
             member_name, member_email, invited_by_name, frontend_url

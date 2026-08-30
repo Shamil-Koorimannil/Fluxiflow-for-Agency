@@ -2,8 +2,10 @@ from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.utils import timezone
-from .models import Task, TaskAssignee, SubTask, SubTaskAssignee
-from .serializers import TaskSerializer, SubTaskSerializer
+from django.http import FileResponse
+from django.utils.text import get_valid_filename
+from .models import Task, TaskAssignee, SubTask, SubTaskAssignee, TaskComment, TaskAttachment
+from .serializers import TaskSerializer, SubTaskSerializer, TaskCommentSerializer, TaskAttachmentSerializer
 from apps.core.permissions import IsAdminOrReadOnlyMember
 from apps.activity.models import ActivityLog
 from apps.accounts.models import CustomUser as User
@@ -644,3 +646,230 @@ class SubTaskViewSet(viewsets.ModelViewSet):
         
         serializer = self.get_serializer(subtask)
         return Response(serializer.data)
+
+
+def user_has_task_access(user, task):
+    if not user or not user.is_authenticated:
+        return False
+    if user.role == 'ADMIN':
+        return True
+    if task.created_by_id == user.id:
+        return True
+    if task.assignee_relationships.filter(user_id=user.id).exists():
+        return True
+    if task.project:
+        from apps.accounts.models import Membership
+        user_membership = Membership.objects.filter(user=user).first()
+        if user_membership:
+            if task.project.organization_id and task.project.organization_id == user_membership.organization_id:
+                return True
+            if task.organization_id and task.organization_id == user_membership.organization_id:
+                return True
+    return False
+
+
+class TaskCommentViewSet(viewsets.ModelViewSet):
+    serializer_class = TaskCommentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user.is_authenticated:
+            return TaskComment.objects.none()
+
+        task_id = self.request.query_params.get('task')
+        subtask_id = self.request.query_params.get('subtask')
+
+        if subtask_id:
+            try:
+                subtask = SubTask.objects.select_related('task').get(id=subtask_id)
+                if not user_has_task_access(user, subtask.task):
+                    return TaskComment.objects.none()
+                return TaskComment.objects.filter(subtask_id=subtask_id).select_related('author')
+            except (SubTask.DoesNotExist, ValueError):
+                return TaskComment.objects.none()
+        elif task_id:
+            try:
+                task = Task.objects.get(id=task_id)
+                if not user_has_task_access(user, task):
+                    return TaskComment.objects.none()
+                return TaskComment.objects.filter(task_id=task_id, subtask__isnull=True).select_related('author')
+            except (Task.DoesNotExist, ValueError):
+                return TaskComment.objects.none()
+
+        if user.role == 'ADMIN':
+            return TaskComment.objects.all().select_related('author', 'task')
+        from django.db.models import Q
+        return TaskComment.objects.filter(
+            Q(author=user) | Q(task__created_by=user) | Q(task__assignee_relationships__user=user) | Q(task__project__isnull=False)
+        ).distinct().select_related('author', 'task')
+
+
+
+    def create(self, request, *args, **kwargs):
+        task_id = request.data.get('task')
+        subtask_id = request.data.get('subtask')
+
+        if subtask_id:
+            try:
+                subtask = SubTask.objects.select_related('task').get(id=subtask_id)
+                task = subtask.task
+                if task_id and str(task.id) != str(task_id):
+                    return Response({"detail": "Subtask does not belong to the specified task."}, status=status.HTTP_400_BAD_REQUEST)
+            except (SubTask.DoesNotExist, ValueError):
+                return Response({"detail": "Subtask not found."}, status=status.HTTP_400_BAD_REQUEST)
+        elif task_id:
+            try:
+                task = Task.objects.get(id=task_id)
+            except (Task.DoesNotExist, ValueError):
+                return Response({"detail": "Task not found."}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            return Response({"detail": "Task or subtask is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not user_has_task_access(request.user, task):
+            return Response({"detail": "You do not have permission to comment on this task."}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(author=request.user, task=task)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def update(self, request, *args, **kwargs):
+        comment = self.get_object()
+        if comment.author != request.user and request.user.role != 'ADMIN':
+            return Response({"detail": "You do not have permission to edit this comment."}, status=status.HTTP_403_FORBIDDEN)
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        comment = self.get_object()
+        if comment.author != request.user and request.user.role != 'ADMIN':
+            return Response({"detail": "You do not have permission to delete this comment."}, status=status.HTTP_403_FORBIDDEN)
+        return super().destroy(request, *args, **kwargs)
+
+
+class TaskAttachmentViewSet(viewsets.ModelViewSet):
+    serializer_class = TaskAttachmentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'jpg', 'jpeg', 'png', 'webp', 'svg', 'txt', 'zip'}
+    EXECUTABLE_EXTENSIONS = {'exe', 'php', 'sh', 'py', 'js', 'html', 'htm', 'cgi', 'pl', 'bat', 'cmd', 'vbs', 'jsp', 'asp', 'aspx', 'jar'}
+    MAX_FILE_SIZE = 25 * 1024 * 1024  # 25MB
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user.is_authenticated:
+            return TaskAttachment.objects.none()
+
+        task_id = self.request.query_params.get('task')
+        subtask_id = self.request.query_params.get('subtask')
+
+        if subtask_id:
+            try:
+                subtask = SubTask.objects.select_related('task').get(id=subtask_id)
+                if not user_has_task_access(user, subtask.task):
+                    return TaskAttachment.objects.none()
+                return TaskAttachment.objects.filter(subtask_id=subtask_id).select_related('uploaded_by')
+            except (SubTask.DoesNotExist, ValueError):
+                return TaskAttachment.objects.none()
+        elif task_id:
+            try:
+                task = Task.objects.get(id=task_id)
+                if not user_has_task_access(user, task):
+                    return TaskAttachment.objects.none()
+                return TaskAttachment.objects.filter(task_id=task_id, subtask__isnull=True).select_related('uploaded_by')
+            except (Task.DoesNotExist, ValueError):
+                return TaskAttachment.objects.none()
+
+        if user.role == 'ADMIN':
+            return TaskAttachment.objects.all().select_related('uploaded_by', 'task')
+        from django.db.models import Q
+        return TaskAttachment.objects.filter(
+            Q(uploaded_by=user) | Q(task__created_by=user) | Q(task__assignee_relationships__user=user) | Q(task__project__isnull=False)
+        ).distinct().select_related('uploaded_by', 'task')
+
+    def create(self, request, *args, **kwargs):
+        uploaded_file = request.FILES.get('file')
+        if not uploaded_file:
+            return Response({"detail": "Unable to upload the file."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # File size check
+        if uploaded_file.size > self.MAX_FILE_SIZE:
+            return Response({"detail": "File is too large."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # File extension check
+        raw_name = uploaded_file.name or ""
+        ext = raw_name.rsplit('.', 1)[-1].lower() if '.' in raw_name else ""
+        if ext in self.EXECUTABLE_EXTENSIONS or ext not in self.ALLOWED_EXTENSIONS:
+            return Response({"detail": "This file type is not supported."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Sanitize filename
+        clean_filename = get_valid_filename(raw_name) or f"file_{timezone.now().timestamp()}"
+
+        task_id = request.data.get('task')
+        subtask_id = request.data.get('subtask')
+
+        subtask_obj = None
+        if subtask_id:
+            try:
+                subtask_obj = SubTask.objects.select_related('task').get(id=subtask_id)
+                task_obj = subtask_obj.task
+                if task_id and str(task_obj.id) != str(task_id):
+                    return Response({"detail": "Subtask does not belong to the specified task."}, status=status.HTTP_400_BAD_REQUEST)
+            except (SubTask.DoesNotExist, ValueError):
+                return Response({"detail": "Subtask not found."}, status=status.HTTP_400_BAD_REQUEST)
+        elif task_id:
+            try:
+                task_obj = Task.objects.get(id=task_id)
+            except (Task.DoesNotExist, ValueError):
+                return Response({"detail": "Task not found."}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            return Response({"detail": "Task or subtask is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not user_has_task_access(request.user, task_obj):
+            return Response({"detail": "You do not have permission to access this file."}, status=status.HTTP_403_FORBIDDEN)
+
+        attachment = TaskAttachment.objects.create(
+            task=task_obj,
+            subtask=subtask_obj,
+            file=uploaded_file,
+            original_name=clean_filename,
+            mime_type=uploaded_file.content_type or 'application/octet-stream',
+            size=uploaded_file.size,
+            uploaded_by=request.user
+        )
+
+        serializer = self.get_serializer(attachment)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['GET'])
+    def download(self, request, pk=None):
+        try:
+            attachment = TaskAttachment.objects.select_related('task').get(pk=pk)
+        except (TaskAttachment.DoesNotExist, ValueError):
+            return Response({"detail": "File not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if not user_has_task_access(request.user, attachment.task):
+            return Response({"detail": "You do not have permission to access this file."}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            response = FileResponse(attachment.file.open('rb'), content_type=attachment.mime_type)
+            response['Content-Disposition'] = f'inline; filename="{attachment.original_name}"'
+            return response
+        except Exception:
+            return Response({"detail": "Unable to upload the file."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            attachment = self.get_object()
+        except Exception:
+            return Response({"detail": "File not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if attachment.uploaded_by != request.user and request.user.role != 'ADMIN':
+            return Response({"detail": "You do not have permission to access this file."}, status=status.HTTP_403_FORBIDDEN)
+
+        if attachment.file:
+            attachment.file.delete(save=False)
+        attachment.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+

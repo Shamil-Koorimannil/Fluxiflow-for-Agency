@@ -4,7 +4,7 @@ from apps.accounts.models import CustomUser as User
 from apps.accounts.serializers import UserSerializer
 from apps.projects.models import Project
 from apps.projects.serializers import ProjectSerializer
-from .models import Task, TaskAssignee, SubTask, SubTaskAssignee
+from .models import Task, TaskAssignee, SubTask, SubTaskAssignee, TaskComment, TaskAttachment
 
 class SubTaskAssigneeSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
@@ -36,6 +36,7 @@ class SubTaskSerializer(serializers.ModelSerializer):
     submission_status = serializers.SerializerMethodField()
     late_by_minutes = serializers.SerializerMethodField()
     due_datetime = serializers.SerializerMethodField()
+    parent_task_name = serializers.ReadOnlyField(source='task.name')
 
     class Meta:  # type: ignore
         model = SubTask
@@ -43,7 +44,7 @@ class SubTaskSerializer(serializers.ModelSerializer):
             'id', 'task', 'name', 'status', 'due_date', 'due_time', 'due_datetime',
             'completed_by', 'completed_by_detail', 'completed_at',
             'created_at', 'updated_at', 'assignees', 'assignee_ids',
-            'submission_status', 'late_by_minutes'
+            'submission_status', 'late_by_minutes', 'parent_task_name'
         ]
         read_only_fields = ['id', 'completed_by', 'completed_at', 'created_at', 'updated_at']
 
@@ -475,3 +476,55 @@ class TaskSerializer(serializers.ModelSerializer):
             )
                     
         return instance
+
+
+class TaskCommentSerializer(serializers.ModelSerializer):
+    author_detail = UserSerializer(source='author', read_only=True)
+
+    class Meta:
+        model = TaskComment
+        fields = [
+            'id', 'task', 'subtask', 'author', 'author_detail',
+            'content', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'author', 'author_detail', 'created_at', 'updated_at']
+
+    def validate(self, attrs):
+        task = attrs.get('task')
+        subtask = attrs.get('subtask')
+        if subtask and task and subtask.task_id != task.id:
+            raise serializers.ValidationError({"subtask": "Subtask does not belong to the specified task."})
+        return attrs
+
+
+class TaskAttachmentSerializer(serializers.ModelSerializer):
+    uploaded_by_detail = UserSerializer(source='uploaded_by', read_only=True)
+    download_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TaskAttachment
+        fields = [
+            'id', 'task', 'subtask', 'file', 'original_name',
+            'mime_type', 'size', 'uploaded_by', 'uploaded_by_detail',
+            'download_url', 'created_at', 'updated_at'
+        ]
+        read_only_fields = [
+            'id', 'original_name', 'mime_type', 'size',
+            'uploaded_by', 'uploaded_by_detail', 'download_url',
+            'created_at', 'updated_at'
+        ]
+
+    def get_download_url(self, obj):
+        request = self.context.get('request')
+        path = f"/api/attachments/{obj.id}/download/"
+        if request:
+            return request.build_absolute_uri(path)
+        return path
+
+    def validate(self, attrs):
+        task = attrs.get('task')
+        subtask = attrs.get('subtask')
+        if subtask and task and subtask.task_id != task.id:
+            raise serializers.ValidationError({"subtask": "Subtask does not belong to the specified task."})
+        return attrs
+

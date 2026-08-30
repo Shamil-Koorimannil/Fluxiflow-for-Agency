@@ -83,8 +83,8 @@ class ReportGenerator:
         all_member_stats = {
             m.id: {
                 "member_id": str(m.id),
-                "name": m.name,
-                "role": m.role,
+                "name": getattr(m, 'name', f"{getattr(m, 'first_name', '')} {getattr(m, 'last_name', '')}".strip() or m.email),
+                "role": getattr(m, 'role', 'MEMBER'),
                 "avatar_url": get_avatar(m),
                 "completed": 0,
                 "on_time": 0,
@@ -134,23 +134,24 @@ class ReportGenerator:
             for h in histories:
                 subtask = h.subtask
                 is_subtask = subtask is not None
-                task = subtask.task if is_subtask else h.task
+                task = subtask.task if (is_subtask and subtask) else h.task
                 
+                if not task:
+                    continue
+
                 # Check task/subtask due datetime
-                if is_subtask:
-                    if subtask.due_time:
+                due_dt = None
+                if is_subtask and subtask:
+                    if subtask.due_date and subtask.due_time:
                         naive_due = datetime.datetime.combine(subtask.due_date, subtask.due_time)
                         due_dt = timezone.make_aware(naive_due, tz)
                     elif subtask.due_date:
                         due_dt = day_end_dt.replace(year=subtask.due_date.year, month=subtask.due_date.month, day=subtask.due_date.day)
-                    else:
-                        due_dt = None
                 else:
-                    if task.due_time:
+                    if task.due_date and task.due_time:
                         naive_due = datetime.datetime.combine(task.due_date, task.due_time)
                         due_dt = timezone.make_aware(naive_due, tz)
-                    else:
-                        # Due by the end of the selected day
+                    elif task.due_date:
                         due_dt = day_end_dt.replace(year=task.due_date.year, month=task.due_date.month, day=task.due_date.day)
 
                 # Determine completion state relative to the end of this day
@@ -166,12 +167,13 @@ class ReportGenerator:
                     h.completed_at <= day_end_dt
                 )
 
-                if is_completed_on_day:
+                completed_at_str = None
+                if is_completed_on_day and h.completed_at:
                     day_completed += 1
                     all_member_stats[h.user.id]["completed"] += 1
                     
                     # On-time check using task due datetime helper
-                    from apps.tasks.helpers import get_task_due_datetime, format_late_duration
+                    from apps.tasks.helpers import format_late_duration
                     if not due_dt:
                         all_member_stats[h.user.id]["on_time"] += 1
                         day_on_time += 1
@@ -196,8 +198,8 @@ class ReportGenerator:
                 else:
                     # Incomplete by end of day
                     if not is_completed_before_day_end:
-                        created_at_dt = subtask.created_at if is_subtask else task.created_at
-                        if created_at_dt <= day_end_dt:
+                        created_at_dt = (subtask.created_at if subtask else None) if is_subtask else task.created_at
+                        if created_at_dt and created_at_dt <= day_end_dt:
                             if due_dt and due_dt < day_end_dt:
                                 day_overdue += 1
                                 all_member_stats[h.user.id]["overdue"] += 1
@@ -218,19 +220,30 @@ class ReportGenerator:
                         continue
 
                 # Add to task details
-                due_date_str = subtask.due_date.strftime("%d %b %Y") if (is_subtask and subtask.due_date) else (task.due_date.strftime("%d %b %Y") if (not is_subtask and task.due_date) else "-")
-                due_time_str = subtask.due_time.strftime("%I:%M %p") if (is_subtask and subtask.due_time) else (task.due_time.strftime("%I:%M %p") if (not is_subtask and task.due_time) else None)
-                priority_str = task.get_priority_display() if hasattr(task, 'get_priority_display') else task.priority
+                subtask_due_date = subtask.due_date if (is_subtask and subtask) else None
+                task_due_date = task.due_date if task else None
+                subtask_due_time = subtask.due_time if (is_subtask and subtask) else None
+                task_due_time = task.due_time if task else None
+
+                due_date_val = subtask_due_date or task_due_date
+                due_time_val = subtask_due_time or task_due_time
+
+                due_date_str = due_date_val.strftime("%d %b %Y") if due_date_val else "-"
+                due_time_str = due_time_val.strftime("%I:%M %p") if due_time_val else None
+                priority_str = getattr(task, 'get_priority_display', lambda: getattr(task, 'priority', '-'))() if task else "-"
                 
+                member_name = getattr(h.user, 'name', f"{getattr(h.user, 'first_name', '')} {getattr(h.user, 'last_name', '')}".strip() or h.user.email)
+                project_obj = getattr(task, 'project', None)
+
                 all_tasks_details.append({
                     "date": str(current_date),
                     "task_id": str(task.id),
                     "task_name": task.name,
-                    "subtask_name": subtask.name if is_subtask else "-",
-                    "project_id": str(task.project.id) if task.project else None,
-                    "project_name": task.project.name if task.project else "No Project",
+                    "subtask_name": subtask.name if (is_subtask and subtask) else "-",
+                    "project_id": str(project_obj.id) if project_obj else None,
+                    "project_name": project_obj.name if project_obj else "No Project",
                     "member_id": str(h.user.id),
-                    "member_name": h.user.name,
+                    "member_name": member_name,
                     "status": task_status,
                     "due_date": due_date_str,
                     "due_time": due_time_str,
@@ -310,6 +323,7 @@ class ReportGenerator:
         wb = Workbook()
         # Sheet 1: Summary
         ws1 = wb.active
+        assert ws1 is not None
         ws1.title = "Summary"
         
         # Styles
@@ -403,6 +417,7 @@ class ReportGenerator:
 
         # Sheet 2: Task Details
         ws2 = wb.create_sheet(title="Task Details")
+        assert ws2 is not None
         
         # Header block
         headers = ["Date", "Member", "Project", "Task", "Subtask", "Status", "Due Date", "Due Time", "Completed At", "Submission Status", "Late By", "Priority"]
@@ -540,7 +555,7 @@ class ReportGenerator:
         story = []
         
         # Title block
-        story.append(Paragraph("Fluxiflow for Agency", title_style))
+        story.append(Paragraph("Fluxiflow for Project Management", title_style))
         story.append(Paragraph(f"Daily Work Report — {data['start_date']} to {data['end_date']}", subtitle_style))
         
         # Team Summary Box

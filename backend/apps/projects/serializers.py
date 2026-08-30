@@ -10,11 +10,12 @@ class ProjectSerializer(serializers.ModelSerializer):
     progress = serializers.SerializerMethodField()
     task_count = serializers.SerializerMethodField()
     completed_task_count = serializers.SerializerMethodField()
+    project_date = serializers.DateField(source='due_date', required=False, allow_null=True)
 
     class Meta:
         model = Project
         fields = [
-            'id', 'name', 'description', 'client_name', 'start_date', 'due_date',
+            'id', 'name', 'description', 'due_date', 'project_date',
             'created_by', 'created_at', 'updated_at',
             'members', 'progress', 'task_count', 'completed_task_count'
         ]

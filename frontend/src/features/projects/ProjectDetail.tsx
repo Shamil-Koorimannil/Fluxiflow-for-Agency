@@ -6,14 +6,13 @@ import type { Project, Task } from '../../types';
 import { useAuth } from '../auth/AuthContext';
 import { TaskDetailPanel } from '../tasks/TaskDetailPanel';
 import { TaskFormModal } from '../tasks/TaskFormModal';
-import { ArrowLeft, Plus, Upload, Trash2, CheckSquare, CheckCircle2, Circle, X, Pencil, Download, Loader2 } from 'lucide-react';
-import { formatLateDuration } from '../../utils/time';
+import { ArrowLeft, Plus, Upload, Trash2, CheckSquare, X, Pencil, Download, Loader2 } from 'lucide-react';
 import { BulkUploadModal } from './BulkUploadModal';
-import { classifyTask } from '../../utils/taskClassifier';
-import { TaskDatePicker } from '../tasks/TaskDatePicker';
 import { PasteTasksModal } from '../tasks/PasteTasksModal';
+import { TaskCard } from '../tasks/TaskCard';
+import { classifyTask } from '../../utils/taskClassifier';
 
-type ProjectFilterType = 'all' | 'today' | 'tomorrow' | 'upcoming' | 'overdue' | 'no_due_date' | 'completed' | 'assigned_to_me';
+type ProjectFilterType = 'all' | 'incompleted' | 'today' | 'tomorrow' | 'upcoming' | 'overdue' | 'no_due_date' | 'completed' | 'assigned_to_me';
 
 export const ProjectDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -30,9 +29,6 @@ export const ProjectDetail: React.FC = () => {
   const [isEditProjModalOpen, setIsEditProjModalOpen] = useState(false);
   const [editProjName, setEditProjName] = useState('');
   const [editProjDescription, setEditProjDescription] = useState('');
-  const [editProjClientName, setEditProjClientName] = useState('');
-  const [editProjStartDate, setEditProjStartDate] = useState('');
-  const [editProjDueDate, setEditProjDueDate] = useState('');
   const [editProjError, setEditProjError] = useState<string | null>(null);
 
   const [isDownloadingReport, setIsDownloadingReport] = useState(false);
@@ -104,9 +100,6 @@ export const ProjectDetail: React.FC = () => {
     if (project) {
       setEditProjName(project.name);
       setEditProjDescription(project.description || '');
-      setEditProjClientName(project.client_name || '');
-      setEditProjStartDate(project.start_date || '');
-      setEditProjDueDate(project.due_date || '');
       setEditProjError(null);
       setIsEditProjModalOpen(true);
     }
@@ -116,9 +109,6 @@ export const ProjectDetail: React.FC = () => {
     mutationFn: async (data: {
       name: string;
       description: string;
-      client_name?: string | null;
-      start_date?: string | null;
-      due_date?: string | null;
     }) => {
       const response = await api.patch(`/projects/${id}/`, data);
       return response.data;
@@ -147,9 +137,6 @@ export const ProjectDetail: React.FC = () => {
     editProjectMutation.mutate({
       name: editProjName,
       description: editProjDescription,
-      client_name: editProjClientName.trim() || null,
-      start_date: editProjStartDate || null,
-      due_date: editProjDueDate || null,
     });
   };
 
@@ -210,90 +197,6 @@ export const ProjectDetail: React.FC = () => {
     },
   });
 
-  const getPriorityColor = (priority: string | null) => {
-    switch (priority) {
-      case 'HIGH':
-        return 'text-red-650 bg-red-50 dark:text-red-450 dark:bg-red-950/20';
-      case 'MEDIUM':
-        return 'text-amber-650 bg-amber-50 dark:text-amber-450 dark:bg-amber-950/20';
-      case 'LOW':
-        return 'text-blue-650 bg-blue-50 dark:text-blue-450 dark:bg-blue-950/20';
-      default:
-        return 'text-zinc-500 bg-zinc-100 dark:text-zinc-400 dark:bg-zinc-900';
-    }
-  };
-
-  const getPriorityBorder = (priority: string | null) => {
-    switch (priority) {
-      case 'HIGH':
-        return 'border-l-4 border-red-500';
-      case 'MEDIUM':
-        return 'border-l-4 border-amber-500';
-      case 'LOW':
-        return 'border-l-4 border-blue-500';
-      default:
-        return 'border-l-4 border-zinc-200 dark:border-zinc-800';
-    }
-  };
-
-  const getInitials = (name: string) => {
-    return name
-      .split(' ')
-      .map((n) => n[0])
-      .slice(0, 2)
-      .join('')
-      .toUpperCase();
-  };
-
-  const renderAssigneesList = (assignees: Task['assignees']) => {
-    if (assignees.length === 0) {
-      return (
-        <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-550 flex items-center gap-1 bg-zinc-50 dark:bg-zinc-950 px-2 py-0.5 rounded-full border border-zinc-200/50 dark:border-zinc-850 select-none uppercase tracking-wider">
-          👤 Unassigned
-        </span>
-      );
-    }
-
-    const completedCount = assignees.filter(a => a.completed).length;
-
-    return (
-      <div className="flex items-center gap-2 flex-wrap">
-        {/* Avatars */}
-        <div className="flex -space-x-1.5 overflow-hidden py-0.5">
-          {assignees.map((a) => (
-            <div
-              key={a.id}
-              title={`${a.name} (${a.completed ? 'Completed' : 'Pending'})`}
-              className={`relative flex h-5 w-5 items-center justify-center rounded-full border text-[8px] font-bold shrink-0 ${
-                a.completed
-                  ? 'bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300 border-green-300 dark:border-green-800'
-                  : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-650 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700'
-              }`}
-            >
-              {getInitials(a.name)}
-              {a.completed && (
-                <span className="absolute -bottom-0.5 -right-0.5 flex h-2 w-2 items-center justify-center rounded-full bg-green-500 text-[6px] text-white font-extrabold shadow-sm border border-white dark:border-zinc-950">
-                  ✓
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-
-        {/* Text Details */}
-        <span className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400">
-          {assignees.length > 1 ? (
-            <span>
-              {completedCount}/{assignees.length} completed
-            </span>
-          ) : (
-            <span>{assignees[0].name}</span>
-          )}
-        </span>
-      </div>
-    );
-  };
-
   if (isProjectLoading) {
     return (
       <div className="space-y-6 max-w-5xl mx-auto animate-pulse">
@@ -328,6 +231,8 @@ export const ProjectDetail: React.FC = () => {
 
   if (activeFilter === 'assigned_to_me') {
     filteredTasks = deduplicatedTasks.filter((t) => t.assignees.some((a) => a.id === user?.id));
+  } else if (activeFilter === 'incompleted') {
+    filteredTasks = deduplicatedTasks.filter((t) => t.status !== 'COMPLETED');
   } else if (activeFilter !== 'all') {
     filteredTasks = deduplicatedTasks.filter((t) => classifyTask(t) === activeFilter);
   }
@@ -392,130 +297,29 @@ export const ProjectDetail: React.FC = () => {
       });
     }
   };
-  const renderTaskTile = (task: Task) => {
-    const isAssigned = task.assignees.some((a) => a.id === user?.id);
-    const canComplete = isAdmin || isAssigned;
-    const isSelected = selectedTaskIds.includes(task.id);
-
-    return (
-      <div
-        key={task.id}
-        className={`bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 flex items-center justify-between gap-4 hover:border-black dark:hover:border-white transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-sm animate-slide-up ${getPriorityBorder(
-          task.priority
-        )}`}
-        onClick={() => {
-          setSelectedTaskId(task.id);
-        }}
-      >
-        <div className="flex items-start md:items-center gap-3 min-w-0 flex-1">
-          {/* Interactive Checkbox Button */}
-          <button
-            type="button"
-            disabled={!canComplete || completeTaskMutation.isPending || reopenTaskMutation.isPending}
-            title={canComplete ? "" : "Not assigned to you"}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (task.status === 'COMPLETED') {
-                reopenTaskMutation.mutate(task.id);
-              } else {
-                completeTaskMutation.mutate(task.id);
-              }
-            }}
-            className="text-zinc-400 hover:text-black dark:hover:text-white shrink-0 disabled:opacity-50 transition-all duration-200 active:scale-90 hover:scale-110 mt-0.5 md:mt-0"
-          >
-            {task.status === 'COMPLETED' ? (
-              <CheckCircle2 className="h-4.5 w-4.5 text-green-550 dark:text-green-400" />
-            ) : (
-              <Circle className="h-4.5 w-4.5" />
-            )}
-          </button>
-
-          {/* Details */}
-          <div className="min-w-0 flex-1 space-y-1.5">
-            <h4
-              className={`text-sm font-semibold truncate ${
-                task.status === 'COMPLETED' ? 'line-through text-zinc-400 dark:text-zinc-500' : 'text-black dark:text-white'
-              }`}
-            >
-              {task.name}
-            </h4>
-
-            {/* Assignees list rendering */}
-            <div className="flex items-center gap-1.5">
-              {renderAssigneesList(task.assignees)}
-            </div>
-
-            {/* Sub-label showing backend relative date indicator & Priority */}
-            <div className="flex items-center gap-3 flex-wrap text-[11px] text-zinc-450 mt-1">
-              <div className="flex items-center gap-1.5 font-medium">
-                <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
-                  task.date_color === 'red' ? 'bg-red-500' :
-                  task.date_color === 'amber' ? 'bg-amber-500' :
-                  task.date_color === 'green' ? 'bg-green-500' :
-                  'bg-zinc-400'
-                }`} />
-                <TaskDatePicker task={task} />
-              </div>
-
-              {task.priority && (
-                <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${getPriorityColor(task.priority)}`}>
-                  {task.priority} Priority
-                </span>
-              )}
-              {task.overall_status && (
-                <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${
-                  task.overall_status === 'COMPLETED'
-                    ? 'bg-green-105 dark:bg-green-950/30 text-green-755 dark:text-green-400'
-                    : task.overall_status === 'IN_PROGRESS'
-                    ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300'
-                    : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-550'
-                }`}>
-                  {task.overall_status === 'IN_PROGRESS' ? 'In Progress' : task.overall_status}
-                </span>
-              )}
-
-              {task.subtasks && task.subtasks.length > 0 && (
-                <span className="text-zinc-450 dark:text-zinc-400 font-medium">
-                  📋 {task.subtasks.filter(s => s.status === 'COMPLETED').length}/{task.subtasks.length} subtasks
-                </span>
-              )}
-            </div>
-
-            {task.status === 'COMPLETED' && task.submission_status === 'LATE' && (
-              <div className="flex flex-col gap-0.5 mt-2 bg-red-50/50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/30 p-2 rounded-lg text-red-650 dark:text-red-400">
-                <div className="flex items-center gap-1.5 font-bold">
-                  <span className="shrink-0 text-red-500">🔴</span>
-                  <span>Late Submission</span>
-                </div>
-                {task.late_by_minutes && (
-                  <div className="text-[10px] font-bold text-red-500/80 ml-5">
-                    Late by: {formatLateDuration(task.late_by_minutes)}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Selection Checkbox (Moved to right) */}
-        <div className="flex items-center shrink-0 px-1" onClick={(e) => e.stopPropagation()}>
-          <input
-            type="checkbox"
-            checked={isSelected}
-            onClick={(e) => {
-              e.stopPropagation();
-              handleToggleSelect(task.id, e.shiftKey);
-            }}
-            onChange={() => {}}
-            className="rounded border-zinc-300 dark:border-zinc-700 text-black focus:ring-black focus:ring-0 cursor-pointer w-4 h-4"
-          />
-        </div>
-      </div>
-    );
-  };
+  const renderTaskTile = (task: Task) => (
+    <TaskCard
+      key={task.id}
+      task={task}
+      currentUser={user}
+      isAdmin={isAdmin}
+      onOpenDetail={(id) => setSelectedTaskId(id)}
+      onToggleComplete={(targetTask) => {
+        if (targetTask.status === 'COMPLETED') {
+          reopenTaskMutation.mutate(targetTask.id);
+        } else {
+          completeTaskMutation.mutate(targetTask.id);
+        }
+      }}
+      isMutating={completeTaskMutation.isPending || reopenTaskMutation.isPending}
+      isSelected={selectedTaskIds.includes(task.id)}
+      onToggleSelect={handleToggleSelect}
+    />
+  );
 
   const projectFilters: { value: ProjectFilterType; label: string }[] = [
     { value: 'all', label: 'All' },
+    { value: 'incompleted', label: 'Incompleted Tasks' },
     { value: 'today', label: 'Today' },
     { value: 'tomorrow', label: 'Tomorrow' },
     { value: 'upcoming', label: 'Upcoming' },
@@ -542,12 +346,6 @@ export const ProjectDetail: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
         <div className="space-y-1.5 flex-1">
           <h1 className="text-2xl font-bold tracking-tight">{project.name}</h1>
-          {project.client_name && (
-            <div className="text-xs font-bold text-zinc-450 dark:text-zinc-500 uppercase tracking-wider flex items-center gap-1 select-none">
-              <span>💼 Client:</span>
-              <span className="text-black dark:text-white">{project.client_name}</span>
-            </div>
-          )}
           <p className="text-sm text-zinc-550 dark:text-zinc-400 leading-relaxed">
             {project.description || 'No description provided.'}
           </p>
@@ -815,47 +613,6 @@ export const ProjectDetail: React.FC = () => {
                   rows={2}
                   className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors resize-none"
                 />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider">
-                  Client Name
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Acme Corporation"
-                  value={editProjClientName}
-                  onChange={(e) => setEditProjClientName(e.target.value)}
-                  disabled={editProjectMutation.isPending}
-                  className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider">
-                    Start Date
-                  </label>
-                  <input
-                    type="date"
-                    value={editProjStartDate}
-                    onChange={(e) => setEditProjStartDate(e.target.value)}
-                    disabled={editProjectMutation.isPending}
-                    className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider">
-                    Due Date
-                  </label>
-                  <input
-                    type="date"
-                    value={editProjDueDate}
-                    onChange={(e) => setEditProjDueDate(e.target.value)}
-                    disabled={editProjectMutation.isPending}
-                    className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
-                  />
-                </div>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-900">

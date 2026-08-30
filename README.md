@@ -1,6 +1,6 @@
-# Fluxiflow for Agency
+# Fluxiflow for Project Management
 
-Fluxiflow for Agency is a minimal, modern SaaS project management platform built to help agencies answer:
+Fluxiflow for Project Management is a minimal, modern SaaS project management platform built to help agencies answer:
 > What needs to be done, who is responsible, when is it due, and is it completed?
 
 V2 includes **passwordless secure OTP email authentication**, multi-tenant organization scope boundaries, session signatures rotation/revocation, and an MUI-based Team workload control dashboard.

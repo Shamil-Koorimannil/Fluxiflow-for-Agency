@@ -7,8 +7,8 @@ import { useAuth } from '../auth/AuthContext';
 import { TaskDetailPanel } from '../tasks/TaskDetailPanel';
 import { TaskFormModal } from '../tasks/TaskFormModal';
 import { classifyTask } from '../../utils/taskClassifier';
-import { TaskDatePicker } from '../tasks/TaskDatePicker';
 import { PasteTasksModal } from '../tasks/PasteTasksModal';
+import { TaskCard } from '../tasks/TaskCard';
 import {
   Box,
   Button,
@@ -20,8 +20,6 @@ import {
 } from '@mui/material';
 import {
   ArrowLeft,
-  CheckCircle2,
-  Circle,
   AlertCircle,
   Calendar,
   Check,
@@ -346,18 +344,7 @@ export const TeamDetail: React.FC = () => {
   };
 
 
-  const getPriorityColor = (priority: string | null) => {
-    switch (priority) {
-      case 'HIGH':
-        return 'border-l-4 border-red-500';
-      case 'MEDIUM':
-        return 'border-l-4 border-amber-500';
-      case 'LOW':
-        return 'border-l-4 border-blue-500';
-      default:
-        return 'border-l-4 border-zinc-200 dark:border-zinc-800';
-    }
-  };
+
 
   const deduplicateTasks = (taskList: Task[]): Task[] => {
     const seen = new Set<string>();
@@ -409,72 +396,26 @@ export const TeamDetail: React.FC = () => {
             </span>
           )}
         </h3>
-        
-        <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl divide-y divide-zinc-100 dark:divide-zinc-800 overflow-hidden text-black dark:text-white">
-          {tasks.map((task) => {
-            const isAssigned = task.assignees.some((a) => a.id === user?.id);
-            const canComplete = isAdmin || isAssigned;
-            return (
-              <div
-                key={task.id}
-                className={`flex items-start md:items-center justify-between p-4 gap-3 transition-colors cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900/40 ${getPriorityColor(
-                  task.priority
-                )}`}
-                onClick={() => setSelectedTaskId(task.id)}
-              >
-                <div className="flex items-start md:items-center gap-3">
-                  <button
-                    type="button"
-                    disabled={!canComplete || completeTaskMutation.isPending || reopenTaskMutation.isPending}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (task.status === 'COMPLETED') {
-                        reopenTaskMutation.mutate(task.id);
-                      } else {
-                        completeTaskMutation.mutate(task.id);
-                      }
-                    }}
-                    className="text-zinc-400 hover:text-black dark:hover:text-white shrink-0 disabled:opacity-50 transition-all duration-200 mt-0.5 md:mt-0"
-                  >
-                    {task.status === 'COMPLETED' ? (
-                      <CheckCircle2 className="h-4 w-4 text-green-550 dark:text-green-400 shrink-0" />
-                    ) : (
-                      <Circle className="h-4 w-4 shrink-0" />
-                    )}
-                  </button>
-                  
-                  <div>
-                    <h4 className={`text-sm font-semibold ${task.status === 'COMPLETED' ? 'line-through text-zinc-400 dark:text-zinc-550' : 'text-black dark:text-white'}`}>
-                      {task.name}
-                    </h4>
-                    {task.project_detail && (
-                      <span className="text-[11px] text-zinc-400 dark:text-zinc-555 font-medium mt-0.5 block">
-                        {task.project_detail.name}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                
-                <div className="text-right shrink-0 flex items-center gap-1.5">
-                  <TaskDatePicker task={task} />
-                  
-                  {/* Selection Checkbox (Moved to right) */}
-                  <div className="flex items-center shrink-0 px-1" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="checkbox"
-                      checked={selectedTaskIds.includes(task.id)}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleToggleSelect(task.id, e.shiftKey);
-                      }}
-                      onChange={() => {}}
-                      className="rounded border-zinc-300 dark:border-zinc-700 text-black focus:ring-black focus:ring-0 cursor-pointer w-4 h-4"
-                    />
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+             <div className="space-y-2">
+          {tasks.map((task) => (
+            <TaskCard
+              key={task.id}
+              task={task}
+              currentUser={user}
+              isAdmin={isAdmin}
+              onOpenDetail={(id) => setSelectedTaskId(id)}
+              onToggleComplete={(targetTask) => {
+                if (targetTask.status === 'COMPLETED') {
+                  reopenTaskMutation.mutate(targetTask.id);
+                } else {
+                  completeTaskMutation.mutate(targetTask.id);
+                }
+              }}
+              isMutating={completeTaskMutation.isPending || reopenTaskMutation.isPending}
+              isSelected={selectedTaskIds.includes(task.id)}
+              onToggleSelect={handleToggleSelect}
+            />
+          ))}
         </div>
       </div>
     );

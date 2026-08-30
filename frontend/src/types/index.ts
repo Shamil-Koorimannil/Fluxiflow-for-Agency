@@ -39,9 +39,8 @@ export interface Project {
   id: string;
   name: string;
   description: string | null;
-  client_name?: string | null;
-  start_date?: string | null;
   due_date?: string | null;
+  project_date?: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -165,3 +164,30 @@ export interface GlobalSearchResults {
   tasks: Task[];
   projects: Project[];
 }
+
+export interface TaskComment {
+  id: string;
+  task: string;
+  subtask: string | null;
+  author: string;
+  author_detail: User;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskAttachment {
+  id: string;
+  task: string;
+  subtask: string | null;
+  file: string;
+  original_name: string;
+  mime_type: string;
+  size: number;
+  uploaded_by: string;
+  uploaded_by_detail: User;
+  download_url: string;
+  created_at: string;
+  updated_at: string;
+}
+

@@ -1382,5 +1382,329 @@ class FluxiflowTaskConsistencyTests(FluxiflowAPITests):
         self.assertEqual(Task.objects.filter(project=self.project).count(), 1)
 
 
+from django.core.files.uploadedfile import SimpleUploadedFile
+from apps.tasks.models import TaskComment, TaskAttachment
+
+class CommentsAndAttachmentsTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_superuser(
+            email='admin_ca@test.com',
+            name='CA Admin',
+            password='password123'
+        )
+        self.member1 = User.objects.create_user(
+            email='member1_ca@test.com',
+            name='CA Member 1',
+            password='password123',
+            role='MEMBER'
+        )
+        self.member2 = User.objects.create_user(
+            email='member2_ca@test.com',
+            name='CA Member 2',
+            password='password123',
+            role='MEMBER'
+        )
+
+        self.admin_token = self.get_jwt_token(self.admin)
+        self.member1_token = self.get_jwt_token(self.member1)
+        self.member2_token = self.get_jwt_token(self.member2)
+
+        self.project = Project.objects.create(
+            name='CA Project',
+            description='Project for comments & attachments',
+            created_by=self.admin
+        )
+        self.task1 = Task.objects.create(
+            project=self.project,
+            name='Accessible Task 1',
+            due_date=timezone.now().date(),
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=self.task1, user=self.member1)
+
+        self.subtask1 = SubTask.objects.create(
+            task=self.task1,
+            name='Subtask 1'
+        )
+
+        # Isolated task for Member 2 to test unauthorized access
+        self.task_isolated = Task.objects.create(
+            name='Isolated Task',
+            due_date=timezone.now().date(),
+            created_by=self.admin
+        )
+
+    def get_jwt_token(self, user):
+        refresh = RefreshToken.for_user(user)
+        refresh['email'] = user.email
+        refresh['name'] = user.name
+        refresh['role'] = user.role
+        return str(refresh.access_token)
+
+    def set_auth(self, token):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+    def clear_auth(self):
+        self.client.credentials()
+
+    # 1. User can add a comment to an accessible task
+    def test_user_can_add_comment_to_accessible_task(self):
+        self.set_auth(self.member1_token)
+        url = reverse('comment-list')
+        response = self.client.post(url, {
+            'task': str(self.task1.id),
+            'content': 'Client requested the logo to be changed.'
+        })
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['content'], 'Client requested the logo to be changed.')
+        self.assertEqual(response.data['author_detail']['id'], str(self.member1.id))
+
+    # 2. User can view task comments
+    def test_user_can_view_task_comments(self):
+        TaskComment.objects.create(
+            task=self.task1,
+            author=self.member1,
+            content='Existing task comment'
+        )
+        self.set_auth(self.member1_token)
+        url = reverse('comment-list') + f'?task={self.task1.id}'
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['content'], 'Existing task comment')
+
+    # 3. User can edit their own comment
+    def test_user_can_edit_own_comment(self):
+        comment = TaskComment.objects.create(
+            task=self.task1,
+            author=self.member1,
+            content='Initial comment content'
+        )
+        self.set_auth(self.member1_token)
+        url = reverse('comment-detail', args=[comment.id])
+        response = self.client.patch(url, {'content': 'Updated comment content'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        comment.refresh_from_db()
+        self.assertEqual(comment.content, 'Updated comment content')
+
+    # 4. User can delete their own comment
+    def test_user_can_delete_own_comment(self):
+        comment = TaskComment.objects.create(
+            task=self.task1,
+            author=self.member1,
+            content='Comment to be deleted'
+        )
+        self.set_auth(self.member1_token)
+        url = reverse('comment-detail', args=[comment.id])
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(TaskComment.objects.filter(id=comment.id).exists())
+
+    # 5. Unauthorized user cannot comment on an inaccessible task
+    def test_unauthorized_user_cannot_comment_on_inaccessible_task(self):
+        self.set_auth(self.member2_token)
+        url = reverse('comment-list')
+        response = self.client.post(url, {
+            'task': str(self.task_isolated.id),
+            'content': 'Unauthorized comment'
+        })
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    # 6. User can add a comment to a subtask
+    def test_user_can_add_comment_to_subtask(self):
+        self.set_auth(self.member1_token)
+        url = reverse('comment-list')
+        response = self.client.post(url, {
+            'task': str(self.task1.id),
+            'subtask': str(self.subtask1.id),
+            'content': 'Subtask specific comment'
+        })
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(str(response.data['subtask']), str(self.subtask1.id))
+
+    # 7. Subtask comment is associated with the correct task
+    def test_subtask_comment_is_associated_with_correct_task(self):
+        task_comment = TaskComment.objects.create(
+            task=self.task1,
+            author=self.member1,
+            content='Direct task comment'
+        )
+        subtask_comment = TaskComment.objects.create(
+            task=self.task1,
+            subtask=self.subtask1,
+            author=self.member1,
+            content='Direct subtask comment'
+        )
+        self.set_auth(self.member1_token)
+
+        # GET task comments (should return ONLY direct task comments)
+        url_task = reverse('comment-list') + f'?task={self.task1.id}'
+        res_task = self.client.get(url_task)
+        self.assertEqual(res_task.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_task.data), 1)
+        self.assertEqual(res_task.data[0]['id'], str(task_comment.id))
+
+        # GET subtask comments (should return ONLY subtask comments)
+        url_sub = reverse('comment-list') + f'?subtask={self.subtask1.id}'
+        res_sub = self.client.get(url_sub)
+        self.assertEqual(res_sub.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_sub.data), 1)
+        self.assertEqual(res_sub.data[0]['id'], str(subtask_comment.id))
+
+    # 8. Invalid cross-task subtask/comment relationship is rejected
+    def test_invalid_cross_task_subtask_comment_relationship_rejected(self):
+        other_task = Task.objects.create(
+            project=self.project,
+            name='Other Task',
+            due_date=timezone.now().date(),
+            created_by=self.admin
+        )
+        self.set_auth(self.member1_token)
+        url = reverse('comment-list')
+        response = self.client.post(url, {
+            'task': str(other_task.id),
+            'subtask': str(self.subtask1.id),
+            'content': 'Cross task comment'
+        })
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # 9. User can upload a file to a task
+    def test_user_can_upload_file_to_task(self):
+        self.set_auth(self.member1_token)
+        file_obj = SimpleUploadedFile("test_doc.pdf", b"PDF file content", content_type="application/pdf")
+        url = reverse('attachment-list')
+        response = self.client.post(url, {
+            'task': str(self.task1.id),
+            'file': file_obj
+        }, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['original_name'], 'test_doc.pdf')
+
+    # 10. User can upload a file to a subtask
+    def test_user_can_upload_file_to_subtask(self):
+        self.set_auth(self.member1_token)
+        file_obj = SimpleUploadedFile("sub_doc.pdf", b"Subtask PDF content", content_type="application/pdf")
+        url = reverse('attachment-list')
+        response = self.client.post(url, {
+            'task': str(self.task1.id),
+            'subtask': str(self.subtask1.id),
+            'file': file_obj
+        }, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(str(response.data['subtask']), str(self.subtask1.id))
+
+    # 11. User can list attachments
+    def test_user_can_list_attachments(self):
+        file_obj = SimpleUploadedFile("list_doc.pdf", b"List PDF content", content_type="application/pdf")
+        TaskAttachment.objects.create(
+            task=self.task1,
+            file=file_obj,
+            original_name="list_doc.pdf",
+            mime_type="application/pdf",
+            size=16,
+            uploaded_by=self.member1
+        )
+        self.set_auth(self.member1_token)
+        url = reverse('attachment-list') + f'?task={self.task1.id}'
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['original_name'], 'list_doc.pdf')
+
+    # 12. Authorized user can download an attachment
+    def test_authorized_user_can_download_attachment(self):
+        file_obj = SimpleUploadedFile("download.pdf", b"Download content", content_type="application/pdf")
+        attachment = TaskAttachment.objects.create(
+            task=self.task1,
+            file=file_obj,
+            original_name="download.pdf",
+            mime_type="application/pdf",
+            size=16,
+            uploaded_by=self.member1
+        )
+        self.set_auth(self.member1_token)
+        url = reverse('attachment-download', args=[attachment.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(b"".join(response.streaming_content), b"Download content")
+
+    # 13. Unauthorized user cannot download an attachment
+    def test_unauthorized_user_cannot_download_attachment(self):
+        file_obj = SimpleUploadedFile("secret.pdf", b"Secret content", content_type="application/pdf")
+        attachment = TaskAttachment.objects.create(
+            task=self.task_isolated,
+            file=file_obj,
+            original_name="secret.pdf",
+            mime_type="application/pdf",
+            size=14,
+            uploaded_by=self.admin
+        )
+        self.set_auth(self.member2_token)
+        url = reverse('attachment-download', args=[attachment.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    # 14. Changing the attachment ID cannot expose another user's/task's file
+    def test_changing_attachment_id_cannot_expose_other_user_file(self):
+        file_obj = SimpleUploadedFile("private.pdf", b"Private data", content_type="application/pdf")
+        attachment = TaskAttachment.objects.create(
+            task=self.task_isolated,
+            file=file_obj,
+            original_name="private.pdf",
+            mime_type="application/pdf",
+            size=12,
+            uploaded_by=self.admin
+        )
+        self.set_auth(self.member1_token)
+        url = reverse('attachment-download', args=[attachment.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    # 15. Unsupported file types are rejected
+    def test_unsupported_file_types_are_rejected(self):
+        self.set_auth(self.member1_token)
+        bad_file = SimpleUploadedFile("malicious.exe", b"binary code", content_type="application/x-msdownload")
+        url = reverse('attachment-list')
+        response = self.client.post(url, {
+            'task': str(self.task1.id),
+            'file': bad_file
+        }, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['detail'], 'This file type is not supported.')
+
+    # 16. Oversized files are rejected
+    def test_oversized_files_are_rejected(self):
+        self.set_auth(self.member1_token)
+        # 26MB dummy file
+        large_content = b"0" * (26 * 1024 * 1024)
+        large_file = SimpleUploadedFile("big.pdf", large_content, content_type="application/pdf")
+        url = reverse('attachment-list')
+        response = self.client.post(url, {
+            'task': str(self.task1.id),
+            'file': large_file
+        }, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['detail'], 'File is too large.')
+
+    # 17. Authorized user can delete an attachment
+    def test_authorized_user_can_delete_attachment(self):
+        file_obj = SimpleUploadedFile("delete_me.pdf", b"Delete content", content_type="application/pdf")
+        attachment = TaskAttachment.objects.create(
+            task=self.task1,
+            file=file_obj,
+            original_name="delete_me.pdf",
+            mime_type="application/pdf",
+            size=14,
+            uploaded_by=self.member1
+        )
+        self.set_auth(self.member1_token)
+        url = reverse('attachment-detail', args=[attachment.id])
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(TaskAttachment.objects.filter(id=attachment.id).exists())
+
+
+
 
 

@@ -15,9 +15,6 @@ export const Projects: React.FC = () => {
   // Form fields
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [clientName, setClientName] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [dueDate, setDueDate] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   // Search, sort, and tab filters
@@ -54,9 +51,6 @@ export const Projects: React.FC = () => {
       setIsModalOpen(false);
       setName('');
       setDescription('');
-      setClientName('');
-      setStartDate('');
-      setDueDate('');
       setError(null);
     },
     onError: (err: any) => {
@@ -77,9 +71,6 @@ export const Projects: React.FC = () => {
     createProjectMutation.mutate({
       name,
       description,
-      client_name: clientName.trim() || null,
-      start_date: startDate || null,
-      due_date: dueDate || null,
     });
   };
 
@@ -89,8 +80,7 @@ export const Projects: React.FC = () => {
     if (!term) return true;
     const nameMatch = project.name.toLowerCase().includes(term);
     const descMatch = project.description?.toLowerCase().includes(term) ?? false;
-    const clientMatch = project.client_name?.toLowerCase().includes(term) ?? false;
-    return nameMatch || descMatch || clientMatch;
+    return nameMatch || descMatch;
   });
 
   // Split projects based on completeness rules:
@@ -380,12 +370,6 @@ export const Projects: React.FC = () => {
                   <Folder className="h-4 w-4 text-zinc-400 group-hover:text-black dark:group-hover:text-white shrink-0" />
                   <h3 className="font-semibold text-sm text-black dark:text-white truncate">{project.name}</h3>
                 </div>
-                {project.client_name && (
-                  <div className="text-[10px] font-bold text-zinc-450 dark:text-zinc-500 uppercase tracking-wider flex items-center gap-1 select-none">
-                    <span>💼</span>
-                    <span className="truncate">Client: {project.client_name}</span>
-                  </div>
-                )}
                 <p className="text-xs text-zinc-550 dark:text-zinc-400 line-clamp-2 leading-relaxed">
                   {project.description || 'No description provided.'}
                 </p>
@@ -467,47 +451,6 @@ export const Projects: React.FC = () => {
                   rows={2}
                   className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors resize-none"
                 />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider">
-                  Client Name
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Acme Corporation"
-                  value={clientName}
-                  onChange={(e) => setClientName(e.target.value)}
-                  disabled={createProjectMutation.isPending}
-                  className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider">
-                    Start Date
-                  </label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    disabled={createProjectMutation.isPending}
-                    className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider">
-                    Due Date
-                  </label>
-                  <input
-                    type="date"
-                    value={dueDate}
-                    onChange={(e) => setDueDate(e.target.value)}
-                    disabled={createProjectMutation.isPending}
-                    className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
-                  />
-                </div>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-900">

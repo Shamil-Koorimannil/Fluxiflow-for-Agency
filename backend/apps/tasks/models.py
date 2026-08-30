@@ -134,3 +134,71 @@ class TaskAssignmentHistory(models.Model):
     def __str__(self):
         item_name = self.task.name if self.task else (self.subtask.name if self.subtask else "None")
         return f"{self.user.name} was assigned to {item_name} ({self.assigned_at} to {self.unassigned_at})"
+
+
+class TaskComment(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='comments')
+    subtask = models.ForeignKey(SubTask, on_delete=models.CASCADE, null=True, blank=True, related_name='comments')
+    author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='task_comments')
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['created_at']
+        indexes = [
+            models.Index(fields=['task']),
+            models.Index(fields=['subtask']),
+            models.Index(fields=['created_at']),
+        ]
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        super().clean()
+        if self.subtask and self.subtask.task_id != self.task_id:
+            raise ValidationError("Subtask does not belong to the specified task.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        target = f"Subtask {self.subtask_id}" if self.subtask_id else f"Task {self.task_id}"
+        return f"Comment by {self.author} on {target}"
+
+
+class TaskAttachment(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='attachments')
+    subtask = models.ForeignKey(SubTask, on_delete=models.CASCADE, null=True, blank=True, related_name='attachments')
+    file = models.FileField(upload_to='task_attachments/')
+    original_name = models.CharField(max_length=255)
+    mime_type = models.CharField(max_length=100)
+    size = models.BigIntegerField()
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='uploaded_attachments')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['task']),
+            models.Index(fields=['subtask']),
+            models.Index(fields=['created_at']),
+        ]
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        super().clean()
+        if self.subtask and self.subtask.task_id != self.task_id:
+            raise ValidationError("Subtask does not belong to the specified task.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        target = f"Subtask {self.subtask_id}" if self.subtask_id else f"Task {self.task_id}"
+        return f"Attachment '{self.original_name}' on {target}"
+

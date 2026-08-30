@@ -5,8 +5,8 @@ import type { Task, TeamWorkload } from '../../types';
 import { TaskDetailPanel } from '../tasks/TaskDetailPanel';
 import { TaskFormModal } from '../tasks/TaskFormModal';
 import { classifyTask } from '../../utils/taskClassifier';
-import { TaskDatePicker } from '../tasks/TaskDatePicker';
 import { PasteTasksModal } from '../tasks/PasteTasksModal';
+import { TaskCard } from '../tasks/TaskCard';
 import {
   Drawer,
   Box,
@@ -21,8 +21,6 @@ import {
 } from '@mui/material';
 import {
   X,
-  CheckCircle2,
-  Circle,
   HelpCircle,
   Plus,
 } from 'lucide-react';
@@ -51,8 +49,8 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
-  // Filter state: 'all' | 'today' | 'tomorrow' | 'upcoming' | 'overdue' | 'no_due_date' | 'completed'
-  type FilterType = 'all' | 'today' | 'tomorrow' | 'upcoming' | 'overdue' | 'no_due_date' | 'completed';
+  // Filter state: 'all' | 'incompleted' | 'today' | 'tomorrow' | 'upcoming' | 'overdue' | 'no_due_date' | 'completed'
+  type FilterType = 'all' | 'incompleted' | 'today' | 'tomorrow' | 'upcoming' | 'overdue' | 'no_due_date' | 'completed';
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
 
   // Selected task to view detail panel
@@ -126,6 +124,9 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
     // 2. Filter based on activeFilter tab using local calendar date classifier
     if (activeFilter === 'all') {
       return deduplicated;
+    }
+    if (activeFilter === 'incompleted') {
+      return deduplicated.filter((task) => task.status !== 'COMPLETED');
     }
     return deduplicated.filter((task) => classifyTask(task) === activeFilter);
   }, [allTasksRaw, activeFilter]);
@@ -256,18 +257,7 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
     return 'error';
   };
 
-  const getPriorityBorder = (priority: string | null) => {
-    switch (priority) {
-      case 'HIGH':
-        return 'border-l-4 border-red-500';
-      case 'MEDIUM':
-        return 'border-l-4 border-amber-500';
-      case 'LOW':
-        return 'border-l-4 border-blue-500';
-      default:
-        return 'border-l-4 border-zinc-200 dark:border-zinc-800';
-    }
-  };
+
 
   if (!memberId) return null;
 
@@ -534,9 +524,10 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
                       {areAllVisibleSelected ? 'Deselect All' : 'Select All'}
                     </button>
                   )}
-                </Box>                {/* Filter Pills */}
+                </Box>
+                {/* Filter Pills */}
                 <Box className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-                  {(['all', 'today', 'tomorrow', 'upcoming', 'overdue', 'no_due_date', 'completed'] as const).map((filter) => (
+                  {(['all', 'incompleted', 'today', 'tomorrow', 'upcoming', 'overdue', 'no_due_date', 'completed'] as const).map((filter) => (
                     <button
                       key={filter}
                       onClick={() => setActiveFilter(filter)}
@@ -546,7 +537,8 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
                           : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-650 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-white/10'
                       }`}
                     >
-                      {filter === 'no_due_date' ? 'No Due Date' : 
+                      {filter === 'incompleted' ? 'Incompleted Tasks' :
+                       filter === 'no_due_date' ? 'No Due Date' : 
                        filter === 'overdue' ? 'Overdue' : 
                        filter === 'all' ? 'All' :
                        filter === 'today' ? 'Today' :
@@ -566,7 +558,7 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
                 ) : !tasks || tasks.length === 0 ? (
                   <Box className="flex flex-col items-center justify-center border border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl p-8 text-center bg-zinc-50/20 dark:bg-black/10">
                     <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.secondary' }}>
-                      No tasks found
+                      {activeFilter === 'incompleted' ? 'No incompleted tasks' : 'No tasks found'}
                     </Typography>
                     <Typography variant="caption" sx={{ color: 'text.secondary', mt: 0.5 }}>
                       There are no assigned tasks in this category.
@@ -574,94 +566,25 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
                   </Box>
                 ) : (
                   <Box className="space-y-2">
-                    {tasks.map((task) => {
-                      const isSelected = selectedTaskIds.includes(task.id);
-                      return (
-                        <Box
-                          key={task.id}
-                          className={`bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 flex items-center justify-between gap-3 hover:border-black dark:hover:border-zinc-100 transition-all cursor-pointer ${getPriorityBorder(
-                            task.priority
-                          )}`}
-                          onClick={() => setSelectedTaskId(task.id)}
-                        >
-                          <Box className="flex items-center gap-2.5 min-w-0 flex-1">
-                            {/* Checkbox */}
-                            <button
-                              type="button"
-                              disabled={
-                                completeTaskMutation.isPending ||
-                                reopenTaskMutation.isPending
-                              }
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (task.status === 'COMPLETED') {
-                                  reopenTaskMutation.mutate(task.id);
-                                } else {
-                                  completeTaskMutation.mutate(task.id);
-                                }
-                              }}
-                              className="text-zinc-450 hover:text-black dark:hover:text-white shrink-0 transition-all duration-200 active:scale-90"
-                            >
-                              {task.status === 'COMPLETED' ? (
-                                <CheckCircle2 className="h-4.5 w-4.5 text-green-550 dark:text-green-400 shrink-0" />
-                              ) : (
-                                <Circle className="h-4.5 w-4.5 shrink-0" />
-                              )}
-                            </button>
- 
-                            {/* Details */}
-                            <Box className="min-w-0 flex-1">
-                              <h4
-                                className={`text-xs font-semibold truncate ${
-                                  task.status === 'COMPLETED'
-                                    ? 'line-through text-zinc-450 dark:text-zinc-550'
-                                    : 'text-black dark:text-zinc-200'
-                                }`}
-                              >
-                                {task.name}
-                              </h4>
-                              <Box className="flex items-center gap-2 flex-wrap text-[10px] text-zinc-400 mt-0.5">
-                                <TaskDatePicker task={task} />
-                                {task.project_detail && (
-                                  <span className="font-semibold text-zinc-555 dark:text-zinc-450 uppercase tracking-wide">
-                                    {task.project_detail.name}
-                                  </span>
-                                )}
-                              </Box>
-                            </Box>
-                          </Box>
- 
-                          {/* Priority Badge */}
-                          {task.priority && (
-                            <span
-                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wider shrink-0 ${
-                                task.priority === 'HIGH'
-                                  ? 'text-red-650 bg-red-50 dark:bg-red-950/20 dark:text-red-400'
-                                  : task.priority === 'MEDIUM'
-                                  ? 'text-amber-600 bg-amber-50 dark:bg-amber-950/20 dark:text-amber-400'
-                                  : 'text-blue-650 bg-blue-50 dark:bg-blue-950/20 dark:text-blue-400'
-                              }`}
-                            >
-                              {task.priority}
-                            </span>
-                          )}
-
-                          {/* Selection Checkbox (Moved to right) */}
-                          <div className="flex items-center shrink-0 px-1" onClick={(e) => e.stopPropagation()}>
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleToggleSelect(task.id, e.shiftKey);
-                              }}
-                              onChange={() => {}}
-                              className="rounded border-zinc-300 dark:border-zinc-700 text-black focus:ring-black focus:ring-0 cursor-pointer w-4 h-4"
-                            />
-                          </div>
-                        </Box>
-                      );
-                    })}
+                    {tasks.map((task) => (
+                      <TaskCard
+                        key={task.id}
+                        task={task}
+                        currentUser={currentUser}
+                        isAdmin={isAdmin}
+                        onOpenDetail={(id) => setSelectedTaskId(id)}
+                        onToggleComplete={(targetTask) => {
+                          if (targetTask.status === 'COMPLETED') {
+                            reopenTaskMutation.mutate(targetTask.id);
+                          } else {
+                            completeTaskMutation.mutate(targetTask.id);
+                          }
+                        }}
+                        isMutating={completeTaskMutation.isPending || reopenTaskMutation.isPending}
+                        isSelected={selectedTaskIds.includes(task.id)}
+                        onToggleSelect={handleToggleSelect}
+                      />
+                    ))}
                   </Box>
                 )}
               </Box>
