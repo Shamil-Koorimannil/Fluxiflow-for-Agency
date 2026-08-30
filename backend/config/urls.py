@@ -9,6 +9,9 @@ from django.conf.urls.static import static
 urlpatterns = [
     path('admin/', admin.site.urls),
     
+    # Keep API endpoints
+    path('api/keep/', include('apps.keep.urls')),
+    
     # API endpoints from local apps
     path('api/', include('apps.accounts.urls')),
     path('api/', include('apps.projects.urls')),

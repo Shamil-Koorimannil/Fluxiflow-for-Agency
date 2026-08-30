@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'apps.core.apps.CoreConfig',
     'apps.notifications.apps.NotificationsConfig',
     'apps.reports.apps.ReportsConfig',
+    'apps.keep.apps.KeepConfig',
 ]
 
 MIDDLEWARE = [

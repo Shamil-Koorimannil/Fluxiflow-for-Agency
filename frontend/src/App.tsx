@@ -18,6 +18,7 @@ import { ActivityLog } from './features/activity/ActivityLog';
 import { Search } from './features/search/Search';
 import { Profile } from './features/profile/Profile';
 import { Reports } from './features/reports/Reports';
+import { Keep } from './features/keep/Keep';
 
 // Create a client for React Query
 const queryClient = new QueryClient({
@@ -181,6 +182,7 @@ function App() {
                   <Route path="projects/:id" element={<ProjectDetail />} />
                   <Route path="search" element={<Search />} />
                   <Route path="profile" element={<Profile />} />
+                  <Route path="keep/*" element={<Keep />} />
 
                   {/* Admin-Only Routes */}
                   <Route

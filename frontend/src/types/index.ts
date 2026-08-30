@@ -191,3 +191,111 @@ export interface TaskAttachment {
   updated_at: string;
 }
 
+export type KeepItemType = 'FOLDER' | 'DOCUMENT' | 'NOTE' | 'SPREADSHEET';
+export type KeepAccessLevel = 'ONLY_ME' | 'YOU_AND_ADMINS' | 'EVERYONE' | 'SPECIFIC';
+export type KeepRole = 'VIEW' | 'EDIT';
+
+export interface KeepCellFormat {
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strikethrough?: boolean;
+  fontSize?: number;
+  color?: string;
+  bgColor?: string;
+  align?: 'left' | 'center' | 'right';
+  type?: 'text' | 'number' | 'currency' | 'percentage' | 'date';
+}
+
+export interface KeepCellData {
+  value: string;
+  formula?: string;
+  format?: KeepCellFormat;
+}
+
+export interface KeepSheet {
+  id: string;
+  name: string;
+  frozenRows?: number;
+  frozenCols?: number;
+  cells: Record<string, KeepCellData>;
+  rowHeights?: Record<number, number>;
+  colWidths?: Record<number, number>;
+}
+
+export interface KeepSpreadsheetData {
+  sheets: KeepSheet[];
+}
+
+export interface KeepItem {
+  id: string;
+  item_type: KeepItemType;
+  name: string;
+  version: number;
+  owner: string;
+  owner_name?: string;
+  organization?: string | null;
+  parent_folder?: string | null;
+  document_content?: string;
+  spreadsheet_data?: KeepSpreadsheetData;
+  original_import_filename?: string | null;
+  original_import_format?: string | null;
+  imported_by?: string | null;
+  imported_at?: string | null;
+  import_warnings?: string[];
+  is_deleted: boolean;
+  deleted_at?: string | null;
+  created_by: string;
+  created_by_name?: string;
+  updated_by?: string | null;
+  created_at: string;
+  updated_at: string;
+  is_pinned?: boolean;
+}
+
+export interface KeepPermission {
+  id: string;
+  item: string;
+  user?: string | null;
+  user_email?: string;
+  user_name?: string;
+  access_level: KeepAccessLevel;
+  role: KeepRole;
+  created_at: string;
+}
+
+export interface KeepShareLink {
+  id: string;
+  item: string;
+  token: string;
+  permission: KeepRole;
+  is_active: boolean;
+  expires_at?: string | null;
+  created_by: string;
+  created_by_name?: string;
+  created_at: string;
+  revoked_at?: string | null;
+}
+
+export interface KeepVersionHistory {
+  id: string;
+  item: string;
+  author?: string | null;
+  author_name?: string;
+  version_number: number;
+  content_snapshot?: string;
+  spreadsheet_snapshot?: KeepSpreadsheetData;
+  created_at: string;
+}
+
+export interface KeepAuditLog {
+  id: string;
+  item?: string | null;
+  item_name?: string;
+  user?: string | null;
+  user_name?: string;
+  action: string;
+  description: string;
+  timestamp: string;
+}
+
