@@ -49,6 +49,30 @@ export const Login: React.FC = () => {
     return () => clearTimeout(timer);
   }, [resendCountdown]);
 
+  const extractErrorMessage = (err: any, fallbackMessage: string): string => {
+    if (!err) return fallbackMessage;
+    if (err.response?.data) {
+      const data = err.response.data;
+      if (typeof data === 'string') return data;
+      if (data.detail && typeof data.detail === 'string') return data.detail;
+      if (data.message && typeof data.message === 'string') return data.message;
+      if (data.error && typeof data.error === 'string') return data.error;
+      for (const key of Object.keys(data)) {
+        const val = data[key];
+        if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'string') {
+          return val[0];
+        }
+        if (typeof val === 'string') {
+          return val;
+        }
+      }
+    }
+    if (err.message && err.message !== 'Network Error') {
+      return err.message;
+    }
+    return fallbackMessage;
+  };
+
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim()) {
@@ -66,11 +90,7 @@ export const Login: React.FC = () => {
       setResendCountdown(60);
       setSuccess('Verification code sent successfully.');
     } catch (err: any) {
-      if (err.response?.data?.detail) {
-        setError(err.response.data.detail);
-      } else {
-        setError('Failed to send verification code. Please verify your connection.');
-      }
+      setError(extractErrorMessage(err, 'Failed to send verification code. Please verify your connection or try password login.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -91,11 +111,7 @@ export const Login: React.FC = () => {
       await loginWithPassword(email.trim().toLowerCase(), password, rememberMe);
       navigate(from, { replace: true });
     } catch (err: any) {
-      if (err.response?.data?.detail) {
-        setError(err.response.data.detail);
-      } else {
-        setError('Incorrect email or password. Please try again.');
-      }
+      setError(extractErrorMessage(err, 'Incorrect email or password. Please try again.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -120,11 +136,7 @@ export const Login: React.FC = () => {
       await login(email.trim().toLowerCase(), otp.trim(), rememberMe);
       navigate(from, { replace: true });
     } catch (err: any) {
-      if (err.response?.data?.detail) {
-        setError(err.response.data.detail);
-      } else {
-        setError('That code is incorrect or expired. Please try again.');
-      }
+      setError(extractErrorMessage(err, 'That code is incorrect or expired. Please try again.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -143,11 +155,7 @@ export const Login: React.FC = () => {
       setSuccess('A new verification code has been sent.');
       setOtp('');
     } catch (err: any) {
-      if (err.response?.data?.detail) {
-        setError(err.response.data.detail);
-      } else {
-        setError('Failed to resend verification code. Please wait and try again.');
-      }
+      setError(extractErrorMessage(err, 'Failed to resend verification code. Please wait and try again.'));
     } finally {
       setIsSubmitting(false);
     }
