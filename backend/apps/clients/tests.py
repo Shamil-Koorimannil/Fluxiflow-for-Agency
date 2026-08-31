@@ -154,3 +154,49 @@ class ClientManagementTestSuite(TestCase):
         # 3. Org B Admin trying to access asset
         res_org2_asset = self.client_admin2.get(f'/api/client-brand-assets/{asset_id}/')
         self.assertEqual(res_org2_asset.status_code, status.HTTP_404_NOT_FOUND)
+
+    # 8. Add Existing Projects to Client
+    def test_add_existing_project_to_client(self):
+        client_obj = Client.objects.create(organization=self.org1, name='Mouzy Corp')
+        p1 = Project.objects.create(name='Unassigned P1', organization=self.org1, created_by=self.admin1)
+        p2 = Project.objects.create(name='Unassigned P2', organization=self.org1, created_by=self.admin1)
+
+        # GET unassigned projects
+        res_unassigned = self.client_admin1.get(f'/api/clients/unassigned-projects/?client_id={client_obj.id}')
+        self.assertEqual(res_unassigned.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_unassigned.data), 2)
+
+        # Associate p1 and p2 with client_obj
+        res_add = self.client_admin1.post(f'/api/clients/{client_obj.id}/projects/add-existing/', {
+            'project_ids': [str(p1.id), str(p2.id)]
+        }, format='json')
+        self.assertEqual(res_add.status_code, status.HTTP_200_OK)
+        
+        # Verify p1.client is client_obj
+        p1.refresh_from_db()
+        self.assertEqual(p1.client, client_obj)
+
+    # 9. Remove Project from Client
+    def test_remove_project_from_client(self):
+        client_obj = Client.objects.create(organization=self.org1, name='Mouzy Corp')
+        p1 = Project.objects.create(name='Assigned P1', organization=self.org1, created_by=self.admin1, client=client_obj)
+
+        res_rem = self.client_admin1.delete(f'/api/clients/{client_obj.id}/projects/{p1.id}/')
+        self.assertEqual(res_rem.status_code, status.HTTP_200_OK)
+
+        p1.refresh_from_db()
+        self.assertIsNone(p1.client)
+        # Project itself still exists!
+        self.assertTrue(Project.objects.filter(id=p1.id).exists())
+
+    # 10. Cross Organization Project Association Blocked
+    def test_cross_organization_project_association_blocked(self):
+        client_org1 = Client.objects.create(organization=self.org1, name='Org 1 Client')
+        p_org2 = Project.objects.create(name='Org 2 Project', organization=self.org2, created_by=self.admin2)
+
+        # Admin 1 trying to add Org 2 project to Org 1 Client
+        res_cross = self.client_admin1.post(f'/api/clients/{client_org1.id}/projects/add-existing/', {
+            'project_ids': [str(p_org2.id)]
+        }, format='json')
+        self.assertEqual(res_cross.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("do not belong to your organization", res_cross.data['detail'])

@@ -1,19 +1,37 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
   ArrowLeft, Edit, Plus, Folder, FileText, Download, Trash2, Mail, Phone, Globe, MapPin,
-  RefreshCw, AlertCircle, Upload
+  RefreshCw, AlertCircle, Upload, Link2, ExternalLink, Unlink
 } from 'lucide-react';
 import type { Client, Project, ClientBrandAsset } from '../../types';
 import { api } from '../../services/api';
 import { ClientFormModal } from './ClientFormModal';
 import { BrandAssetUploadModal } from './BrandAssetUploadModal';
 import { ProjectFormModal } from '../projects/ProjectFormModal';
+import { AddExistingProjectModal } from './AddExistingProjectModal';
 
-export const ClientDetail: React.FC = () => {
+interface ClientDetailProps {
+  viewMode?: 'full' | 'projects-only' | 'brand-assets-only';
+}
+
+export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMode }) => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // Determine effective view mode
+  let viewMode = propViewMode;
+  if (!viewMode) {
+    if (location.pathname.endsWith('/projects')) {
+      viewMode = 'projects-only';
+    } else if (location.pathname.endsWith('/brand-assets')) {
+      viewMode = 'brand-assets-only';
+    } else {
+      viewMode = 'full';
+    }
+  }
 
   const activeTab = searchParams.get('tab') === 'assets' ? 'assets' : 'projects';
 
@@ -27,6 +45,7 @@ export const ClientDetail: React.FC = () => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isAssetUploadModalOpen, setIsAssetUploadModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+  const [isAddExistingModalOpen, setIsAddExistingModalOpen] = useState(false);
 
   const fetchClientDetails = useCallback(async () => {
     if (!id) return;
@@ -84,11 +103,24 @@ export const ClientDetail: React.FC = () => {
     }
   };
 
+  const handleRemoveProject = async (project: Project, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!client) return;
+    if (!confirm(`Remove this project from ${client.name}? The project will not be deleted.`)) return;
+
+    try {
+      await api.delete(`/clients/${client.id}/projects/${project.id}/`);
+      fetchClientDetails();
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || 'Failed to remove project from client.');
+    }
+  };
+
   const handleDeleteAsset = async (assetId: string, assetName: string) => {
     if (!confirm(`Are you sure you want to delete brand asset "${assetName}"?`)) return;
     try {
       await api.delete(`/client-brand-assets/${assetId}/`);
-      setBrandAssets(prev => prev.filter(a => a.id !== assetId));
+      fetchClientDetails();
     } catch (err) {
       alert('Failed to delete brand asset.');
     }
@@ -145,6 +177,276 @@ export const ClientDetail: React.FC = () => {
     );
   }
 
+  // Render Projects Grid (Reusable component logic)
+  const renderProjectsGrid = () => (
+    <div>
+      {projects.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 text-center border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl bg-white/40 dark:bg-zinc-900/20 p-6">
+          <Folder className="h-8 w-8 text-zinc-400 mb-2" />
+          <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1">No projects associated with this client</p>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">Create a new project or add an existing project from your organization.</p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsProjectModalOpen(true)}
+              className="px-3 py-1.5 bg-black dark:bg-white text-white dark:text-black text-xs font-semibold rounded-xl"
+            >
+              + Add New Project
+            </button>
+            <button
+              onClick={() => setIsAddExistingModalOpen(true)}
+              className="px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 text-xs font-semibold rounded-xl"
+            >
+              Add Existing Project
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {projects.map(p => (
+            <div
+              key={p.id}
+              onClick={() => navigate(`/app/projects/${p.id}`)}
+              className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 hover:shadow-lg hover:border-blue-500/40 transition-all cursor-pointer flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <h3 className="font-bold text-sm text-zinc-900 dark:text-zinc-100 hover:text-blue-500 transition-colors">
+                    {p.name}
+                  </h3>
+                  <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/app/projects/${p.id}`);
+                      }}
+                      className="p-1 rounded text-zinc-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
+                      title="Open Project"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={(e) => handleRemoveProject(p, e)}
+                      className="p-1 rounded text-zinc-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
+                      title="Remove from Client"
+                    >
+                      <Unlink className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+                {p.description && (
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 line-clamp-2 mb-3">
+                    {p.description}
+                  </p>
+                )}
+              </div>
+
+              <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between text-xs text-zinc-500 font-medium">
+                <span>{p.task_count || 0} Tasks</span>
+                <span>{p.progress !== null ? `${p.progress}% Progress` : 'No tasks yet'}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  // Render Brand Assets Table (Reusable component logic)
+  const renderBrandAssetsTable = () => (
+    <div>
+      {brandAssets.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 text-center border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl bg-white/40 dark:bg-zinc-900/20 p-6">
+          <FileText className="h-8 w-8 text-zinc-400 mb-2" />
+          <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1">No brand assets uploaded yet</p>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">Upload logos, brand books, typography specs, or guideline PDFs for team access.</p>
+          <button
+            onClick={() => setIsAssetUploadModalOpen(true)}
+            className="px-3 py-1.5 bg-purple-600 text-white text-xs font-semibold rounded-xl"
+          >
+            + Upload First Asset
+          </button>
+        </div>
+      ) : (
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-zinc-50 dark:bg-zinc-950 text-zinc-500 dark:text-zinc-400 font-semibold border-b border-zinc-200 dark:border-zinc-800">
+                <tr>
+                  <th className="py-3 px-4">Asset Name</th>
+                  <th className="py-3 px-4">Category</th>
+                  <th className="py-3 px-4">File Size</th>
+                  <th className="py-3 px-4">Uploaded By</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60 text-zinc-800 dark:text-zinc-200">
+                {brandAssets.map(asset => (
+                  <tr key={asset.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/40 transition-colors">
+                    <td className="py-3 px-4 font-semibold">
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-4 w-4 text-purple-500 flex-shrink-0" />
+                        <span className="truncate max-w-xs">{asset.name}</span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 text-[10px] font-semibold border border-purple-200 dark:border-purple-800">
+                        {asset.asset_type.replace('_', ' ')}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 font-mono text-zinc-500">
+                      {formatFileSize(asset.file_size)}
+                    </td>
+                    <td className="py-3 px-4 text-zinc-500">
+                      {asset.uploaded_by_name || 'Admin'}
+                    </td>
+                    <td className="py-3 px-4 text-right space-x-1">
+                      <button
+                        onClick={() => handleDownloadAsset(asset)}
+                        className="p-1.5 text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+                        title="Download Asset"
+                      >
+                        <Download className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteAsset(asset.id, asset.name)}
+                        className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors"
+                        title="Delete Asset"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // -------------------------------------------------------------
+  // FOCUSED MODE 1: Projects Only View (/app/clients/:id/projects)
+  // -------------------------------------------------------------
+  if (viewMode === 'projects-only') {
+    return (
+      <div className="flex-1 flex flex-col h-full bg-zinc-50/50 dark:bg-zinc-950 overflow-y-auto p-6 md:p-10">
+        {/* Back button */}
+        <div className="mb-6">
+          <button
+            onClick={() => navigate('/app/clients')}
+            className="flex items-center gap-2 text-xs font-semibold text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" /> Back to Clients
+          </button>
+        </div>
+
+        {/* Focused Title & Actions */}
+        <div className="flex items-center justify-between gap-4 mb-6">
+          <div>
+            <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">
+              {client.name} — Projects
+            </h1>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              Manage projects associated with {client.name}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsProjectModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-colors shadow-sm"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>Add Project</span>
+            </button>
+            <button
+              onClick={() => setIsAddExistingModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-semibold rounded-xl transition-colors shadow-sm"
+            >
+              <Link2 className="h-3.5 w-3.5" />
+              <span>Add Existing Project</span>
+            </button>
+          </div>
+        </div>
+
+        <hr className="border-zinc-200 dark:border-zinc-800 mb-6" />
+
+        {renderProjectsGrid()}
+
+        {/* Modals */}
+        <ProjectFormModal
+          isOpen={isProjectModalOpen}
+          onClose={() => setIsProjectModalOpen(false)}
+          preselectedClientId={client.id}
+          onProjectCreated={() => fetchClientDetails()}
+        />
+
+        <AddExistingProjectModal
+          isOpen={isAddExistingModalOpen}
+          onClose={() => setIsAddExistingModalOpen(false)}
+          clientId={client.id}
+          clientName={client.name}
+          onProjectsAdded={() => fetchClientDetails()}
+        />
+      </div>
+    );
+  }
+
+  // -----------------------------------------------------------------
+  // FOCUSED MODE 2: Brand Assets Only View (/app/clients/:id/brand-assets)
+  // -----------------------------------------------------------------
+  if (viewMode === 'brand-assets-only') {
+    return (
+      <div className="flex-1 flex flex-col h-full bg-zinc-50/50 dark:bg-zinc-950 overflow-y-auto p-6 md:p-10">
+        {/* Back button */}
+        <div className="mb-6">
+          <button
+            onClick={() => navigate('/app/clients')}
+            className="flex items-center gap-2 text-xs font-semibold text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" /> Back to Clients
+          </button>
+        </div>
+
+        {/* Focused Title & Actions */}
+        <div className="flex items-center justify-between gap-4 mb-6">
+          <div>
+            <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">
+              {client.name} — Brand Assets
+            </h1>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              Manage brand guidelines, logos, and materials for {client.name}
+            </p>
+          </div>
+
+          <button
+            onClick={() => setIsAssetUploadModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-xl transition-colors shadow-sm"
+          >
+            <Upload className="h-3.5 w-3.5" />
+            <span>Upload Brand Asset</span>
+          </button>
+        </div>
+
+        <hr className="border-zinc-200 dark:border-zinc-800 mb-6" />
+
+        {renderBrandAssetsTable()}
+
+        {/* Modals */}
+        <BrandAssetUploadModal
+          isOpen={isAssetUploadModalOpen}
+          clientId={client.id}
+          onClose={() => setIsAssetUploadModalOpen(false)}
+          onAssetUploaded={() => fetchClientDetails()}
+        />
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------
+  // FULL OVERVIEW MODE (/app/clients/:id)
+  // -------------------------------------------------------------
   return (
     <div className="flex-1 flex flex-col h-full bg-zinc-50/50 dark:bg-zinc-950 overflow-y-auto p-6 md:p-10">
       {/* Back Button & Header Actions */}
@@ -295,54 +597,25 @@ export const ClientDetail: React.FC = () => {
             <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
               Client Projects
             </h2>
-            <button
-              onClick={() => setIsProjectModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-colors shadow-sm"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span>Add Project</span>
-            </button>
-          </div>
-
-          {projects.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl bg-white/40 dark:bg-zinc-900/20 p-6">
-              <Folder className="h-8 w-8 text-zinc-400 mb-2" />
-              <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1">No projects associated with this client</p>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">Create a new project to start tracking agency tasks and deliverables.</p>
+            <div className="flex items-center gap-2">
               <button
                 onClick={() => setIsProjectModalOpen(true)}
-                className="px-3 py-1.5 bg-black dark:bg-white text-white dark:text-black text-xs font-semibold rounded-xl"
+                className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-colors shadow-sm"
               >
-                + Add First Project
+                <Plus className="h-3.5 w-3.5" />
+                <span>Add Project</span>
+              </button>
+              <button
+                onClick={() => setIsAddExistingModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-semibold rounded-xl transition-colors shadow-sm"
+              >
+                <Link2 className="h-3.5 w-3.5" />
+                <span>Add Existing Project</span>
               </button>
             </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {projects.map(p => (
-                <div
-                  key={p.id}
-                  onClick={() => navigate(`/app/projects/${p.id}`)}
-                  className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 hover:shadow-lg hover:border-blue-500/40 transition-all cursor-pointer flex flex-col justify-between"
-                >
-                  <div>
-                    <h3 className="font-bold text-sm text-zinc-900 dark:text-zinc-100 mb-1 hover:text-blue-500 transition-colors">
-                      {p.name}
-                    </h3>
-                    {p.description && (
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400 line-clamp-2 mb-3">
-                        {p.description}
-                      </p>
-                    )}
-                  </div>
+          </div>
 
-                  <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between text-xs text-zinc-500 font-medium">
-                    <span>{p.task_count || 0} Tasks</span>
-                    <span>{p.progress !== null ? `${p.progress}% Progress` : 'No tasks yet'}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          {renderProjectsGrid()}
         </div>
       )}
 
@@ -362,74 +635,7 @@ export const ClientDetail: React.FC = () => {
             </button>
           </div>
 
-          {brandAssets.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl bg-white/40 dark:bg-zinc-900/20 p-6">
-              <FileText className="h-8 w-8 text-zinc-400 mb-2" />
-              <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1">No brand assets uploaded yet</p>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">Upload logos, brand books, typography specs, or guideline PDFs for team access.</p>
-              <button
-                onClick={() => setIsAssetUploadModalOpen(true)}
-                className="px-3 py-1.5 bg-purple-600 text-white text-xs font-semibold rounded-xl"
-              >
-                + Upload First Asset
-              </button>
-            </div>
-          ) : (
-            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-zinc-50 dark:bg-zinc-950 text-zinc-500 dark:text-zinc-400 font-semibold border-b border-zinc-200 dark:border-zinc-800">
-                    <tr>
-                      <th className="py-3 px-4">Asset Name</th>
-                      <th className="py-3 px-4">Category</th>
-                      <th className="py-3 px-4">File Size</th>
-                      <th className="py-3 px-4">Uploaded By</th>
-                      <th className="py-3 px-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60 text-zinc-800 dark:text-zinc-200">
-                    {brandAssets.map(asset => (
-                      <tr key={asset.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/40 transition-colors">
-                        <td className="py-3 px-4 font-semibold">
-                          <div className="flex items-center gap-2">
-                            <FileText className="h-4 w-4 text-purple-500 flex-shrink-0" />
-                            <span className="truncate max-w-xs">{asset.name}</span>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 text-[10px] font-semibold border border-purple-200 dark:border-purple-800">
-                            {asset.asset_type.replace('_', ' ')}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 font-mono text-zinc-500">
-                          {formatFileSize(asset.file_size)}
-                        </td>
-                        <td className="py-3 px-4 text-zinc-500">
-                          {asset.uploaded_by_name || 'Admin'}
-                        </td>
-                        <td className="py-3 px-4 text-right space-x-1">
-                          <button
-                            onClick={() => handleDownloadAsset(asset)}
-                            className="p-1.5 text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg transition-colors"
-                            title="Download Asset"
-                          >
-                            <Download className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteAsset(asset.id, asset.name)}
-                            className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors"
-                            title="Delete Asset"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+          {renderBrandAssetsTable()}
         </div>
       )}
 
@@ -452,12 +658,21 @@ export const ClientDetail: React.FC = () => {
         onAssetUploaded={() => fetchClientDetails()}
       />
 
-      {/* Add Project Modal */}
+      {/* Add New Project Modal */}
       <ProjectFormModal
         isOpen={isProjectModalOpen}
         onClose={() => setIsProjectModalOpen(false)}
         preselectedClientId={client.id}
         onProjectCreated={() => fetchClientDetails()}
+      />
+
+      {/* Add Existing Project Modal */}
+      <AddExistingProjectModal
+        isOpen={isAddExistingModalOpen}
+        onClose={() => setIsAddExistingModalOpen(false)}
+        clientId={client.id}
+        clientName={client.name}
+        onProjectsAdded={() => fetchClientDetails()}
       />
     </div>
   );

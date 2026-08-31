@@ -7,5 +7,7 @@ router.register(r'clients', ClientViewSet, basename='client')
 router.register(r'client-brand-assets', ClientBrandAssetViewSet, basename='client-brand-asset')
 
 urlpatterns = [
+    path('clients/<uuid:pk>/projects/add-existing/', ClientViewSet.as_view({'post': 'add_existing_projects'}), name='client-projects-add-existing'),
+    path('clients/<uuid:pk>/projects/<uuid:project_id>/', ClientViewSet.as_view({'delete': 'remove_project'}), name='client-projects-remove'),
     path('', include(router.urls)),
 ]

@@ -199,7 +199,23 @@ function App() {
                     path="clients/:id"
                     element={
                       <ProtectedRoute requiredRole="ADMIN">
-                        <ClientDetail />
+                        <ClientDetail viewMode="full" />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="clients/:id/projects"
+                    element={
+                      <ProtectedRoute requiredRole="ADMIN">
+                        <ClientDetail viewMode="projects-only" />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="clients/:id/brand-assets"
+                    element={
+                      <ProtectedRoute requiredRole="ADMIN">
+                        <ClientDetail viewMode="brand-assets-only" />
                       </ProtectedRoute>
                     }
                   />

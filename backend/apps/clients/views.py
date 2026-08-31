@@ -119,6 +119,88 @@ class ClientViewSet(viewsets.ModelViewSet):
         serializer = ProjectSerializer(projects_qs, many=True)
         return Response(serializer.data)
 
+    @action(detail=True, methods=['post'], url_path='add-existing-projects')
+    def add_existing_projects(self, request, pk=None):
+        client = self.get_object()
+        project_ids = request.data.get('project_ids')
+        if not project_ids and request.data.get('project_id'):
+            project_ids = [request.data.get('project_id')]
+
+        if not project_ids or not isinstance(project_ids, list):
+            return Response(
+                {"detail": "Please provide a list of project IDs as 'project_ids'."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Enforce strict organization check: All projects MUST belong to the user's organization
+        from apps.projects.models import Project
+        projects = Project.objects.filter(id__in=project_ids, organization=client.organization)
+
+        if projects.count() != len(set(project_ids)):
+            return Response(
+                {"detail": "One or more projects do not exist or do not belong to your organization."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Associate projects with client
+        projects.update(client=client)
+
+        for proj in projects:
+            ActivityLog.objects.create(
+                user=request.user,
+                action='PROFILE_UPDATED',
+                entity_type='Project',
+                entity_id=proj.id,
+                description=f"Associated project '{proj.name}' with client '{client.name}'"
+            )
+
+        return Response(ProjectSerializer(projects, many=True).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['delete'], url_path='remove-project/(?P<project_id>[^/.]+)')
+    def remove_project(self, request, pk=None, project_id=None):
+        client = self.get_object()
+        from apps.projects.models import Project
+        project = get_object_or_404(Project, id=project_id, organization=client.organization, client=client)
+
+        project.client = None
+        project.save(update_fields=['client'])
+
+        ActivityLog.objects.create(
+            user=request.user,
+            action='PROFILE_UPDATED',
+            entity_type='Project',
+            entity_id=project.id,
+            description=f"Removed project '{project.name}' from client '{client.name}'"
+        )
+        return Response({"detail": "Project association removed successfully."}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='unassigned-projects')
+    def unassigned_projects(self, request):
+        user = request.user
+        if not user.is_authenticated or getattr(user, 'role', None) != 'ADMIN':
+            return Response([], status=status.HTTP_403_FORBIDDEN)
+
+        membership = user.memberships.first()
+        if not membership:
+            return Response([])
+
+        from apps.projects.models import Project
+        client_id = request.query_params.get('client_id')
+        search_query = request.query_params.get('search') or request.query_params.get('q')
+
+        # Strictly filter by user's organization
+        qs = Project.objects.filter(organization=membership.organization)
+
+        # Exclude projects already associated with this client
+        if client_id:
+            qs = qs.exclude(client_id=client_id)
+
+        if search_query:
+            qs = qs.filter(name__icontains=search_query.strip())
+
+        serializer = ProjectSerializer(qs.order_by('-created_at'), many=True)
+        return Response(serializer.data)
+
     @action(detail=True, methods=['get', 'post'])
     def brand_assets(self, request, pk=None):
         client = self.get_object()
