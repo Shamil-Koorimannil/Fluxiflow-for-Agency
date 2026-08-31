@@ -11,6 +11,8 @@ interface AttachmentsSectionProps {
   title?: string;
 }
 
+import { useOrganization } from '../../context/OrganizationContext';
+
 export const AttachmentsSection: React.FC<AttachmentsSectionProps> = ({
   taskId,
   subtaskId = null,
@@ -18,7 +20,7 @@ export const AttachmentsSection: React.FC<AttachmentsSectionProps> = ({
 }) => {
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
-  const isAdmin = currentUser?.role === 'ADMIN';
+  const { isAdmin } = useOrganization();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);

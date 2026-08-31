@@ -6,12 +6,14 @@ import type { Project, Task } from '../../types';
 import { useAuth } from '../auth/AuthContext';
 import { TaskDetailPanel } from '../tasks/TaskDetailPanel';
 import { TaskFormModal } from '../tasks/TaskFormModal';
-import { ArrowLeft, Plus, Upload, Trash2, CheckSquare, X, Pencil, Download, Loader2, Calendar } from 'lucide-react';
+import { ArrowLeft, Plus, Upload, Trash2, CheckSquare, X, Pencil, Download, Loader2, Calendar, Copy } from 'lucide-react';
 import { BulkUploadModal } from './BulkUploadModal';
 import { PasteTasksModal } from '../tasks/PasteTasksModal';
 import { TaskCard } from '../tasks/TaskCard';
 import { classifyTask } from '../../utils/taskClassifier';
 import { formatDateOnly } from '../../utils/time';
+
+import { useOrganization } from '../../context/OrganizationContext';
 
 type ProjectFilterType = 'all' | 'incompleted' | 'today' | 'tomorrow' | 'upcoming' | 'overdue' | 'no_due_date' | 'completed' | 'assigned_to_me';
 
@@ -20,7 +22,7 @@ export const ProjectDetail: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const isAdmin = user?.role === 'ADMIN';
+  const { isAdmin } = useOrganization();
 
   const [isDeleteProjModalOpen, setIsDeleteProjModalOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -202,6 +204,28 @@ export const ProjectDetail: React.FC = () => {
     },
   });
 
+  // Duplicate project mutation
+  const duplicateProjectMutation = useMutation({
+    mutationFn: async () => {
+      const response = await api.post(`/projects/${id}/duplicate/`);
+      return response.data;
+    },
+    onSuccess: (newProj) => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
+      queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
+      queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
+      queryClient.invalidateQueries({ queryKey: ['team'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      alert('Project duplicated successfully.');
+      navigate(`/app/projects/${newProj.id}`);
+    },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Failed to duplicate project.');
+    },
+  });
+
   if (isProjectLoading) {
     return (
       <div className="space-y-6 max-w-5xl mx-auto animate-pulse">
@@ -309,6 +333,10 @@ export const ProjectDetail: React.FC = () => {
       currentUser={user}
       isAdmin={isAdmin}
       onOpenDetail={(id) => setSelectedTaskId(id)}
+      onEdit={(t) => {
+        setTaskToEdit(t);
+        setIsTaskModalOpen(true);
+      }}
       onToggleComplete={(targetTask) => {
         if (targetTask.status === 'COMPLETED') {
           reopenTaskMutation.mutate(targetTask.id);
@@ -402,6 +430,15 @@ export const ProjectDetail: React.FC = () => {
 
           {isAdmin && (
             <>
+              <button
+                onClick={() => duplicateProjectMutation.mutate()}
+                disabled={duplicateProjectMutation.isPending}
+                className="p-2 border border-zinc-200 dark:border-zinc-800 hover:border-black dark:hover:border-white text-zinc-500 hover:text-black dark:hover:text-white rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5 text-xs font-semibold"
+                title="Duplicate Project"
+              >
+                <Copy className="h-4 w-4" />
+                {duplicateProjectMutation.isPending ? 'Duplicating...' : 'Duplicate'}
+              </button>
               <button
                 onClick={handleOpenEditProject}
                 className="p-2 border border-zinc-200 dark:border-zinc-800 hover:border-black dark:hover:border-white text-zinc-500 hover:text-black dark:hover:text-white rounded-lg transition-colors"
@@ -679,7 +716,7 @@ export const ProjectDetail: React.FC = () => {
       )}
       {/* Floating Bulk Action Toolbar */}
       {selectedTaskIds.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 shadow-lg z-50 flex items-center gap-4 animate-in fade-in slide-in-from-bottom duration-200 text-xs text-black dark:text-white">
+        <div className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 shadow-lg z-[90] flex items-center gap-4 animate-in fade-in slide-in-from-bottom duration-200 text-xs text-black dark:text-white max-w-[90vw] overflow-x-auto">
           <span className="font-bold">{selectedTaskIds.length} Task{selectedTaskIds.length > 1 ? 's' : ''} Selected</span>
           <div className="h-4 w-px bg-zinc-250 dark:bg-zinc-800" />
           <button

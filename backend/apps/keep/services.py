@@ -3,10 +3,9 @@ from django.core.exceptions import ValidationError, PermissionDenied
 from apps.keep.models import KeepItem, KeepPermission, KeepAuditLog, KeepRecentItem
 
 def get_user_organization(user):
-    """Retrieve user's primary organization membership."""
-    if hasattr(user, 'memberships') and user.memberships.exists():
-        return user.memberships.first().organization
-    return None
+    """Retrieve user's active organization."""
+    from apps.accounts.tenant_context import get_active_organization
+    return get_active_organization(user)
 
 
 def get_ancestors(item: KeepItem) -> list[KeepItem]:

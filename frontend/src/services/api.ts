@@ -24,21 +24,30 @@ export const authChannel = typeof window !== 'undefined' ? new BroadcastChannel(
 
 // Helper to check if tokens exist
 export const getAccessToken = () => {
-  return localStorage.getItem('accessToken');
+  return localStorage.getItem('accessToken') || sessionStorage.getItem('accessToken');
 };
 
 export const getRefreshToken = () => {
-  return localStorage.getItem('refreshToken');
+  return localStorage.getItem('refreshToken') || sessionStorage.getItem('refreshToken');
 };
 
 export const setTokens = (access: string, refresh: string, rememberMe?: boolean) => {
-  const finalRememberMe = rememberMe !== undefined ? rememberMe : (localStorage.getItem('rememberMe') === 'true');
+  const currentRememberMe = localStorage.getItem('rememberMe') === 'true';
+  const finalRememberMe = rememberMe !== undefined ? rememberMe : currentRememberMe;
   
-  localStorage.setItem('accessToken', access);
-  localStorage.setItem('refreshToken', refresh);
-  localStorage.setItem('rememberMe', finalRememberMe ? 'true' : 'false');
-  sessionStorage.removeItem('accessToken');
-  sessionStorage.removeItem('refreshToken');
+  if (finalRememberMe) {
+    localStorage.setItem('accessToken', access);
+    localStorage.setItem('refreshToken', refresh);
+    localStorage.setItem('rememberMe', 'true');
+    sessionStorage.removeItem('accessToken');
+    sessionStorage.removeItem('refreshToken');
+  } else {
+    sessionStorage.setItem('accessToken', access);
+    sessionStorage.setItem('refreshToken', refresh);
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('rememberMe');
+  }
 
   // Broadcast login details to other tabs on fresh auth
   if (rememberMe !== undefined && authChannel) {

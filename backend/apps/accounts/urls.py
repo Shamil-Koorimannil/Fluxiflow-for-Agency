@@ -1,4 +1,5 @@
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
 from .serializers import CustomTokenRefreshSerializer
 from .views import (
@@ -6,8 +7,11 @@ from .views import (
     TeamListView, TeamDetailView, TeamWorkloadView,
     TeamDeactivateView, TeamReactivateView, TeamResendInvitationView, TeamTasksView,
     RequestEmailChangeOTPView, VerifyEmailChangeView, PasswordLoginView,
-    RequestPasswordChangeOTPView, SetPasswordWithOTPView
+    RequestPasswordChangeOTPView, SetPasswordWithOTPView, OrganizationViewSet
 )
+
+router = DefaultRouter()
+router.register('organizations', OrganizationViewSet, basename='organizations')
 
 urlpatterns = [
     # Passwordless OTP Auth routes
@@ -35,4 +39,7 @@ urlpatterns = [
     path('team/<uuid:pk>/resend/', TeamResendInvitationView.as_view(), name='team_resend'),
     path('team/<uuid:pk>/workload/', TeamWorkloadView.as_view(), name='team_workload'),
     path('team/<uuid:pk>/tasks/', TeamTasksView.as_view(), name='team_tasks'),
+    
+    # Organization router endpoints
+    path('', include(router.urls)),
 ]

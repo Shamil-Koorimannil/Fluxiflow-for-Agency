@@ -8,7 +8,7 @@ class ClientStatus(models.TextChoices):
 
 class Client(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, related_name='clients')
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, null=True, blank=True, related_name='clients')
     name = models.CharField(max_length=255)
     company_name = models.CharField(max_length=255, blank=True, null=True)
     email = models.EmailField(blank=True, null=True)

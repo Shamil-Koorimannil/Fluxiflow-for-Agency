@@ -2,7 +2,7 @@ from django.test import TestCase
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.utils import timezone
-from rest_framework.test import APIClient
+from rest_framework.test import APIClient, APITestCase
 from rest_framework import status
 from apps.projects.models import Project
 from apps.tasks.models import Task, TaskAssignee, SubTask, TaskAssignmentHistory, SubTaskAssignee
@@ -1812,6 +1812,112 @@ class TaskTypesAndWorkloadTestSuite(TestCase):
         member_wl = next(item for item in res_wl.data if item['member_id'] == str(self.member.id))
         self.assertEqual(member_wl['total_allocated_seconds'], 10800)
         self.assertEqual(member_wl['total_allocated_hours'], 3.0)
+
+
+class TaskAndProjectDuplicationTestSuite(APITestCase):
+    def setUp(self):
+        from apps.accounts.models import Organization, Membership
+        self.org_a = Organization.objects.create(name='Org A', slug='org-a')
+        self.org_b = Organization.objects.create(name='Org B', slug='org-b')
+
+        self.user_a = User.objects.create_user(email='usera@example.com', name='User A', password='password123', role='ADMIN', status='ACTIVE')
+        self.user_b = User.objects.create_user(email='userb@example.com', name='User B', password='password123', role='MEMBER', status='ACTIVE')
+
+        Membership.objects.create(organization=self.org_a, user=self.user_a, role='ORG_ADMIN')
+        Membership.objects.create(organization=self.org_b, user=self.user_b, role='MEMBER')
+
+        self.user_a.active_organization = self.org_a
+        self.user_a.save()
+
+        self.user_b.active_organization = self.org_b
+        self.user_b.save()
+
+        from rest_framework_simplejwt.tokens import RefreshToken
+        self.token_a = str(RefreshToken.for_user(self.user_a).access_token)
+        self.client_a = APIClient()
+        self.client_a.credentials(HTTP_AUTHORIZATION=f'Bearer {self.token_a}')
+
+        self.token_b = str(RefreshToken.for_user(self.user_b).access_token)
+        self.client_b = APIClient()
+        self.client_b.credentials(HTTP_AUTHORIZATION=f'Bearer {self.token_b}')
+
+        self.project = Project.objects.create(name='Project Alpha', created_by=self.user_a, organization=self.org_a)
+        self.task_type = TaskType.objects.create(name='Design', organization=self.org_a, allocated_seconds=3600)
+
+        self.task = Task.objects.create(
+            name='Design Landing Page',
+            description='Original task description',
+            organization=self.org_a,
+            project=self.project,
+            task_type=self.task_type,
+            priority='HIGH',
+            status='COMPLETED',
+            allocated_seconds=3600,
+            elapsed_seconds=1800,
+            created_by=self.user_a
+        )
+        TaskAssignee.objects.create(task=self.task, user=self.user_a, completed=True)
+
+        self.subtask = SubTask.objects.create(
+            task=self.task,
+            name='Header Wireframe',
+            status='COMPLETED'
+        )
+        SubTaskAssignee.objects.create(subtask=self.subtask, user=self.user_a, completed=True)
+
+    def test_duplicate_task_success(self):
+        res = self.client_a.post(f'/api/tasks/{self.task.id}/duplicate/')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        new_task_id = res.data['id']
+        self.assertNotEqual(new_task_id, str(self.task.id))
+
+        new_task = Task.objects.get(id=new_task_id)
+        self.assertEqual(new_task.name, 'Design Landing Page Copy')
+        self.assertEqual(new_task.status, 'PENDING')
+        self.assertIsNone(new_task.completed_by)
+        self.assertIsNone(new_task.completed_at)
+        self.assertEqual(new_task.elapsed_seconds, 0)
+        self.assertEqual(new_task.timer_status, 'NOT_STARTED')
+
+        self.assertEqual(new_task.subtasks.count(), 1)
+        new_subtask = new_task.subtasks.first()
+        self.assertNotEqual(str(new_subtask.id), str(self.subtask.id))
+        self.assertEqual(new_subtask.status, 'PENDING')
+        self.assertEqual(new_subtask.task, new_task)
+
+        self.assertEqual(new_task.assignee_relationships.count(), 1)
+        new_assignee = new_task.assignee_relationships.first()
+        self.assertFalse(new_assignee.completed)
+
+    def test_duplicate_project_success(self):
+        res = self.client_a.post(f'/api/projects/{self.project.id}/duplicate/')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        new_project_id = res.data['id']
+        self.assertNotEqual(new_project_id, str(self.project.id))
+
+        new_project = Project.objects.get(id=new_project_id)
+        self.assertEqual(new_project.name, 'Project Alpha Copy')
+
+        copied_tasks = Task.objects.filter(project=new_project)
+        self.assertEqual(copied_tasks.count(), 1)
+        copied_task = copied_tasks.first()
+        self.assertEqual(copied_task.status, 'PENDING')
+        self.assertNotEqual(str(copied_task.id), str(self.task.id))
+
+        self.assertEqual(copied_task.subtasks.count(), 1)
+        copied_subtask = copied_task.subtasks.first()
+        self.assertEqual(copied_subtask.task, copied_task)
+        self.assertEqual(copied_subtask.status, 'PENDING')
+
+    def test_cross_organization_duplication_blocked(self):
+        res_task = self.client_b.post(f'/api/tasks/{self.task.id}/duplicate/')
+        self.assertEqual(res_task.status_code, status.HTTP_404_NOT_FOUND)
+
+        res_proj = self.client_b.post(f'/api/projects/{self.project.id}/duplicate/')
+        self.assertEqual(res_proj.status_code, status.HTTP_404_NOT_FOUND)
+
 
 
 

@@ -39,14 +39,18 @@ class ClientViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if not user.is_authenticated or getattr(user, 'role', None) != 'ADMIN':
+        if not user.is_authenticated:
             return Client.objects.none()
 
-        membership = user.memberships.first()
-        if not membership:
+        from apps.accounts.tenant_context import get_active_organization, is_admin_or_org_admin
+        if not is_admin_or_org_admin(user):
             return Client.objects.none()
 
-        qs = Client.objects.filter(organization=membership.organization)
+        active_org = get_active_organization(user)
+        if not active_org:
+            return Client.objects.none()
+
+        qs = Client.objects.filter(organization=active_org)
 
         # Search filter
         search_query = self.request.query_params.get('search') or self.request.query_params.get('q')
@@ -66,9 +70,10 @@ class ClientViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         user = self.request.user
-        membership = user.memberships.first()
+        from apps.accounts.tenant_context import get_active_organization
+        active_org = get_active_organization(user)
         client = serializer.save(
-            organization=membership.organization,
+            organization=active_org,
             created_by=user,
             updated_by=user
         )

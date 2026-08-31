@@ -12,12 +12,14 @@ import { getLocalDateString } from '../../utils/time';
 import { PasteTasksModal } from './PasteTasksModal';
 import { TaskCard } from './TaskCard';
 
+import { useOrganization } from '../../context/OrganizationContext';
+
 type FilterType = 'all' | 'incompleted' | 'today' | 'tomorrow' | 'upcoming' | 'no_due_date' | 'completed' | 'late';
 
 export const Tasks: React.FC = () => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const isAdmin = user?.role === 'ADMIN';
+  const { isAdmin } = useOrganization();
 
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTaskIdParam = searchParams.get('task');
@@ -319,6 +321,10 @@ export const Tasks: React.FC = () => {
       currentUser={user}
       isAdmin={isAdmin}
       onOpenDetail={handleOpenDetail}
+      onEdit={(t) => {
+        setTaskToEdit(t);
+        setIsFormModalOpen(true);
+      }}
       onToggleComplete={(targetTask) => {
         if (targetTask.status === 'COMPLETED') {
           reopenTaskMutation.mutate(targetTask.id);
@@ -507,9 +513,9 @@ export const Tasks: React.FC = () => {
         />
       )}
 
-      {/* Floating Bulk Action Toolbar */}
+      {/* Bulk actions bar */}
       {selectedTaskIds.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 shadow-lg z-50 flex items-center gap-4 animate-in fade-in slide-in-from-bottom duration-200 text-xs text-black dark:text-white">
+        <div className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 shadow-lg z-[90] flex items-center gap-4 animate-in fade-in slide-in-from-bottom duration-200 text-xs text-black dark:text-white max-w-[90vw] overflow-x-auto">
           <span className="font-bold">{selectedTaskIds.length} Task{selectedTaskIds.length > 1 ? 's' : ''} Selected</span>
           <div className="h-4 w-px bg-zinc-250 dark:bg-zinc-800" />
           <button

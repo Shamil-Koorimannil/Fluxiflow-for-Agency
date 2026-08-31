@@ -1,19 +1,26 @@
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../services/api';
 import type { Project } from '../../types';
-import { useAuth } from '../auth/AuthContext';
-import { Folder, Plus, ArrowUpDown, Check, Calendar, Filter } from 'lucide-react';
+import { Folder, Plus, ArrowUpDown, Check, Calendar, Filter, MoreVertical, ExternalLink, Copy, Download, Trash2 } from 'lucide-react';
 import { Button, Menu, MenuItem } from '@mui/material';
 import { formatDateOnly } from '../../utils/time';
 import { ProjectMonthPickerModal } from './ProjectMonthPickerModal';
 import { ProjectFormModal } from './ProjectFormModal';
 
+import { useOrganization } from '../../context/OrganizationContext';
+
 export const Projects: React.FC = () => {
-  const { user } = useAuth();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // Three-dot menu state
+  const [projectMenuState, setProjectMenuState] = useState<{
+    anchorEl: HTMLElement | null;
+    project: Project | null;
+  }>({ anchorEl: null, project: null });
 
   // Search, sort, and date filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -28,7 +35,7 @@ export const Projects: React.FC = () => {
   const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
   const [dateFilterAnchorEl, setDateFilterAnchorEl] = useState<null | HTMLElement>(null);
 
-  const isAdmin = user?.role === 'ADMIN';
+  const { isAdmin } = useOrganization();
 
   // Fetch projects list
   const { data: projects, isLoading, error: fetchError } = useQuery<Project[]>({
@@ -151,6 +158,68 @@ export const Projects: React.FC = () => {
       return `${customYear}`;
     }
     return 'All Dates';
+  };
+
+  const handleOpenProjectMenu = (e: React.MouseEvent<HTMLButtonElement>, project: Project) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setProjectMenuState({ anchorEl: e.currentTarget, project });
+  };
+
+  const handleCloseProjectMenu = () => {
+    setProjectMenuState({ anchorEl: null, project: null });
+  };
+
+  const handleMenuOpenProject = () => {
+    if (projectMenuState.project) {
+      const projId = projectMenuState.project.id;
+      handleCloseProjectMenu();
+      navigate(`/app/projects/${projId}`);
+    }
+  };
+
+  const handleMenuDuplicateProject = async () => {
+    if (!projectMenuState.project) return;
+    const projId = projectMenuState.project.id;
+    handleCloseProjectMenu();
+    try {
+      await api.post(`/projects/${projId}/duplicate/`);
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Failed to duplicate project.');
+    }
+  };
+
+  const handleMenuDownloadProject = async () => {
+    if (!projectMenuState.project) return;
+    const proj = projectMenuState.project;
+    handleCloseProjectMenu();
+    try {
+      const res = await api.get(`/projects/${proj.id}/download/`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      const safeName = proj.name.replace(/[^a-zA-Z0-9_\-]/g, '_');
+      link.setAttribute('download', `Project_${safeName}_Export.json`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Failed to download project data.');
+    }
+  };
+
+  const handleMenuDeleteProject = async () => {
+    if (!projectMenuState.project) return;
+    const proj = projectMenuState.project;
+    handleCloseProjectMenu();
+    if (!window.confirm(`Are you sure you want to delete project "${proj.name}"? This action cannot be undone.`)) return;
+    try {
+      await api.delete(`/projects/${proj.id}/`);
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Failed to delete project.');
+    }
   };
 
   if (isLoading) {
@@ -498,19 +567,32 @@ export const Projects: React.FC = () => {
             <Link
               key={project.id}
               to={`/app/projects/${project.id}`}
-              className="group border border-zinc-200 dark:border-zinc-800 hover:border-black dark:hover:border-white bg-white dark:bg-black rounded-xl p-6 flex flex-col justify-between hover:shadow-sm transition-all duration-200 text-black dark:text-white"
+              className="group border border-zinc-200 dark:border-zinc-800 hover:border-black dark:hover:border-white bg-white dark:bg-black rounded-xl p-6 flex flex-col justify-between hover:shadow-sm transition-all duration-200 text-black dark:text-white relative"
             >
               <div className="space-y-3">
-                <div className="flex items-center justify-between gap-2.5">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <Folder className="h-4 w-4 text-zinc-400 group-hover:text-black dark:group-hover:text-white shrink-0" />
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <Folder className="h-4 w-4 text-zinc-400 group-hover:text-black dark:group-hover:text-white shrink-0 mt-0.5" />
                     <h3 className="font-semibold text-sm text-black dark:text-white truncate">{project.name}</h3>
                   </div>
-                  {project.project_date && (
-                    <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 shrink-0 bg-zinc-100 dark:bg-zinc-900 px-2 py-0.5 rounded border border-zinc-200/50 dark:border-zinc-800">
-                      {formatDateOnly(project.project_date)}
-                    </span>
-                  )}
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {project.project_date && (
+                      <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-900 px-2 py-0.5 rounded border border-zinc-200/50 dark:border-zinc-800">
+                        {formatDateOnly(project.project_date)}
+                      </span>
+                    )}
+
+                    {/* Three-Dot Menu Action Trigger */}
+                    <button
+                      type="button"
+                      onClick={(e) => handleOpenProjectMenu(e, project)}
+                      className="p-1 text-zinc-400 hover:text-black dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+                      title="Project options"
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
 
                 {project.client_display_name && (
@@ -549,6 +631,55 @@ export const Projects: React.FC = () => {
           ))}
         </div>
       )}
+
+      {/* THREE-DOT PROJECT MENU */}
+      <Menu
+        anchorEl={projectMenuState.anchorEl}
+        open={Boolean(projectMenuState.anchorEl)}
+        onClose={handleCloseProjectMenu}
+        onClick={(e) => e.stopPropagation()}
+        slotProps={{
+          paper: {
+            elevation: 3,
+            sx: {
+              borderRadius: '12px',
+              border: '1px solid #e4e4e7',
+              minWidth: 160,
+              p: 0.5,
+              '& .MuiMenuItem-root': {
+                fontSize: '13px',
+                fontWeight: 600,
+                borderRadius: '8px',
+                py: 1,
+                px: 1.5,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1.5,
+                '&:hover': { bgcolor: '#f4f4f5' },
+              },
+            },
+          },
+        }}
+      >
+        <MenuItem onClick={handleMenuOpenProject}>
+          <ExternalLink className="h-4 w-4 text-zinc-500" />
+          <span>Open</span>
+        </MenuItem>
+        <MenuItem onClick={handleMenuDuplicateProject}>
+          <Copy className="h-4 w-4 text-blue-500" />
+          <span>Duplicate</span>
+        </MenuItem>
+        <MenuItem onClick={handleMenuDownloadProject}>
+          <Download className="h-4 w-4 text-emerald-500" />
+          <span>Download</span>
+        </MenuItem>
+        {isAdmin && (
+          <MenuItem onClick={handleMenuDeleteProject} sx={{ color: 'error.main' }}>
+            <Trash2 className="h-4 w-4 text-red-500" />
+            <span>Delete</span>
+          </MenuItem>
+        )}
+      </Menu>
 
       {/* CREATE PROJECT MODAL */}
       <ProjectFormModal

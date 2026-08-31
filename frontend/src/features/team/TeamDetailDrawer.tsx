@@ -35,6 +35,8 @@ interface TeamDetailDrawerProps {
   endDate?: string;
 }
 
+import { useOrganization } from '../../context/OrganizationContext';
+
 export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
   memberId,
   open,
@@ -44,7 +46,7 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
   endDate,
 }) => {
   const { user: currentUser } = useAuth();
-  const isAdmin = currentUser?.role === 'ADMIN';
+  const { isAdmin } = useOrganization();
   const queryClient = useQueryClient();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
@@ -595,7 +597,7 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
 
       {/* Floating Bulk Action Toolbar */}
       {selectedTaskIds.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 shadow-lg z-[9999] flex items-center gap-4 animate-in fade-in slide-in-from-bottom duration-200 text-xs text-black dark:text-white">
+        <div className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 shadow-lg z-[9999] flex items-center gap-4 animate-in fade-in slide-in-from-bottom duration-200 text-xs text-black dark:text-white max-w-[90vw] overflow-x-auto">
           <span className="font-bold">{selectedTaskIds.length} Task{selectedTaskIds.length > 1 ? 's' : ''} Selected</span>
           <div className="h-4 w-px bg-zinc-250 dark:bg-zinc-800" />
           <button

@@ -4,12 +4,16 @@ import { useAuth } from '../features/auth/AuthContext';
 import { FluxiflowLogo } from '../components/common/FluxiflowLogo';
 import { CheckSquare, Folder, Users, List, User as UserIcon, LogOut, Search, Menu as MenuIcon, BarChart3, BookOpen, Briefcase, Settings as SettingsIcon } from 'lucide-react';
 import { NotificationBell } from '../features/notifications/NotificationBell';
+import { OrganizationSwitcher } from '../components/common/OrganizationSwitcher';
+import { OrganizationOnboarding } from '../components/common/OrganizationOnboarding';
+import { useOrganization } from '../context/OrganizationContext';
 import { Drawer } from '@mui/material';
 import { useWebSockets } from '../hooks/useWebSockets';
 
 
 export const MainLayout: React.FC = () => {
   const { user, logout } = useAuth();
+  const { activeOrganization, isLoading: isOrgLoading } = useOrganization();
   const navigate = useNavigate();
   useWebSockets(); // Initialize real-time updates for authenticated session
   const [isExiting, setIsExiting] = React.useState(false);
@@ -36,7 +40,7 @@ export const MainLayout: React.FC = () => {
       .toUpperCase();
   };
 
-  const isAdmin = user?.role === 'ADMIN';
+  const { activeRole, isAdmin } = useOrganization();
 
   return (
     <div className={`flex h-screen w-screen bg-white dark:bg-black overflow-hidden text-black dark:text-white font-sans transition-all duration-300 ${isExiting ? 'animate-fade-out' : ''}`}>
@@ -67,7 +71,7 @@ export const MainLayout: React.FC = () => {
             <div className="overflow-hidden">
               <h2 className="font-semibold text-sm truncate leading-tight">{user.name}</h2>
               <span className="text-[11px] text-zinc-400 dark:text-zinc-500 font-medium tracking-wide uppercase">
-                {user.role === 'ADMIN' ? 'Admin/Manager' : 'Member'}
+                {activeRole === 'ORG_ADMIN' ? 'Org Admin' : activeRole === 'ADMIN' ? 'Admin/Manager' : 'Member'}
               </span>
             </div>
           </Link>
@@ -236,13 +240,25 @@ export const MainLayout: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-4">
+            <OrganizationSwitcher />
             <NotificationBell />
           </div>
         </header>
 
         {/* Main Content Area */}
         <main className="flex-1 overflow-y-auto bg-zinc-50/20 dark:bg-black px-4 md:px-8 py-6 pb-24 md:pb-6">
-          <Outlet />
+          {isOrgLoading ? (
+            <div className="flex h-full w-full items-center justify-center py-20">
+              <div className="flex flex-col items-center gap-3 text-zinc-400">
+                <div className="h-7 w-7 animate-spin rounded-full border-4 border-black dark:border-white border-t-transparent"></div>
+                <p className="text-xs font-semibold">Loading workspace...</p>
+              </div>
+            </div>
+          ) : activeOrganization === null ? (
+            <OrganizationOnboarding />
+          ) : (
+            <Outlet />
+          )}
         </main>
 
         {/* MOBILE BOTTOM NAVIGATION - Hidden on Desktop */}
@@ -342,7 +358,7 @@ export const MainLayout: React.FC = () => {
                 <div className="overflow-hidden">
                   <h2 className="font-semibold text-sm truncate leading-tight">{user.name}</h2>
                   <span className="text-[11px] text-zinc-400 dark:text-zinc-500 font-medium tracking-wide uppercase">
-                    {user.role === 'ADMIN' ? 'Admin' : 'Member'}
+                    {activeRole === 'ORG_ADMIN' ? 'Org Admin' : activeRole === 'ADMIN' ? 'Admin' : 'Member'}
                   </span>
                 </div>
               </Link>
