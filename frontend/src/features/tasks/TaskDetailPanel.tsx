@@ -10,6 +10,8 @@ import { TimePicker } from '../../components/common/TimePicker';
 import { DatePicker } from '../../components/common/DatePicker';
 import { CommentsSection } from './CommentsSection';
 import { AttachmentsSection } from './AttachmentsSection';
+import { TaskTimer } from './TaskTimer';
+import { TaskTypeBadge } from './TaskTypeBadge';
 
 interface TaskDetailPanelProps {
   taskId: string | null;
@@ -282,6 +284,10 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                   {task.name}
                 </h3>
                 <div className="flex flex-wrap items-center gap-1.5">
+                  <TaskTypeBadge
+                    taskType={task.task_type_detail}
+                    allocatedSeconds={task.allocated_seconds}
+                  />
                   {task.priority && (
                     <span className={`inline-block text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${getPriorityColor(task.priority)}`}>
                       {task.priority} Priority
@@ -300,6 +306,15 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                   )}
                 </div>
               </div>
+
+              {/* Task Live Timer */}
+              <TaskTimer
+                task={task}
+                onTimerChange={() => {
+                  queryClient.invalidateQueries({ queryKey: ['task', taskId] });
+                  queryClient.invalidateQueries({ queryKey: ['tasks'] });
+                }}
+              />
 
               {/* Scope/Due Dates Panel Grid */}
               <div className="grid grid-cols-2 gap-4 border border-zinc-100 dark:border-zinc-855 bg-zinc-50/20 dark:bg-black p-4 rounded-xl text-xs">

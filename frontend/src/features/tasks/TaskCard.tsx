@@ -2,6 +2,7 @@ import React from 'react';
 import type { Task, User } from '../../types';
 import { CheckCircle2, Circle, Check } from 'lucide-react';
 import { TaskDatePicker } from './TaskDatePicker';
+import { TaskTypeBadge } from './TaskTypeBadge';
 
 export interface TaskCardProps {
   task: Task;
@@ -190,8 +191,8 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             {renderAssigneesList(task.assignees)}
           </div>
 
-          {/* Date display & Priority indicator */}
-          <div className="flex items-center gap-3 flex-wrap text-[11px] text-zinc-450 mt-1">
+          {/* Date display, Task Type Badge, & Priority indicator */}
+          <div className="flex items-center gap-2.5 flex-wrap text-[11px] text-zinc-450 mt-1">
             <div className="flex items-center gap-1.5 font-medium">
               <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
                 task.date_color === 'red' ? 'bg-red-500' :
@@ -201,6 +202,24 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               }`} />
               <TaskDatePicker task={task} />
             </div>
+
+            {/* Prominent Past Due Warning Badge */}
+            {!isCompleted && task.due_date && (() => {
+              const due = new Date(task.due_date);
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              return due < today;
+            })() && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-50 dark:bg-red-950/50 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 text-[10px] font-bold uppercase tracking-wider">
+                ⚠ Past Due
+              </span>
+            )}
+
+            {/* Task Type Badge */}
+            <TaskTypeBadge
+              taskType={task.task_type_detail}
+              allocatedSeconds={task.allocated_seconds}
+            />
 
             {task.priority && (
               <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${getPriorityColor(task.priority)}`}>

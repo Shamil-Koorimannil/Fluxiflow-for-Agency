@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../../services/api';
 import type { User } from '../../types';
 import { useAuth } from '../auth/AuthContext';
@@ -80,9 +80,10 @@ export const Team: React.FC = () => {
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false);
   const [preselectedMemberId, setPreselectedMemberId] = useState<string | null>(null);
 
+  const navigate = useNavigate();
+
   const handleCardClick = (memberId: string) => {
-    setDrawerMemberId(memberId);
-    setIsDrawerOpen(true);
+    navigate(`/app/team/${memberId}`);
   };
 
   // Dropdown menu state

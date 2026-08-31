@@ -710,7 +710,43 @@ class TeamWorkloadView(views.APIView):
         # Query unique task IDs first to avoid duplicate results from joined tables
         task_ids = Task.objects.filter(assignee_relationships__user=user).values_list('id', flat=True).distinct()
         user_tasks = Task.objects.filter(id__in=task_ids).order_by('due_date', 'due_time')
+
+        # Workload capacity calculations
+        membership = user.memberships.first()
+        org = membership.organization if membership else Organization.objects.first()
+        capacity_hours = org.weekly_capacity_hours if org else 40
+        capacity_seconds = capacity_hours * 3600
+
+        total_tasks_count = user_tasks.count()
+        completed_tasks_count = user_tasks.filter(status='COMPLETED').count()
+        active_tasks_count = total_tasks_count - completed_tasks_count
+
+        total_allocated_seconds = sum(t.allocated_seconds or 0 for t in user_tasks)
+        completed_allocated_seconds = sum(t.allocated_seconds or 0 for t in user_tasks.filter(status='COMPLETED'))
+        remaining_allocated_seconds = sum(t.allocated_seconds or 0 for t in user_tasks.filter(status='PENDING'))
         
+        total_tracked_seconds = 0
+        now_ts = timezone.now()
+        for t in user_tasks:
+            if t.status == 'COMPLETED' and t.actual_duration_seconds is not None:
+                total_tracked_seconds += t.actual_duration_seconds
+            else:
+                secs = t.elapsed_seconds or 0
+                if t.timer_status == 'RUNNING' and t.timer_started_at:
+                    secs += max(0, int((now_ts - t.timer_started_at).total_seconds()))
+                total_tracked_seconds += secs
+
+        unestimated_task_count = user_tasks.filter(status='PENDING', allocated_seconds__isnull=True).count()
+
+        workload_percentage = round((total_allocated_seconds / capacity_seconds) * 100, 1) if capacity_seconds > 0 else 0.0
+        if workload_percentage < 70.0:
+            workload_status = 'Underloaded'
+        elif workload_percentage <= 100.0:
+            workload_status = 'Balanced'
+        elif workload_percentage <= 120.0:
+            workload_status = 'High'
+        else:
+            workload_status = 'Overloaded'
 
         # Segment tasks based on canonical task status
         completed_tasks = user_tasks.filter(status='COMPLETED').order_by('-completed_at')
@@ -723,9 +759,31 @@ class TeamWorkloadView(views.APIView):
         no_due_date_tasks = incomplete_tasks.filter(due_date__isnull=True)
 
         context = {'request': request, 'target_user': user}
+        user_serialized = UserSerializer(user, context=context).data
+
+        workload_stats = {
+            "member_id": str(user.id),
+            "user": user_serialized,
+            "total_tasks_count": total_tasks_count,
+            "active_tasks_count": active_tasks_count,
+            "completed_tasks_count": completed_tasks_count,
+            "total_allocated_seconds": total_allocated_seconds,
+            "completed_allocated_seconds": completed_allocated_seconds,
+            "remaining_allocated_seconds": remaining_allocated_seconds,
+            "total_tracked_seconds": total_tracked_seconds,
+            "total_allocated_hours": round(total_allocated_seconds / 3600.0, 1),
+            "completed_allocated_hours": round(completed_allocated_seconds / 3600.0, 1),
+            "remaining_allocated_hours": round(remaining_allocated_seconds / 3600.0, 1),
+            "total_tracked_hours": round(total_tracked_seconds / 3600.0, 1),
+            "unestimated_task_count": unestimated_task_count,
+            "capacity_hours": capacity_hours,
+            "workload_percentage": workload_percentage,
+            "workload_status": workload_status,
+        }
         
         return Response({
             "summary": {
+                "id": str(user.id),
                 "name": user.name,
                 "role": user.role,
                 "email": user.email,
@@ -743,6 +801,7 @@ class TeamWorkloadView(views.APIView):
                 "on_time_completion_rate": metrics["on_time_completion_rate"],
                 "late_completions": metrics["late_completions"]
             },
+            "workload_stats": workload_stats,
             "workload": {
                 "today": TaskSerializer(today_tasks, many=True, context=context).data,
                 "tomorrow": TaskSerializer(tomorrow_tasks, many=True, context=context).data,
@@ -750,7 +809,8 @@ class TeamWorkloadView(views.APIView):
                 "upcoming": TaskSerializer(upcoming_tasks, many=True, context=context).data,
                 "no_due_date": TaskSerializer(no_due_date_tasks, many=True, context=context).data,
                 "completed": TaskSerializer(completed_tasks, many=True, context=context).data,
-            }
+            },
+            "tasks": TaskSerializer(user_tasks, many=True, context=context).data
         })
 
 

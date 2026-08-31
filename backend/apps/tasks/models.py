@@ -4,6 +4,26 @@ from django.conf import settings
 from django.utils import timezone
 from apps.projects.models import Project
 
+class TaskType(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, related_name='task_types')
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+    allocated_seconds = models.IntegerField(default=3600)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = models.Manager()
+
+    class Meta:
+        ordering = ['name']
+        unique_together = ('organization', 'name')
+
+    def __str__(self):
+        return f"{self.name} ({self.allocated_seconds}s)"
+
+
 class Task(models.Model):
     PRIORITY_CHOICES = (
         ('LOW', 'Low'),
@@ -14,10 +34,17 @@ class Task(models.Model):
         ('PENDING', 'Pending'),
         ('COMPLETED', 'Completed'),
     )
+    TIMER_STATUS_CHOICES = (
+        ('NOT_STARTED', 'Not Started'),
+        ('RUNNING', 'Running'),
+        ('PAUSED', 'Paused'),
+        ('COMPLETED', 'Completed'),
+    )
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     project = models.ForeignKey(Project, on_delete=models.CASCADE, blank=True, null=True, related_name='tasks')
     organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, related_name='tasks', null=True, blank=True)
+    task_type = models.ForeignKey(TaskType, on_delete=models.SET_NULL, blank=True, null=True, related_name='tasks')
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
     due_date = models.DateField(blank=True, null=True)
@@ -27,6 +54,14 @@ class Task(models.Model):
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='created_tasks')
     completed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, blank=True, null=True, related_name='completed_tasks')
     completed_at = models.DateTimeField(blank=True, null=True)
+
+    # Timer & Duration tracking fields
+    allocated_seconds = models.IntegerField(blank=True, null=True)
+    elapsed_seconds = models.IntegerField(default=0)
+    timer_started_at = models.DateTimeField(blank=True, null=True)
+    timer_status = models.CharField(max_length=20, choices=TIMER_STATUS_CHOICES, default='NOT_STARTED')
+    actual_duration_seconds = models.IntegerField(blank=True, null=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -43,6 +78,21 @@ class Task(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class TaskTimeLog(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='time_logs')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='task_time_logs')
+    started_at = models.DateTimeField()
+    paused_at = models.DateTimeField(blank=True, null=True)
+    duration_seconds = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = models.Manager()
+
+    class Meta:
+        ordering = ['-started_at']
 
 class TaskAssignee(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

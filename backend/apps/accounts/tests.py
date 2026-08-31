@@ -7,7 +7,7 @@ from django.core import mail
 from django.conf import settings
 from rest_framework.test import APITestCase
 from rest_framework import status
-from apps.accounts.models import OTPVerification, Session, Organization, Membership, Invitation
+from apps.accounts.models import OTPVerification, Session, Organization, Membership, Invitation, Profile
 
 User = get_user_model()
 
@@ -1419,4 +1419,183 @@ class TaskCompletionAndSyncTests(APITestCase):
         # Verify parent task remains COMPLETED
         task.refresh_from_db()
         self.assertEqual(task.status, 'COMPLETED')
+
+
+class TeamMemberDetailEndpointTestSuite(APITestCase):
+    def setUp(self):
+        from apps.tasks.models import Task, TaskAssignee, TaskType
+        from rest_framework_simplejwt.tokens import RefreshToken
+
+        self.org = Organization.objects.create(name='Fluxiflow Test Agency', weekly_capacity_hours=40)
+
+        self.admin = User.objects.create_user(
+            email='detail_admin@example.com',
+            name='Detail Admin',
+            password='password123',
+            role='ADMIN',
+            status='ACTIVE'
+        )
+        Profile.objects.create(user=self.admin)
+        Membership.objects.create(organization=self.org, user=self.admin)
+
+        self.member_a = User.objects.create_user(
+            email='member_a@example.com',
+            name='Member Alpha',
+            password='password123',
+            role='MEMBER',
+            status='ACTIVE'
+        )
+        Profile.objects.create(user=self.member_a)
+        Membership.objects.create(organization=self.org, user=self.member_a)
+
+        self.member_b = User.objects.create_user(
+            email='member_b@example.com',
+            name='Member Beta',
+            password='password123',
+            role='MEMBER',
+            status='ACTIVE'
+        )
+        Profile.objects.create(user=self.member_b)
+        Membership.objects.create(organization=self.org, user=self.member_b)
+
+        # Other Organization member
+        self.other_org = Organization.objects.create(name='Other Agency')
+        self.other_user = User.objects.create_user(
+            email='other_user@example.com',
+            name='Other User',
+            password='password123',
+            role='MEMBER',
+            status='ACTIVE'
+        )
+        Profile.objects.create(user=self.other_user)
+        Membership.objects.create(organization=self.other_org, user=self.other_user)
+
+        # Task Type
+        self.task_type = TaskType.objects.create(
+            organization=self.org,
+            name='Design Spec',
+            allocated_seconds=7200 # 2 hours
+        )
+
+        admin_token = str(RefreshToken.for_user(self.admin).access_token)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {admin_token}')
+
+    def test_valid_member_detail_endpoint(self):
+        """Test 1 — Request valid member detail endpoint returns 200 OK and expected structure."""
+        url = f'/api/team/{self.member_a.id}/workload/'
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('summary', response.data)
+        self.assertIn('workload_stats', response.data)
+        self.assertIn('workload', response.data)
+        self.assertIn('tasks', response.data)
+        self.assertEqual(response.data['summary']['email'], self.member_a.email)
+
+    def test_invalid_member_detail_endpoint(self):
+        """Test 2 — Request non-existent member returns 404 NOT FOUND."""
+        import uuid
+        fake_id = uuid.uuid4()
+        url = f'/api/team/{fake_id}/workload/'
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_member_tasks_isolation(self):
+        """Test 3 — Member A detail returns Task A and Task B, not Task C assigned to Member B."""
+        from apps.tasks.models import Task, TaskAssignee
+        task_a = Task.objects.create(name='Task A', created_by=self.admin)
+        TaskAssignee.objects.create(task=task_a, user=self.member_a)
+
+        task_b = Task.objects.create(name='Task B', created_by=self.admin)
+        TaskAssignee.objects.create(task=task_b, user=self.member_a)
+
+        task_c = Task.objects.create(name='Task C', created_by=self.admin)
+        TaskAssignee.objects.create(task=task_c, user=self.member_b)
+
+        url = f'/api/team/{self.member_a.id}/workload/'
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_ids = [t['id'] for t in response.data['tasks']]
+        self.assertIn(str(task_a.id), returned_ids)
+        self.assertIn(str(task_b.id), returned_ids)
+        self.assertNotIn(str(task_c.id), returned_ids)
+
+    def test_multiple_assignees_handling(self):
+        """Test 4 — Task assigned to Member A and Member B appears on both detail responses."""
+        from apps.tasks.models import Task, TaskAssignee
+        shared_task = Task.objects.create(name='Shared Task', created_by=self.admin)
+        TaskAssignee.objects.create(task=shared_task, user=self.member_a)
+        TaskAssignee.objects.create(task=shared_task, user=self.member_b)
+
+        res_a = self.client.get(f'/api/team/{self.member_a.id}/workload/')
+        res_b = self.client.get(f'/api/team/{self.member_b.id}/workload/')
+
+        returned_a = [t['id'] for t in res_a.data['tasks']]
+        returned_b = [t['id'] for t in res_b.data['tasks']]
+
+        self.assertIn(str(shared_task.id), returned_a)
+        self.assertIn(str(shared_task.id), returned_b)
+        self.assertEqual(returned_a.count(str(shared_task.id)), 1)
+        self.assertEqual(returned_b.count(str(shared_task.id)), 1)
+
+    def test_no_premature_date_filtering(self):
+        """Test 5 — Tasks with various dates (Overdue, Today, Tomorrow, Future, No Date, Completed) all returned."""
+        from apps.tasks.models import Task, TaskAssignee
+        today = timezone.now().date()
+        tasks_data = [
+            ('Overdue', today - timedelta(days=2), 'PENDING'),
+            ('Today', today, 'PENDING'),
+            ('Tomorrow', today + timedelta(days=1), 'PENDING'),
+            ('Future', today + timedelta(days=5), 'PENDING'),
+            ('No Date', None, 'PENDING'),
+            ('Completed', today, 'COMPLETED'),
+        ]
+        created_tasks = []
+        for name, due, task_status in tasks_data:
+            t = Task.objects.create(name=name, due_date=due, status=task_status, created_by=self.admin)
+            TaskAssignee.objects.create(task=t, user=self.member_a)
+            created_tasks.append(t)
+
+        res = self.client.get(f'/api/team/{self.member_a.id}/workload/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        returned_ids = [t['id'] for t in res.data['tasks']]
+        self.assertEqual(len(returned_ids), len(created_tasks))
+
+    def test_workload_calculation(self):
+        """Test 6 — Workload metrics match allocated Task Type durations."""
+        from apps.tasks.models import Task, TaskAssignee
+        task1 = Task.objects.create(
+            name='Task 1',
+            task_type=self.task_type,
+            allocated_seconds=7200,
+            status='PENDING',
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=task1, user=self.member_a)
+
+        task2 = Task.objects.create(
+            name='Task 2',
+            task_type=self.task_type,
+            allocated_seconds=7200,
+            status='COMPLETED',
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=task2, user=self.member_a)
+
+        res = self.client.get(f'/api/team/{self.member_a.id}/workload/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        stats = res.data['workload_stats']
+        self.assertEqual(stats['total_allocated_seconds'], 14400) # 4 hours
+        self.assertEqual(stats['total_allocated_hours'], 4.0)
+        self.assertEqual(stats['completed_allocated_hours'], 2.0)
+        self.assertEqual(stats['remaining_allocated_hours'], 2.0)
+
+    def test_unauthorized_member_access(self):
+        """Test 7 — Non-admin Member B cannot view Member A detail."""
+        from rest_framework_simplejwt.tokens import RefreshToken
+        member_b_token = str(RefreshToken.for_user(self.member_b).access_token)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {member_b_token}')
+
+        url = f'/api/team/{self.member_a.id}/workload/'
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 

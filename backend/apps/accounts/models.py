@@ -5,6 +5,8 @@ from django.contrib.auth.models import AbstractUser, BaseUserManager
 class Organization(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255)
+    enable_task_types = models.BooleanField(default=True)
+    weekly_capacity_hours = models.IntegerField(default=40)
     created_at = models.DateTimeField(auto_now_add=True)
 
     objects = models.Manager()

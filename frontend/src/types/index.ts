@@ -78,6 +78,42 @@ export interface SubTask {
   late_by_minutes: number;
 }
 
+export interface TaskType {
+  id: string;
+  name: string;
+  description: string | null;
+  allocated_seconds: number;
+  allocated_hours: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrganizationSettings {
+  enable_task_types: boolean;
+  weekly_capacity_hours: number;
+}
+
+export interface MemberWorkload {
+  member_id: string;
+  user: User;
+  total_tasks_count: number;
+  active_tasks_count: number;
+  completed_tasks_count: number;
+  total_allocated_seconds: number;
+  completed_allocated_seconds: number;
+  remaining_allocated_seconds: number;
+  total_tracked_seconds: number;
+  total_allocated_hours: number;
+  completed_allocated_hours: number;
+  remaining_allocated_hours: number;
+  total_tracked_hours: number;
+  unestimated_task_count: number;
+  capacity_hours: number;
+  workload_percentage: number;
+  workload_status: 'Underloaded' | 'Balanced' | 'High' | 'Overloaded';
+}
+
 export interface Task {
   id: string;
   project: string | null;
@@ -106,6 +142,19 @@ export interface Task {
   is_subtask?: boolean;
   parent_task_id?: string;
   parent_task_name?: string;
+
+  // Task Type & Timer fields
+  task_type?: string | null;
+  task_type_detail?: TaskType | null;
+  allocated_seconds?: number | null;
+  elapsed_seconds?: number;
+  timer_started_at?: string | null;
+  timer_status?: 'NOT_STARTED' | 'RUNNING' | 'PAUSED' | 'COMPLETED';
+  actual_duration_seconds?: number | null;
+  current_elapsed_seconds?: number;
+  remaining_seconds?: number;
+  is_overtime?: boolean;
+  overtime_seconds?: number;
 }
 
 export interface ActivityLog {

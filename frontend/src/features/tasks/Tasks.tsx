@@ -8,10 +8,11 @@ import { TaskDetailPanel } from './TaskDetailPanel';
 import { TaskFormModal } from './TaskFormModal';
 import { Plus, CheckSquare, AlertCircle } from 'lucide-react';
 import { classifyTask } from '../../utils/taskClassifier';
+import { getLocalDateString } from '../../utils/time';
 import { PasteTasksModal } from './PasteTasksModal';
 import { TaskCard } from './TaskCard';
 
-type FilterType = 'all' | 'incompleted' | 'today' | 'tomorrow' | 'upcoming' | 'overdue' | 'no_due_date' | 'completed' | 'late';
+type FilterType = 'all' | 'incompleted' | 'today' | 'tomorrow' | 'upcoming' | 'no_due_date' | 'completed' | 'late';
 
 export const Tasks: React.FC = () => {
   const queryClient = useQueryClient();
@@ -170,6 +171,13 @@ export const Tasks: React.FC = () => {
     filteredTasks = deduplicatedTasks.filter((t) => t.status === 'COMPLETED' && t.submission_status === 'LATE');
   } else if (activeFilter === 'incompleted') {
     filteredTasks = deduplicatedTasks.filter((t) => t.status !== 'COMPLETED');
+  } else if (activeFilter === 'upcoming') {
+    const tomorrowDate = new Date();
+    tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+    const tomorrowStr = getLocalDateString(tomorrowDate);
+    filteredTasks = deduplicatedTasks.filter(
+      (t) => t.status !== 'COMPLETED' && t.due_date && t.due_date >= tomorrowStr
+    );
   } else if (activeFilter !== 'all') {
     filteredTasks = deduplicatedTasks.filter((t) => classifyTask(t) === activeFilter);
   }
@@ -376,7 +384,6 @@ export const Tasks: React.FC = () => {
     { value: 'today', label: 'Today' },
     { value: 'tomorrow', label: 'Tomorrow' },
     { value: 'upcoming', label: 'Upcoming' },
-    { value: 'overdue', label: 'Overdue' },
     { value: 'no_due_date', label: 'No Due Date' },
     { value: 'completed', label: 'Completed' },
     { value: 'late', label: 'Late' },
@@ -474,8 +481,7 @@ export const Tasks: React.FC = () => {
           ) : (
             renderSection(
               filters.find((f) => f.value === activeFilter)?.label || 'Tasks',
-              filteredTasks,
-              activeFilter === 'overdue'
+              filteredTasks
             )
           )}
         </div>

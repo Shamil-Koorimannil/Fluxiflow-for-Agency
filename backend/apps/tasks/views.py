@@ -1,11 +1,11 @@
-from rest_framework import viewsets, permissions, status
+from rest_framework import viewsets, permissions, status, exceptions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.utils import timezone
 from django.http import FileResponse
 from django.utils.text import get_valid_filename
-from .models import Task, TaskAssignee, SubTask, SubTaskAssignee, TaskComment, TaskAttachment
-from .serializers import TaskSerializer, SubTaskSerializer, TaskCommentSerializer, TaskAttachmentSerializer
+from .models import Task, TaskAssignee, SubTask, SubTaskAssignee, TaskComment, TaskAttachment, TaskType, TaskTimeLog
+from .serializers import TaskSerializer, SubTaskSerializer, TaskCommentSerializer, TaskAttachmentSerializer, TaskTypeSerializer, TaskTimeLogSerializer
 from apps.core.permissions import IsAdminOrReadOnlyMember
 from apps.activity.models import ActivityLog
 from apps.accounts.models import CustomUser as User
@@ -238,11 +238,26 @@ class TaskViewSet(viewsets.ModelViewSet):
         # Set user context for logging
         task._status_change_user = user
 
-        # Update the database
+        # Freeze timer if currently running
+        if task.timer_status == 'RUNNING' and task.timer_started_at:
+            delta = (timezone.now() - task.timer_started_at).total_seconds()
+            duration_secs = int(delta)
+            task.elapsed_seconds += duration_secs
+            task.timer_started_at = None
+            TaskTimeLog.objects.create(
+                task=task,
+                user=user,
+                started_at=task.timer_started_at or timezone.now(),
+                paused_at=timezone.now(),
+                duration_seconds=duration_secs
+            )
+
+        task.actual_duration_seconds = task.elapsed_seconds
+        task.timer_status = 'COMPLETED'
         task.status = 'COMPLETED'
         task.completed_by = user
         task.completed_at = timezone.now()
-        task.save(update_fields=['status', 'completed_by', 'completed_at'])
+        task.save(update_fields=['status', 'completed_by', 'completed_at', 'elapsed_seconds', 'timer_started_at', 'timer_status', 'actual_duration_seconds'])
         task.refresh_from_db()
 
         # Update all assignees to completed (synchronized metadata only)
@@ -306,7 +321,8 @@ class TaskViewSet(viewsets.ModelViewSet):
         task.status = 'PENDING'
         task.completed_by = None
         task.completed_at = None
-        task.save(update_fields=['status', 'completed_by', 'completed_at'])
+        task.timer_status = 'PAUSED'
+        task.save(update_fields=['status', 'completed_by', 'completed_at', 'timer_status'])
         task.refresh_from_db()
 
         # Mark all assignee relationships as not completed (synchronized metadata only)
@@ -341,6 +357,141 @@ class TaskViewSet(viewsets.ModelViewSet):
         task.refresh_from_db()
         serializer = self.get_serializer(task)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['POST'], url_path='timer/start')
+    def timer_start(self, request, pk=None):
+        task = self.get_object()
+        user = request.user
+
+        is_assigned = TaskAssignee.objects.filter(task=task, user=user).exists()
+        if user.role != 'ADMIN' and not is_assigned:
+            return Response({"detail": "You do not have permission to start this task timer."}, status=status.HTTP_403_FORBIDDEN)
+
+        if task.status == 'COMPLETED':
+            return Response({"detail": "Cannot start timer on a completed task. Reopen task first."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if task.timer_status != 'RUNNING':
+            task.timer_status = 'RUNNING'
+            task.timer_started_at = timezone.now()
+            task.save(update_fields=['timer_status', 'timer_started_at'])
+
+        task.refresh_from_db()
+        return Response(self.get_serializer(task).data)
+
+    @action(detail=True, methods=['POST'], url_path='timer/pause')
+    def timer_pause(self, request, pk=None):
+        task = self.get_object()
+        user = request.user
+
+        is_assigned = TaskAssignee.objects.filter(task=task, user=user).exists()
+        if user.role != 'ADMIN' and not is_assigned:
+            return Response({"detail": "You do not have permission to pause this task timer."}, status=status.HTTP_403_FORBIDDEN)
+
+        if task.timer_status == 'RUNNING' and task.timer_started_at:
+            delta = (timezone.now() - task.timer_started_at).total_seconds()
+            duration_secs = int(delta)
+            task.elapsed_seconds += duration_secs
+            started_at_val = task.timer_started_at
+            task.timer_started_at = None
+            task.timer_status = 'PAUSED'
+            task.save(update_fields=['elapsed_seconds', 'timer_started_at', 'timer_status'])
+
+            TaskTimeLog.objects.create(
+                task=task,
+                user=user,
+                started_at=started_at_val,
+                paused_at=timezone.now(),
+                duration_seconds=duration_secs
+            )
+
+        task.refresh_from_db()
+        return Response(self.get_serializer(task).data)
+
+    @action(detail=False, methods=['GET'], url_path='workload')
+    def team_workload(self, request):
+        user = request.user
+        if not user.is_authenticated:
+            return Response([])
+
+        membership = user.memberships.first()
+        if not membership:
+            return Response([])
+
+        org = membership.organization
+        capacity_hours = org.weekly_capacity_hours or 40
+        capacity_seconds = capacity_hours * 3600
+
+        from apps.accounts.serializers import UserSerializer
+        memberships = org.memberships.select_related('user').all()
+        workload_data = []
+
+        for m in memberships:
+            member = m.user
+            assigned_tasks = Task.objects.filter(assignee_relationships__user=member, organization=org).distinct()
+            
+            total_tasks_count = assigned_tasks.count()
+            completed_tasks_count = assigned_tasks.filter(status='COMPLETED').count()
+            active_tasks_count = total_tasks_count - completed_tasks_count
+
+            total_allocated_seconds = 0
+            completed_allocated_seconds = 0
+            remaining_allocated_seconds = 0
+            unestimated_task_count = 0
+            total_tracked_seconds = 0
+
+            for t in assigned_tasks:
+                alloc = t.allocated_seconds or 0
+                if not t.allocated_seconds:
+                    unestimated_task_count += 1
+                total_allocated_seconds += alloc
+                
+                # Calculate live elapsed seconds if running
+                if t.timer_status == 'RUNNING' and t.timer_started_at:
+                    t_elapsed = t.elapsed_seconds + int((timezone.now() - t.timer_started_at).total_seconds())
+                elif t.status == 'COMPLETED' and t.actual_duration_seconds is not None:
+                    t_elapsed = t.actual_duration_seconds
+                else:
+                    t_elapsed = t.elapsed_seconds or 0
+
+                total_tracked_seconds += t_elapsed
+
+                if t.status == 'COMPLETED':
+                    completed_allocated_seconds += alloc
+                else:
+                    remaining_allocated_seconds += alloc
+
+            percentage = round((total_allocated_seconds / capacity_seconds) * 100, 1) if capacity_seconds > 0 else 0
+
+            if percentage < 70:
+                workload_status = 'Underloaded'
+            elif percentage <= 100:
+                workload_status = 'Balanced'
+            elif percentage <= 120:
+                workload_status = 'High'
+            else:
+                workload_status = 'Overloaded'
+
+            workload_data.append({
+                'member_id': str(member.id),
+                'user': UserSerializer(member).data,
+                'total_tasks_count': total_tasks_count,
+                'active_tasks_count': active_tasks_count,
+                'completed_tasks_count': completed_tasks_count,
+                'total_allocated_seconds': total_allocated_seconds,
+                'completed_allocated_seconds': completed_allocated_seconds,
+                'remaining_allocated_seconds': remaining_allocated_seconds,
+                'total_tracked_seconds': total_tracked_seconds,
+                'total_allocated_hours': round(total_allocated_seconds / 3600, 2),
+                'completed_allocated_hours': round(completed_allocated_seconds / 3600, 2),
+                'remaining_allocated_hours': round(remaining_allocated_seconds / 3600, 2),
+                'total_tracked_hours': round(total_tracked_seconds / 3600, 2),
+                'unestimated_task_count': unestimated_task_count,
+                'capacity_hours': capacity_hours,
+                'workload_percentage': percentage,
+                'workload_status': workload_status,
+            })
+
+        return Response(workload_data)
 
     @action(detail=True, methods=['POST'])
     def subtasks(self, request, pk=None):
@@ -872,4 +1023,85 @@ class TaskAttachmentViewSet(viewsets.ModelViewSet):
             attachment.file.delete(save=False)
         attachment.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class TaskTypeViewSet(viewsets.ModelViewSet):
+    serializer_class = TaskTypeSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user.is_authenticated:
+            return TaskType.objects.none()
+
+        membership = user.memberships.first()
+        if not membership:
+            return TaskType.objects.none()
+
+        qs = TaskType.objects.filter(organization=membership.organization)
+        if user.role != 'ADMIN':
+            qs = qs.filter(is_active=True)
+        return qs
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        if user.role != 'ADMIN':
+            raise exceptions.PermissionDenied("Only Admins can create Task Types.")
+        membership = user.memberships.first()
+        if not membership:
+            raise exceptions.PermissionDenied("User has no organization membership.")
+        serializer.save(organization=membership.organization)
+
+    def perform_update(self, serializer):
+        if self.request.user.role != 'ADMIN':
+            raise exceptions.PermissionDenied("Only Admins can edit Task Types.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        if self.request.user.role != 'ADMIN':
+            raise exceptions.PermissionDenied("Only Admins can delete Task Types.")
+        instance.delete()
+
+
+class OrganizationSettingsView(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def list(self, request):
+        user = request.user
+        membership = user.memberships.first()
+        if not membership:
+            return Response({"detail": "User has no organization membership."}, status=status.HTTP_400_BAD_REQUEST)
+        org = membership.organization
+        return Response({
+            "enable_task_types": org.enable_task_types,
+            "weekly_capacity_hours": org.weekly_capacity_hours,
+        })
+
+    def create(self, request):
+        user = request.user
+        if user.role != 'ADMIN':
+            return Response({"detail": "Only Admins can modify organization settings."}, status=status.HTTP_403_FORBIDDEN)
+
+        membership = user.memberships.first()
+        if not membership:
+            return Response({"detail": "User has no organization membership."}, status=status.HTTP_400_BAD_REQUEST)
+        org = membership.organization
+
+        enable_task_types = request.data.get('enable_task_types')
+        weekly_capacity_hours = request.data.get('weekly_capacity_hours')
+
+        if enable_task_types is not None:
+            org.enable_task_types = bool(enable_task_types)
+        if weekly_capacity_hours is not None:
+            try:
+                org.weekly_capacity_hours = int(weekly_capacity_hours)
+            except (ValueError, TypeError):
+                pass
+
+        org.save()
+        return Response({
+            "enable_task_types": org.enable_task_types,
+            "weekly_capacity_hours": org.weekly_capacity_hours,
+        })
+
 

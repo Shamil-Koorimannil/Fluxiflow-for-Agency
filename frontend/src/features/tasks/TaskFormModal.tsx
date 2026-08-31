@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
-import type { Task, Project, User } from '../../types';
-import { X } from 'lucide-react';
+import type { Task, Project, User, TaskType, OrganizationSettings } from '../../types';
+import { X, Tag } from 'lucide-react';
 import { TimePicker } from '../../components/common/TimePicker';
 import { DatePicker } from '../../components/common/DatePicker';
 import { getLocalDateString } from '../../utils/time';
@@ -11,21 +11,27 @@ import { getLocalDateString } from '../../utils/time';
 interface TaskFormModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialData?: Task | null;
   taskToEdit?: Task | null;
   defaultProjectId?: string | null;
   defaultAssigneeId?: string | null;
   projectId?: string;
+  preselectedClientId?: string;
+  onTaskSaved?: () => void;
 }
 
 export const TaskFormModal: React.FC<TaskFormModalProps> = ({
   isOpen,
   onClose,
-  taskToEdit,
+  initialData,
+  taskToEdit: propTaskToEdit,
   defaultProjectId,
   defaultAssigneeId,
   projectId: projectIdProp,
+  onTaskSaved,
 }) => {
   const queryClient = useQueryClient();
+  const taskToEdit = initialData || propTaskToEdit;
   const isEditMode = !!taskToEdit;
 
   // Form states
@@ -35,6 +41,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
   const [priority, setPriority] = useState<'LOW' | 'MEDIUM' | 'HIGH'>('MEDIUM');
   const [description, setDescription] = useState('');
   const [projectId, setProjectId] = useState<string>('');
+  const [selectedTaskTypeId, setSelectedTaskTypeId] = useState<string | null>(null);
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [hasInitialized, setHasInitialized] = useState(false);
@@ -54,14 +61,16 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
         setPriority(taskToEdit.priority || 'MEDIUM');
         setDescription(taskToEdit.description || '');
         setProjectId(taskToEdit.project || projectIdProp || defaultProjectId || '');
-        setSelectedAssigneeIds(taskToEdit.assignees.map((a) => a.id));
+        setSelectedTaskTypeId(taskToEdit.task_type || taskToEdit.task_type_detail?.id || null);
+        setSelectedAssigneeIds(taskToEdit.assignees ? taskToEdit.assignees.map((a) => a.id) : []);
       } else {
         setName('');
-        setDueDate(getLocalDateString(new Date())); // timezone-safe local date
+        setDueDate(getLocalDateString(new Date()));
         setDueTime('');
         setPriority('MEDIUM');
         setDescription('');
         setProjectId(projectIdProp || defaultProjectId || '');
+        setSelectedTaskTypeId(null);
         setSelectedAssigneeIds(defaultAssigneeId ? [defaultAssigneeId] : []);
       }
       setError(null);
@@ -69,7 +78,27 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
     }
   }, [isOpen, hasInitialized, taskToEdit, defaultProjectId, defaultAssigneeId, projectIdProp]);
 
-  // Fetch projects list for selection
+  // Fetch Organization Settings (to check if Task Types feature is enabled)
+  const { data: orgSettings } = useQuery<OrganizationSettings>({
+    queryKey: ['organization-settings'],
+    queryFn: async () => {
+      const response = await api.get('/organization-settings/');
+      return response.data;
+    },
+    enabled: isOpen,
+  });
+
+  // Fetch Task Types list
+  const { data: taskTypes } = useQuery<TaskType[]>({
+    queryKey: ['task-types'],
+    queryFn: async () => {
+      const response = await api.get('/task-types/');
+      return response.data;
+    },
+    enabled: isOpen && !!orgSettings?.enable_task_types,
+  });
+
+  // Fetch projects list
   const { data: projects } = useQuery<Project[]>({
     queryKey: ['projects'],
     queryFn: async () => {
@@ -79,7 +108,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
     enabled: isOpen,
   });
 
-  // Fetch team members list for assignees selection
+  // Fetch team members list
   const { data: teamMembers } = useQuery<User[]>({
     queryKey: ['team'],
     queryFn: async () => {
@@ -95,6 +124,16 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
     } else {
       setSelectedAssigneeIds([...selectedAssigneeIds, userId]);
     }
+  };
+
+  const selectedTypeObj = taskTypes?.find(t => t.id === selectedTaskTypeId);
+
+  const formatReadableDuration = (totalSecs: number): string => {
+    const hrs = Math.floor(totalSecs / 3600);
+    const mins = Math.floor((totalSecs % 3600) / 60);
+    if (hrs > 0 && mins > 0) return `${hrs}h ${mins}m`;
+    if (hrs > 0) return `${hrs}h`;
+    return `${mins}m`;
   };
 
   // Create or Update mutation
@@ -127,6 +166,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
           queryClient.invalidateQueries({ queryKey: ['tasks', { project: projectId }] }),
         ]);
       }
+      if (onTaskSaved) onTaskSaved();
       onClose();
     },
     onError: (err: any) => {
@@ -154,18 +194,15 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
       setError('Due Date is required.');
       return;
     }
-    if (!projectId) {
-      setError('Project is required.');
-      return;
-    }
 
     const payload: any = {
-      name,
+      name: name.trim(),
       due_date: dueDate,
       priority,
       description: description || null,
       assignee_ids: selectedAssigneeIds,
       project: projectId || null,
+      task_type: selectedTaskTypeId || null,
     };
 
     if (dueTime) {
@@ -180,8 +217,8 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
   if (!isOpen) return null;
 
   return createPortal(
-    <div className="fixed inset-0 bg-black/45 z-[9999] flex items-center justify-center p-4 pointer-events-auto">
-      <div className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl max-w-lg w-full p-6 shadow-lg relative max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150 text-black dark:text-white pointer-events-auto">
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 pointer-events-auto animate-in fade-in duration-150">
+      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-150 text-black dark:text-white pointer-events-auto">
         <button
           onClick={onClose}
           type="button"
@@ -190,22 +227,22 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
           <X className="h-4 w-4" />
         </button>
 
-        <h3 className="font-bold text-base text-black dark:text-white mb-1">
+        <h3 className="font-bold text-base text-zinc-900 dark:text-zinc-100 mb-1">
           {isEditMode ? 'Edit Task' : 'Create Task'}
         </h3>
-        <p className="text-xs text-zinc-555 dark:text-zinc-400 mb-4">
-          {isEditMode ? 'Modify details of the existing task.' : 'Add a new action item and assign it.'}
+        <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">
+          {isEditMode ? 'Modify details of the existing task.' : 'Add a new action item and assign it to team members.'}
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
-            <div className="rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/50 p-3 text-xs font-medium text-red-655 dark:text-red-400">
+            <div className="rounded-xl bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 p-3 text-xs font-medium text-red-600 dark:text-red-400">
               {error}
             </div>
           )}
 
           <div className="space-y-1">
-            <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+            <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">
               Task Name *
             </label>
             <input
@@ -215,13 +252,43 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={submitMutation.isPending}
-              className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
+              className="w-full px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs focus:outline-none focus:border-black dark:focus:border-white disabled:opacity-50 transition-colors"
             />
           </div>
 
+          {/* Task Type Selector (When Enabled) */}
+          {orgSettings?.enable_task_types && (
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Tag className="h-3.5 w-3.5 text-blue-500" />
+                <span>Task Type</span>
+              </label>
+              <select
+                value={selectedTaskTypeId || ''}
+                onChange={(e) => setSelectedTaskTypeId(e.target.value || null)}
+                disabled={submitMutation.isPending}
+                className="w-full px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs focus:outline-none focus:border-black dark:focus:border-white disabled:opacity-50 transition-colors"
+              >
+                <option value="">No Task Type</option>
+                {taskTypes?.filter(tt => tt.is_active || tt.id === selectedTaskTypeId).map((tt) => (
+                  <option key={tt.id} value={tt.id}>
+                    {tt.name} ({formatReadableDuration(tt.allocated_seconds)})
+                  </option>
+                ))}
+              </select>
+
+              {selectedTypeObj && (
+                <div className="p-2.5 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl flex items-center justify-between text-xs text-blue-900 dark:text-blue-200 mt-1">
+                  <span className="font-semibold">{selectedTypeObj.name}</span>
+                  <span className="font-mono font-bold">Allocated Time: {formatReadableDuration(selectedTypeObj.allocated_seconds)}</span>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+              <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">
                 Due Date *
               </label>
               <DatePicker
@@ -233,7 +300,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider block mb-1">
+              <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider block mb-1">
                 Due Time
               </label>
               <TimePicker
@@ -245,18 +312,18 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
-              Project *
+            <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">
+              Project
             </label>
             <select
               value={projectId}
               onChange={(e) => setProjectId(e.target.value)}
               disabled={submitMutation.isPending || !!projectIdProp}
-              className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors"
+              className="w-full px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs focus:outline-none focus:border-black dark:focus:border-white disabled:opacity-50 transition-colors"
             >
               <option value="">No Project</option>
               {projects?.map((p) => (
-                <option key={p.id} value={p.id} className="bg-white dark:bg-black">
+                <option key={p.id} value={p.id}>
                   {p.name}
                 </option>
               ))}
@@ -265,14 +332,14 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+              <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">
                 Priority
               </label>
               <select
                 value={priority}
                 onChange={(e) => setPriority(e.target.value as any)}
                 disabled={submitMutation.isPending}
-                className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors text-black dark:text-white"
+                className="w-full px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs focus:outline-none focus:border-black dark:focus:border-white disabled:opacity-50 transition-colors"
               >
                 <option value="LOW">Low</option>
                 <option value="MEDIUM">Medium</option>
@@ -280,66 +347,61 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
               </select>
             </div>
 
-            {/* Assignees list multiselect */}
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider block mb-1">
+              <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">
                 Assignees
               </label>
-              <div className="max-h-36 overflow-y-auto border border-zinc-200 dark:border-zinc-800 rounded-lg p-2 space-y-1 bg-white dark:bg-black">
-                {teamMembers
-                  ?.filter((m) => m.status === 'ACTIVE' || selectedAssigneeIds.includes(m.id))
-                  ?.map((m) => {
-                    const isChecked = selectedAssigneeIds.includes(m.id);
-                    const isDeactivated = m.status === 'INACTIVE';
-                    return (
-                      <label
-                        key={m.id}
-                        className="flex items-center gap-2 px-2 py-1 hover:bg-zinc-50 dark:hover:bg-zinc-900 rounded-md text-xs cursor-pointer transition-colors"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => handleAssigneeToggle(m.id)}
-                          disabled={submitMutation.isPending}
-                          className="rounded border-zinc-300 dark:border-zinc-700 text-black focus:ring-black focus:ring-0 cursor-pointer"
-                        />
-                        <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                          {m.name} {isDeactivated && <span className="text-red-500 font-semibold">(Deactivated)</span>}
-                        </span>
-                      </label>
-                    );
-                  })}
+              <div className="max-h-28 overflow-y-auto border border-zinc-200 dark:border-zinc-800 rounded-xl p-2 bg-white dark:bg-zinc-950 space-y-1 text-xs">
+                {teamMembers?.map((m) => {
+                  const isChecked = selectedAssigneeIds.includes(m.id);
+                  return (
+                    <div
+                      key={m.id}
+                      onClick={() => handleAssigneeToggle(m.id)}
+                      className={`flex items-center gap-2 px-2 py-1 rounded-lg cursor-pointer transition-colors ${
+                        isChecked ? 'bg-zinc-100 dark:bg-zinc-800 text-black dark:text-white font-semibold' : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {}}
+                        className="rounded border-zinc-300 dark:border-zinc-700 text-black dark:text-white focus:ring-0"
+                      />
+                      <span className="truncate">{m.name}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+            <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">
               Description
             </label>
             <textarea
-              placeholder="Provide a detailed description of the task..."
+              rows={3}
+              placeholder="Task details and instructions..."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               disabled={submitMutation.isPending}
-              rows={3}
-              className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-colors resize-none"
+              className="w-full px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs focus:outline-none focus:border-black dark:focus:border-white disabled:opacity-50 transition-colors resize-none"
             />
           </div>
 
-          <div className="flex items-center justify-end gap-2 pt-4 border-t border-zinc-100 dark:border-zinc-900">
+          <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-end gap-3">
             <button
               type="button"
               onClick={onClose}
-              disabled={submitMutation.isPending}
-              className="px-4 py-2 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-xs font-semibold rounded-lg transition-colors"
+              className="px-4 py-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-xl transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={submitMutation.isPending}
-              className="px-4 py-2 bg-black dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-100 text-white dark:text-black font-semibold rounded-lg text-xs tracking-wider transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
+              className="px-4 py-2 text-xs font-semibold bg-black dark:bg-white text-white dark:text-black hover:bg-zinc-800 dark:hover:bg-zinc-200 rounded-xl transition-colors shadow-sm disabled:opacity-50"
             >
               {submitMutation.isPending ? 'Saving...' : isEditMode ? 'Save Changes' : 'Create Task'}
             </button>

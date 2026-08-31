@@ -21,6 +21,7 @@ import { Reports } from './features/reports/Reports';
 import { Keep } from './features/keep/Keep';
 import { Clients } from './features/clients/Clients';
 import { ClientDetail } from './features/clients/ClientDetail';
+import { Settings } from './features/settings/Settings';
 
 // Create a client for React Query
 const queryClient = new QueryClient({
@@ -248,6 +249,14 @@ function App() {
                     element={
                       <ProtectedRoute requiredRole="ADMIN">
                         <Reports />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="settings"
+                    element={
+                      <ProtectedRoute requiredRole="ADMIN">
+                        <Settings />
                       </ProtectedRoute>
                     }
                   />

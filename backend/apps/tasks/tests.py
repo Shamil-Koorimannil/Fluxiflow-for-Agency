@@ -1705,6 +1705,115 @@ class CommentsAndAttachmentsTests(TestCase):
         self.assertFalse(TaskAttachment.objects.filter(id=attachment.id).exists())
 
 
+from apps.accounts.models import Organization
+from apps.tasks.models import TaskType
+
+class TaskTypesAndWorkloadTestSuite(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.org = Organization.objects.create(name="Test Org Agency")
+        
+        self.admin = User.objects.create_user(
+            email='admin_tt@test.com', password='Password123!', name='TT Admin', role='ADMIN'
+        )
+        self.admin.memberships.create(organization=self.org)
+        
+        self.member = User.objects.create_user(
+            email='member_tt@test.com', password='Password123!', name='TT Member', role='MEMBER'
+        )
+        self.member.memberships.create(organization=self.org)
+
+        self.admin_client = APIClient()
+        self.admin_client.force_authenticate(user=self.admin)
+
+        self.member_client = APIClient()
+        self.member_client.force_authenticate(user=self.member)
+
+    # 1. Admin can create Task Type
+    def test_admin_create_task_type(self):
+        res = self.admin_client.post('/api/task-types/', {
+            'name': 'Logo Design',
+            'description': 'Brand identity logo creation',
+            'allocated_seconds': 10800
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data['name'], 'Logo Design')
+        self.assertEqual(res.data['allocated_seconds'], 10800)
+
+    # 2. Member CANNOT create Task Type
+    def test_member_cannot_create_task_type(self):
+        res = self.member_client.post('/api/task-types/', {
+            'name': 'Unauthorized Type',
+            'allocated_seconds': 3600
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    # 3. Task Type duration snapshotting on Task
+    def test_task_type_duration_snapshotting(self):
+        tt = TaskType.objects.create(organization=self.org, name='Video Editing', allocated_seconds=10800)
+        t = Task.objects.create(
+            name='Promo Video',
+            created_by=self.admin,
+            organization=self.org,
+            task_type=tt,
+            allocated_seconds=tt.allocated_seconds
+        )
+        self.assertEqual(t.allocated_seconds, 10800)
+
+        # Admin edits Task Type to 8h
+        tt.allocated_seconds = 28800
+        tt.save()
+
+        # Existing task retains original snapshot
+        t.refresh_from_db()
+        self.assertEqual(t.allocated_seconds, 10800)
+
+    # 4. Timer start, pause, resume & completion
+    def test_task_timer_lifecycle(self):
+        tt = TaskType.objects.create(organization=self.org, name='Short Task', allocated_seconds=60)
+        t = Task.objects.create(name='Timed Task', created_by=self.admin, organization=self.org, task_type=tt, allocated_seconds=60)
+        TaskAssignee.objects.create(task=t, user=self.member)
+
+        # Start timer
+        res_start = self.member_client.post(f'/api/tasks/{t.id}/timer/start/')
+        self.assertEqual(res_start.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_start.data['timer_status'], 'RUNNING')
+
+        # Pause timer
+        res_pause = self.member_client.post(f'/api/tasks/{t.id}/timer/pause/')
+        self.assertEqual(res_pause.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_pause.data['timer_status'], 'PAUSED')
+
+        # Complete task
+        res_complete = self.member_client.post(f'/api/tasks/{t.id}/complete/')
+        self.assertEqual(res_complete.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_complete.data['status'], 'COMPLETED')
+        self.assertEqual(res_complete.data['timer_status'], 'COMPLETED')
+
+        # Reopen task
+        res_reopen = self.member_client.post(f'/api/tasks/{t.id}/reopen/')
+        self.assertEqual(res_reopen.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_reopen.data['status'], 'PENDING')
+        self.assertEqual(res_reopen.data['timer_status'], 'PAUSED')
+
+    # 5. Workload calculation
+    def test_workload_calculation(self):
+        tt_1h = TaskType.objects.create(organization=self.org, name='1 Hour Task', allocated_seconds=3600)
+        tt_2h = TaskType.objects.create(organization=self.org, name='2 Hour Task', allocated_seconds=7200)
+
+        t1 = Task.objects.create(name='T1', created_by=self.admin, organization=self.org, task_type=tt_1h, allocated_seconds=3600)
+        t2 = Task.objects.create(name='T2', created_by=self.admin, organization=self.org, task_type=tt_2h, allocated_seconds=7200)
+        
+        TaskAssignee.objects.create(task=t1, user=self.member)
+        TaskAssignee.objects.create(task=t2, user=self.member)
+
+        res_wl = self.admin_client.get('/api/tasks/workload/')
+        self.assertEqual(res_wl.status_code, status.HTTP_200_OK)
+        member_wl = next(item for item in res_wl.data if item['member_id'] == str(self.member.id))
+        self.assertEqual(member_wl['total_allocated_seconds'], 10800)
+        self.assertEqual(member_wl['total_allocated_hours'], 3.0)
+
+
 
 
 

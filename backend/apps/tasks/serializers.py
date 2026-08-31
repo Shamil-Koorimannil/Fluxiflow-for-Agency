@@ -4,7 +4,7 @@ from apps.accounts.models import CustomUser as User
 from apps.accounts.serializers import UserSerializer
 from apps.projects.models import Project
 from apps.projects.serializers import ProjectSerializer
-from .models import Task, TaskAssignee, SubTask, SubTaskAssignee, TaskComment, TaskAttachment
+from .models import Task, TaskAssignee, SubTask, SubTaskAssignee, TaskComment, TaskAttachment, TaskType, TaskTimeLog
 
 class SubTaskAssigneeSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
@@ -175,6 +175,27 @@ class SubTaskSerializer(serializers.ModelSerializer):
                 
         return instance
 
+class TaskTypeSerializer(serializers.ModelSerializer):
+    allocated_hours = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TaskType
+        fields = ['id', 'name', 'description', 'allocated_seconds', 'allocated_hours', 'is_active', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_allocated_hours(self, obj):
+        if not obj.allocated_seconds:
+            return 0
+        return round(obj.allocated_seconds / 3600, 2)
+
+class TaskTimeLogSerializer(serializers.ModelSerializer):
+    user_detail = UserSerializer(source='user', read_only=True)
+
+    class Meta:
+        model = TaskTimeLog
+        fields = ['id', 'task', 'user', 'user_detail', 'started_at', 'paused_at', 'duration_seconds', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
 class TaskSerializer(serializers.ModelSerializer):
     subtasks = SubTaskSerializer(many=True, read_only=True)
     assignees = serializers.SerializerMethodField()
@@ -186,6 +207,13 @@ class TaskSerializer(serializers.ModelSerializer):
     project_detail = ProjectSerializer(source='project', read_only=True)
     created_by_detail = UserSerializer(source='created_by', read_only=True)
     completed_by_detail = UserSerializer(source='completed_by', read_only=True)
+    
+    # Task Type & Timer fields
+    task_type_detail = TaskTypeSerializer(source='task_type', read_only=True)
+    current_elapsed_seconds = serializers.SerializerMethodField()
+    remaining_seconds = serializers.SerializerMethodField()
+    is_overtime = serializers.SerializerMethodField()
+    overtime_seconds = serializers.SerializerMethodField()
 
     class Meta:  # type: ignore
         model = Task
@@ -193,12 +221,42 @@ class TaskSerializer(serializers.ModelSerializer):
             'id', 'project', 'name', 'description', 'due_date', 'due_time',
             'priority', 'status', 'created_by', 'created_by_detail', 'completed_by', 'completed_by_detail',
             'completed_at', 'created_at', 'updated_at', 'subtasks', 'assignees', 'assignee_ids',
-            'project_detail'
+            'project_detail',
+            'task_type', 'task_type_detail', 'allocated_seconds', 'elapsed_seconds', 'timer_started_at',
+            'timer_status', 'actual_duration_seconds', 'current_elapsed_seconds', 'remaining_seconds',
+            'is_overtime', 'overtime_seconds'
         ]
         read_only_fields = [
             'id', 'created_by', 'completed_by', 'completed_at', 'created_at', 'updated_at',
-            'project_detail', 'created_by_detail', 'completed_by_detail'
+            'project_detail', 'created_by_detail', 'completed_by_detail', 'task_type_detail'
         ]
+
+    def get_current_elapsed_seconds(self, obj):
+        if obj.timer_status == 'RUNNING' and obj.timer_started_at:
+            delta = (timezone.now() - obj.timer_started_at).total_seconds()
+            return obj.elapsed_seconds + int(delta)
+        if obj.status == 'COMPLETED' and obj.actual_duration_seconds is not None:
+            return obj.actual_duration_seconds
+        return obj.elapsed_seconds or 0
+
+    def get_remaining_seconds(self, obj):
+        allocated = obj.allocated_seconds or 0
+        current_elapsed = self.get_current_elapsed_seconds(obj)
+        return max(0, allocated - current_elapsed)
+
+    def get_is_overtime(self, obj):
+        allocated = obj.allocated_seconds or 0
+        if not allocated:
+            return False
+        current_elapsed = self.get_current_elapsed_seconds(obj)
+        return current_elapsed > allocated
+
+    def get_overtime_seconds(self, obj):
+        allocated = obj.allocated_seconds or 0
+        if not allocated:
+            return 0
+        current_elapsed = self.get_current_elapsed_seconds(obj)
+        return max(0, current_elapsed - allocated)
 
     def get_assignees(self, obj):
         relationships = TaskAssignee.objects.filter(task=obj).select_related('user')
@@ -260,6 +318,10 @@ class TaskSerializer(serializers.ModelSerializer):
             if user_membership:
                 validated_data['organization'] = user_membership.organization
 
+        task_type = validated_data.get('task_type')
+        if task_type and validated_data.get('allocated_seconds') is None:
+            validated_data['allocated_seconds'] = task_type.allocated_seconds
+
         task = Task.objects.create(**validated_data)
         
         from apps.notifications.services import NotificationService
@@ -283,6 +345,13 @@ class TaskSerializer(serializers.ModelSerializer):
             )
                 
         return task
+
+    def update(self, instance, validated_data):
+        if 'task_type' in validated_data:
+            new_task_type = validated_data['task_type']
+            if new_task_type and ('allocated_seconds' not in validated_data or validated_data['allocated_seconds'] is None):
+                validated_data['allocated_seconds'] = new_task_type.allocated_seconds
+        return super().update(instance, validated_data)
     def to_representation(self, instance):
         rep = super().to_representation(instance)
         # Calculate overall status based on assignees
