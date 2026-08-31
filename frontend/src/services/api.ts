@@ -5,7 +5,12 @@ const isLocal =
   (window.location.hostname === 'localhost' ||
    window.location.hostname === '127.0.0.1');
 
-export const API_BASE_URL = isLocal ? 'http://localhost:8000/api' : '/api';
+const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+const currentProtocol = typeof window !== 'undefined' ? window.location.protocol : 'http:';
+
+export const API_BASE_URL = isLocal 
+  ? `${currentProtocol}//${currentHost}:8000/api` 
+  : '/api';
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
