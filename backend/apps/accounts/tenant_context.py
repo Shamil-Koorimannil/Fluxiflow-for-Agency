@@ -18,61 +18,66 @@ def get_active_membership(user: CustomUser) -> Optional[Membership]:
     if not user or not user.is_authenticated:
         return None
 
-    # Check user's currently selected active_organization FK first
-    if getattr(user, 'active_organization_id', None):
+    try:
+        # Check user's currently selected active_organization FK first
+        if getattr(user, 'active_organization_id', None):
+            membership = Membership.objects.filter(
+                user=user,
+                organization_id=user.active_organization_id,
+                is_active=True,
+                organization__is_active=True
+            ).select_related('organization').first()
+            if membership:
+                if getattr(user, 'role', 'MEMBER') == 'ADMIN' and membership.role == 'MEMBER':
+                    membership.role = resolve_target_role(user)
+                    membership.save(update_fields=['role'])
+                return membership
+
+        # Fallback to user's first active membership
         membership = Membership.objects.filter(
             user=user,
-            organization_id=user.active_organization_id,
             is_active=True,
             organization__is_active=True
         ).select_related('organization').first()
+        
         if membership:
             if getattr(user, 'role', 'MEMBER') == 'ADMIN' and membership.role == 'MEMBER':
                 membership.role = resolve_target_role(user)
                 membership.save(update_fields=['role'])
+            if getattr(user, 'active_organization', None) != membership.organization:
+                user.active_organization = membership.organization
+                user.save(update_fields=['active_organization'])
             return membership
 
-    # Fallback to user's first active membership
-    membership = Membership.objects.filter(
-        user=user,
-        is_active=True,
-        organization__is_active=True
-    ).select_related('organization').first()
-    
-    if membership:
-        if getattr(user, 'role', 'MEMBER') == 'ADMIN' and membership.role == 'MEMBER':
-            membership.role = resolve_target_role(user)
-            membership.save(update_fields=['role'])
-        if getattr(user, 'active_organization', None) != membership.organization:
-            user.active_organization = membership.organization
-            user.save(update_fields=['active_organization'])
-        return membership
+        # Auto-ensure default organization membership for legacy test user fixtures
+        default_org = Organization.objects.filter(slug='zywo').first() or Organization.objects.first()
+        if not default_org:
+            default_org = Organization.objects.create(
+                name='Zywo',
+                slug='zywo',
+                enable_task_types=True,
+                weekly_capacity_hours=40
+            )
+        else:
+            if default_org.name != 'Zywo' or default_org.slug != 'zywo':
+                default_org.name = 'Zywo'
+                default_org.slug = 'zywo'
+                default_org.save(update_fields=['name', 'slug'])
 
-    # Auto-ensure default organization membership for legacy test user fixtures
-    default_org = Organization.objects.filter(slug='zywo').first() or Organization.objects.first()
-    if not default_org:
-        default_org = Organization.objects.create(
-            name='Zywo',
-            slug='zywo',
-            enable_task_types=True,
-            weekly_capacity_hours=40
+        role = resolve_target_role(user)
+        membership, _ = Membership.objects.get_or_create(
+            organization=default_org,
+            user=user,
+            defaults={'role': role, 'is_active': True}
         )
-    else:
-        if default_org.name != 'Zywo' or default_org.slug != 'zywo':
-            default_org.name = 'Zywo'
-            default_org.slug = 'zywo'
-            default_org.save(update_fields=['name', 'slug'])
+        user.active_organization = default_org
+        user.save(update_fields=['active_organization'])
 
-    role = resolve_target_role(user)
-    membership, _ = Membership.objects.get_or_create(
-        organization=default_org,
-        user=user,
-        defaults={'role': role, 'is_active': True}
-    )
-    user.active_organization = default_org
-    user.save(update_fields=['active_organization'])
-
-    return membership
+        return membership
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Error resolving active membership: %s", str(e))
+        return None
 
 
 def get_active_organization(user: CustomUser) -> Optional[Organization]:

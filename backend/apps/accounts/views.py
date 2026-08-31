@@ -302,38 +302,39 @@ class MeView(views.APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        active_mem = get_active_membership(request.user)
         user_data = UserSerializer(request.user, context={'request': request}).data
-        
-        # Override role with membership role if present
-        if active_mem:
-            user_data['role'] = active_mem.role
-
-        org_memberships = Membership.objects.filter(
-            user=request.user,
-            is_active=True,
-            organization__is_active=True
-        ).select_related('organization')
-
-        orgs_list = []
-        for m in org_memberships:
-            orgs_list.append({
-                "id": str(m.organization.id),
-                "name": m.organization.name,
-                "slug": m.organization.slug,
-                "role": m.role,
-                "logo_url": request.build_absolute_uri(m.organization.logo.url) if m.organization.logo else None
-            })
-
         active_org_data = None
-        if active_mem:
-            active_org_data = {
-                "id": str(active_mem.organization.id),
-                "name": active_mem.organization.name,
-                "slug": active_mem.organization.slug,
-                "role": active_mem.role,
-                "logo_url": request.build_absolute_uri(active_mem.organization.logo.url) if active_mem.organization.logo else None
-            }
+        orgs_list = []
+
+        try:
+            active_mem = get_active_membership(request.user)
+            if active_mem:
+                user_data['role'] = active_mem.role
+                active_org_data = {
+                    "id": str(active_mem.organization.id),
+                    "name": active_mem.organization.name,
+                    "slug": active_mem.organization.slug,
+                    "role": active_mem.role,
+                    "logo_url": request.build_absolute_uri(active_mem.organization.logo.url) if active_mem.organization.logo else None
+                }
+
+            org_memberships = Membership.objects.filter(
+                user=request.user,
+                is_active=True,
+                organization__is_active=True
+            ).select_related('organization')
+
+            for m in org_memberships:
+                orgs_list.append({
+                    "id": str(m.organization.id),
+                    "name": m.organization.name,
+                    "slug": m.organization.slug,
+                    "role": m.role,
+                    "logo_url": request.build_absolute_uri(m.organization.logo.url) if m.organization.logo else None
+                })
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("MeView membership exception: %s", str(e))
 
         return Response({
             **user_data,
