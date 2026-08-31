@@ -7,7 +7,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    path('fluxiflow-control/', admin.site.urls),
     
     # Keep API endpoints
     path('api/keep/', include('apps.keep.urls')),

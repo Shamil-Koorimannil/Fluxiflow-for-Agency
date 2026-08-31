@@ -3,7 +3,6 @@ import { useQuery } from '@tanstack/react-query';
 import { Drawer, Avatar, CircularProgress } from '@mui/material';
 import { ChevronLeft, ChevronRight, Download, Search as SearchIcon, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
 import { api } from '../../services/api';
-import { useAuth } from '../auth/AuthContext';
 import type { User, Project } from '../../types';
 import { formatDateOnly, formatTimeOnly, formatDateTime } from '../../utils/time';
 
@@ -62,9 +61,10 @@ interface ReportData {
   tasks: TaskReportDetail[];
 }
 
+import { useOrganization } from '../../context/OrganizationContext';
+
 export const Reports: React.FC = () => {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'ADMIN';
+  const { isAdmin } = useOrganization();
 
   // State parameters
   const [mode, setMode] = useState<'single' | 'range'>('single');

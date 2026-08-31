@@ -1,4 +1,26 @@
-export type UserRole = 'ADMIN' | 'MEMBER';
+export type UserRole = 'ORG_ADMIN' | 'ADMIN' | 'MEMBER';
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  logo_url: string | null;
+  description?: string | null;
+  enable_task_types?: boolean;
+  weekly_capacity_hours?: number;
+  is_active?: boolean;
+  created_at?: string;
+  role?: UserRole;
+}
+
+export interface OrganizationMembership {
+  id: string;
+  user: User;
+  role: UserRole;
+  is_active: boolean;
+  joined_at: string;
+  created_at: string;
+}
 
 export interface Profile {
   id: string;

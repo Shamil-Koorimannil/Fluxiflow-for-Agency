@@ -1,8 +1,9 @@
 import React from 'react';
 import type { Task, User } from '../../types';
-import { CheckCircle2, Circle, Check } from 'lucide-react';
+import { CheckCircle2, Circle, Check, Pencil } from 'lucide-react';
 import { TaskDatePicker } from './TaskDatePicker';
 import { TaskTypeBadge } from './TaskTypeBadge';
+import { getLocalDateString } from '../../utils/time';
 
 export interface TaskCardProps {
   task: Task;
@@ -10,6 +11,7 @@ export interface TaskCardProps {
   isAdmin: boolean;
   onOpenDetail: (taskId: string) => void;
   onToggleComplete: (task: Task) => void;
+  onEdit?: (task: Task) => void;
   isMutating?: boolean;
   isSelected?: boolean;
   onToggleSelect?: (taskId: string, isShiftKey: boolean) => void;
@@ -21,6 +23,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   isAdmin,
   onOpenDetail,
   onToggleComplete,
+  onEdit,
   isMutating = false,
   isSelected = false,
   onToggleSelect,
@@ -204,12 +207,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             </div>
 
             {/* Prominent Past Due Warning Badge */}
-            {!isCompleted && task.due_date && (() => {
-              const due = new Date(task.due_date);
-              const today = new Date();
-              today.setHours(0, 0, 0, 0);
-              return due < today;
-            })() && (
+            {!isCompleted && task.due_date && task.due_date < getLocalDateString(new Date()) && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-50 dark:bg-red-950/50 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 text-[10px] font-bold uppercase tracking-wider">
                 ⚠ Past Due
               </span>
@@ -260,9 +258,24 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         </div>
       </div>
 
-      {/* Multi-selection Checkbox (if callback provided) */}
-      {onToggleSelect && (
-        <div className="flex items-center shrink-0 px-1" onClick={(e) => e.stopPropagation()}>
+      {/* Right Side Actions: Admin Edit Button & Selection Checkbox */}
+      <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+        {isAdmin && onEdit && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit(task);
+            }}
+            className="px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-800 hover:border-black dark:hover:border-white bg-zinc-50 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-2xs hover:shadow-xs"
+            title="Edit task"
+          >
+            <Pencil className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" />
+            <span>Edit</span>
+          </button>
+        )}
+
+        {onToggleSelect && (
           <input
             type="checkbox"
             checked={isSelected}
@@ -273,8 +286,8 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             onChange={() => {}}
             className="rounded border-zinc-300 dark:border-zinc-700 text-black focus:ring-black focus:ring-0 cursor-pointer w-4 h-4"
           />
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };

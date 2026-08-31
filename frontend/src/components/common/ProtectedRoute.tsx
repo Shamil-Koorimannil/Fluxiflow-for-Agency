@@ -2,13 +2,16 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../features/auth/AuthContext';
 
+import { useOrganization } from '../../context/OrganizationContext';
+
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  requiredRole?: 'ADMIN' | 'MEMBER';
+  requiredRole?: 'ADMIN' | 'ORG_ADMIN' | 'MEMBER';
 }
 
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredRole }) => {
   const { isAuthenticated, isInitializing, user } = useAuth();
+  const { isAdmin, isOrgAdmin } = useOrganization();
   const location = useLocation();
 
   if (isInitializing) {
@@ -27,9 +30,11 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requir
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (requiredRole && user.role !== requiredRole) {
-    // If Admin is required but they are a Member, redirect to app/tasks
-    if (requiredRole === 'ADMIN' && user.role === 'MEMBER') {
+  if (requiredRole) {
+    if (requiredRole === 'ORG_ADMIN' && !isOrgAdmin) {
+      return <Navigate to="/app/tasks" replace />;
+    }
+    if (requiredRole === 'ADMIN' && !isAdmin) {
       return <Navigate to="/app/tasks" replace />;
     }
   }

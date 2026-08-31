@@ -9,6 +9,7 @@ interface DatePickerProps {
   disabled?: boolean;
   required?: boolean;
   variant?: 'standard' | 'inline';
+  isOverdue?: boolean;
 }
 
 export const DatePicker: React.FC<DatePickerProps> = ({
@@ -17,7 +18,8 @@ export const DatePicker: React.FC<DatePickerProps> = ({
   placeholder = 'Select date',
   disabled = false,
   required = false,
-  variant = 'standard'
+  variant = 'standard',
+  isOverdue = false,
 }) => {
   const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null);
   
@@ -123,8 +125,8 @@ export const DatePicker: React.FC<DatePickerProps> = ({
         }
       >
         <div className="flex items-center gap-2 min-w-0">
-          <Calendar size={variant === 'inline' ? 13 : 16} className="text-zinc-400 shrink-0" />
-          <span className={getDisplayValue() ? 'truncate' : 'text-zinc-400 truncate'}>
+          <Calendar size={variant === 'inline' ? 13 : 16} className={isOverdue ? "text-red-500 shrink-0" : "text-zinc-400 shrink-0"} />
+          <span className={isOverdue ? "text-red-600 dark:text-red-400 font-bold truncate" : getDisplayValue() ? 'truncate' : 'text-zinc-400 truncate'}>
             {getDisplayValue() || placeholder}
           </span>
         </div>

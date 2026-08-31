@@ -21,22 +21,28 @@ class TaskViewSet(viewsets.ModelViewSet):
         if not user.is_authenticated:
             return Task.objects.none()
         
+        from apps.accounts.tenant_context import get_active_organization, is_admin_or_org_admin
+        from django.db.models import Q
+        active_org = get_active_organization(user)
+        if not active_org:
+            return Task.objects.none()
+
+        org_filter = Q(organization=active_org) | Q(organization__isnull=True)
         project_id = self.request.query_params.get('project')
         
         if self.action == 'list':
             if project_id:
-                queryset = Task.objects.filter(project_id=project_id)
+                queryset = Task.objects.filter(org_filter, project_id=project_id)
             else:
-                # General list: only assigned tasks
-                queryset = Task.objects.filter(assignee_relationships__user=user)
+                queryset = Task.objects.filter(org_filter, assignee_relationships__user=user)
         else:
-            # Detail requests (retrieve, update, partial_update, destroy, actions)
-            if user.role == 'ADMIN':
-                queryset = Task.objects.all()
+            if is_admin_or_org_admin(user):
+                queryset = Task.objects.filter(org_filter)
             else:
-                from django.db.models import Q
                 queryset = Task.objects.filter(
-                    Q(assignee_relationships__user=user) | Q(project__isnull=False)
+                    org_filter
+                ).filter(
+                    Q(assignee_relationships__user=user) | Q(created_by=user) | Q(project__isnull=False)
                 )
                 
         return queryset.distinct().order_by('due_date', 'due_time', 'created_at')
@@ -301,6 +307,79 @@ class TaskViewSet(viewsets.ModelViewSet):
         task.refresh_from_db()
         serializer = self.get_serializer(task)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['POST'], permission_classes=[permissions.IsAuthenticated])
+    def duplicate(self, request, pk=None):
+        from django.db import transaction
+        from apps.accounts.tenant_context import get_active_organization
+
+        try:
+            task = self.get_object()
+        except Exception:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        active_org = get_active_organization(request.user)
+        if not active_org or (task.organization and task.organization != active_org):
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        with transaction.atomic():
+            new_task = Task.objects.create(
+                organization=active_org,
+                project=task.project,
+                task_type=task.task_type,
+                name=f"{task.name} Copy",
+                description=task.description or '',
+                due_date=task.due_date,
+                due_time=task.due_time,
+                priority=task.priority,
+                status='PENDING',
+                allocated_seconds=task.allocated_seconds,
+                elapsed_seconds=0,
+                timer_started_at=None,
+                timer_status='NOT_STARTED',
+                actual_duration_seconds=None,
+                created_by=request.user
+            )
+
+            org_member_ids = set(active_org.memberships.filter(is_active=True).values_list('user_id', flat=True))
+            for assignee in task.assignee_relationships.all():
+                if assignee.user_id in org_member_ids:
+                    TaskAssignee.objects.create(
+                        task=new_task,
+                        user=assignee.user,
+                        completed=False,
+                        completed_at=None
+                    )
+
+            for subtask in task.subtasks.all():
+                new_subtask = SubTask.objects.create(
+                    task=new_task,
+                    name=f"{subtask.name} Copy",
+                    due_date=subtask.due_date,
+                    due_time=subtask.due_time,
+                    status='PENDING',
+                    completed_by=None,
+                    completed_at=None
+                )
+                for sub_assignee in subtask.assignee_relationships.all():
+                    if sub_assignee.user_id in org_member_ids:
+                        SubTaskAssignee.objects.create(
+                            subtask=new_subtask,
+                            user=sub_assignee.user,
+                            completed=False,
+                            completed_at=None
+                        )
+
+            ActivityLog.objects.create(
+                user=request.user,
+                action='TASK_CREATED',
+                entity_type='Task',
+                entity_id=new_task.id,
+                description=f"{request.user.name} duplicated task '{task.name}' as '{new_task.name}'."
+            )
+
+        serializer = self.get_serializer(new_task)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['POST'])
     def reopen(self, request, pk=None):
@@ -802,20 +881,20 @@ class SubTaskViewSet(viewsets.ModelViewSet):
 def user_has_task_access(user, task):
     if not user or not user.is_authenticated:
         return False
-    if user.role == 'ADMIN':
+    from apps.accounts.tenant_context import get_active_organization, is_admin_or_org_admin
+    active_org = get_active_organization(user)
+    if not active_org:
+        return False
+    if task.organization_id and task.organization_id != active_org.id:
+        return False
+    if is_admin_or_org_admin(user):
         return True
     if task.created_by_id == user.id:
         return True
     if task.assignee_relationships.filter(user_id=user.id).exists():
         return True
-    if task.project:
-        from apps.accounts.models import Membership
-        user_membership = Membership.objects.filter(user=user).first()
-        if user_membership:
-            if task.project.organization_id and task.project.organization_id == user_membership.organization_id:
-                return True
-            if task.organization_id and task.organization_id == user_membership.organization_id:
-                return True
+    if task.project and task.project.organization_id == active_org.id:
+        return True
     return False
 
 

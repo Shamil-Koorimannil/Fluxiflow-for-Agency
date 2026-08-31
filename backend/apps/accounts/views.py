@@ -302,8 +302,44 @@ class MeView(views.APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        serializer = UserSerializer(request.user, context={'request': request})
-        return Response(serializer.data)
+        active_mem = get_active_membership(request.user)
+        user_data = UserSerializer(request.user, context={'request': request}).data
+        
+        # Override role with membership role if present
+        if active_mem:
+            user_data['role'] = active_mem.role
+
+        org_memberships = Membership.objects.filter(
+            user=request.user,
+            is_active=True,
+            organization__is_active=True
+        ).select_related('organization')
+
+        orgs_list = []
+        for m in org_memberships:
+            orgs_list.append({
+                "id": str(m.organization.id),
+                "name": m.organization.name,
+                "slug": m.organization.slug,
+                "role": m.role,
+                "logo_url": request.build_absolute_uri(m.organization.logo.url) if m.organization.logo else None
+            })
+
+        active_org_data = None
+        if active_mem:
+            active_org_data = {
+                "id": str(active_mem.organization.id),
+                "name": active_mem.organization.name,
+                "slug": active_mem.organization.slug,
+                "role": active_mem.role,
+                "logo_url": request.build_absolute_uri(active_mem.organization.logo.url) if active_mem.organization.logo else None
+            }
+
+        return Response({
+            **user_data,
+            "active_organization": active_org_data,
+            "organizations": orgs_list
+        })
 
 
 class LogoutView(views.APIView):
@@ -386,7 +422,12 @@ class TeamListView(views.APIView):
             except Exception:
                 pass
 
-        users = User.objects.all().order_by('name').prefetch_related('task_assignments__task')
+        active_org = get_active_organization(request.user)
+        if not active_org:
+            return Response([], status=status.HTTP_200_OK)
+
+        member_ids = Membership.objects.filter(organization=active_org, is_active=True).values_list('user_id', flat=True)
+        users = User.objects.filter(id__in=member_ids).order_by('name').prefetch_related('task_assignments__task')
         data = []
         
         for user in users:
@@ -1095,3 +1136,213 @@ class SetPasswordWithOTPView(views.APIView):
             )
 
         return Response({"message": "Password has been successfully updated."}, status=status.HTTP_200_OK)
+
+
+from rest_framework import viewsets
+from rest_framework.decorators import action
+from apps.accounts.tenant_context import (
+    get_active_membership,
+    get_active_organization,
+    is_org_admin,
+    IsTenantMember,
+    IsTenantOrgAdmin
+)
+from apps.accounts.serializers import OrganizationSerializer, MembershipSerializer
+
+class OrganizationViewSet(viewsets.ModelViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = OrganizationSerializer
+
+    def get_queryset(self):
+        memberships = Membership.objects.filter(
+            user=self.request.user,
+            is_active=True,
+            organization__is_active=True
+        ).values_list('organization_id', flat=True)
+        return Organization.objects.filter(id__in=memberships).order_by('-created_at')
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True, context={'request': request})
+        
+        active_membership = get_active_membership(request.user)
+        active_org_data = None
+        if active_membership:
+            active_org_data = OrganizationSerializer(active_membership.organization, context={'request': request}).data
+
+        return Response({
+            "organizations": serializer.data,
+            "active_organization": active_org_data
+        })
+
+    def create(self, request, *args, **kwargs):
+        name = request.data.get('name')
+        if not name or not name.strip():
+            return Response({"detail": "Organization name is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            org = Organization.objects.create(name=name.strip())
+            membership = Membership.objects.create(
+                organization=org,
+                user=request.user,
+                role='ORG_ADMIN',
+                is_active=True
+            )
+            request.user.active_organization = org
+            request.user.save(update_fields=['active_organization'])
+
+        serializer = self.get_serializer(org, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'], url_path='switch')
+    def switch_organization(self, request):
+        org_id = request.data.get('organization_id')
+        if not org_id:
+            return Response({"detail": "organization_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        membership = Membership.objects.filter(
+            user=request.user,
+            organization_id=org_id,
+            is_active=True,
+            organization__is_active=True
+        ).select_related('organization').first()
+
+        if not membership:
+            return Response({"detail": "You do not have access to this organization."}, status=status.HTTP_403_FORBIDDEN)
+
+        request.user.active_organization = membership.organization
+        request.user.save(update_fields=['active_organization'])
+
+        org_data = OrganizationSerializer(membership.organization, context={'request': request}).data
+        return Response({
+            "active_organization": org_data,
+            "role": membership.role
+        })
+
+    @action(detail=False, methods=['patch', 'put'], url_path='profile')
+    def update_organization_profile(self, request):
+        if not is_org_admin(request.user):
+            return Response({"detail": "Only Organization Admins can modify organization profile."}, status=status.HTTP_403_FORBIDDEN)
+
+        active_org = get_active_organization(request.user)
+        if not active_org:
+            return Response({"detail": "No active organization found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = self.get_serializer(active_org, data=request.data, partial=True, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], url_path='members')
+    def list_members(self, request):
+        active_org = get_active_organization(request.user)
+        if not active_org:
+            return Response({"detail": "No active organization context found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        memberships = Membership.objects.filter(
+            organization=active_org,
+            is_active=True
+        ).select_related('user', 'user__profile')
+        serializer = MembershipSerializer(memberships, many=True, context={'request': request})
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['post'], url_path='invite')
+    def invite_member(self, request):
+        if not is_org_admin(request.user):
+            return Response({"detail": "Only Organization Admins can invite new members."}, status=status.HTTP_403_FORBIDDEN)
+
+        active_org = get_active_organization(request.user)
+        if not active_org:
+            return Response({"detail": "No active organization found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        email = request.data.get('email', '').strip().lower()
+        role = request.data.get('role', 'MEMBER')
+        name = request.data.get('name', '').strip() or email.split('@')[0]
+
+        if not email:
+            return Response({"detail": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if role not in ('ORG_ADMIN', 'ADMIN', 'MEMBER'):
+            return Response({"detail": "Invalid role specified."}, status=status.HTTP_400_BAD_REQUEST)
+
+        target_user = CustomUser.objects.filter(email=email).first()
+        if target_user:
+            existing_mem = Membership.objects.filter(organization=active_org, user=target_user).first()
+            if existing_mem:
+                if existing_mem.is_active:
+                    return Response({"detail": "User is already an active member of this organization."}, status=status.HTTP_400_BAD_REQUEST)
+                else:
+                    existing_mem.is_active = True
+                    existing_mem.role = role
+                    existing_mem.save()
+                    return Response(MembershipSerializer(existing_mem, context={'request': request}).data)
+            else:
+                mem = Membership.objects.create(
+                    organization=active_org,
+                    user=target_user,
+                    role=role,
+                    is_active=True
+                )
+                return Response(MembershipSerializer(mem, context={'request': request}).data, status=status.HTTP_201_CREATED)
+        else:
+            target_user = CustomUser.objects.create_user(
+                email=email,
+                name=name,
+                role='MEMBER',
+                status='INVITED'
+            )
+            mem = Membership.objects.create(
+                organization=active_org,
+                user=target_user,
+                role=role,
+                is_active=True
+            )
+            return Response(MembershipSerializer(mem, context={'request': request}).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['patch'], url_path=r'members/(?P<user_id>[^/.]+)/role')
+    def update_member_role(self, request, user_id=None):
+        if not is_org_admin(request.user):
+            return Response({"detail": "Only Organization Admins can modify member roles."}, status=status.HTTP_403_FORBIDDEN)
+
+        active_org = get_active_organization(request.user)
+        if not active_org:
+            return Response({"detail": "No active organization found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        new_role = request.data.get('role')
+        if new_role not in ('ORG_ADMIN', 'ADMIN', 'MEMBER'):
+            return Response({"detail": "Invalid role specified."}, status=status.HTTP_400_BAD_REQUEST)
+
+        target_membership = Membership.objects.filter(organization=active_org, user_id=user_id, is_active=True).first()
+        if not target_membership:
+            return Response({"detail": "Member not found in active organization."}, status=status.HTTP_404_NOT_FOUND)
+
+        if target_membership.role == 'ORG_ADMIN' and new_role != 'ORG_ADMIN':
+            admin_count = Membership.objects.filter(organization=active_org, role='ORG_ADMIN', is_active=True).count()
+            if admin_count <= 1:
+                return Response({"detail": "Cannot demote the last Organization Admin. Assign another Organization Admin first."}, status=status.HTTP_400_BAD_REQUEST)
+
+        target_membership.role = new_role
+        target_membership.save(update_fields=['role'])
+        return Response(MembershipSerializer(target_membership, context={'request': request}).data)
+
+    @action(detail=False, methods=['delete'], url_path=r'members/(?P<user_id>[^/.]+)')
+    def remove_member(self, request, user_id=None):
+        if not is_org_admin(request.user):
+            return Response({"detail": "Only Organization Admins can remove members."}, status=status.HTTP_403_FORBIDDEN)
+
+        active_org = get_active_organization(request.user)
+        if not active_org:
+            return Response({"detail": "No active organization found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        target_membership = Membership.objects.filter(organization=active_org, user_id=user_id, is_active=True).first()
+        if not target_membership:
+            return Response({"detail": "Member not found in active organization."}, status=status.HTTP_404_NOT_FOUND)
+
+        if target_membership.role == 'ORG_ADMIN':
+            admin_count = Membership.objects.filter(organization=active_org, role='ORG_ADMIN', is_active=True).count()
+            if admin_count <= 1:
+                return Response({"detail": "Cannot remove the last Organization Admin. Assign another Organization Admin first."}, status=status.HTTP_400_BAD_REQUEST)
+
+        target_membership.is_active = False
+        target_membership.save(update_fields=['is_active'])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+

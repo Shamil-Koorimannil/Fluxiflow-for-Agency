@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createTheme, ThemeProvider as MuiThemeProvider, CssBaseline } from '@mui/material';
 import { ThemeProvider as AppThemeProvider, useAppTheme } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './features/auth/AuthContext';
+import { OrganizationProvider } from './context/OrganizationContext';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
 import { MainLayout } from './layouts/MainLayout';
 import { Login } from './features/auth/Login';
@@ -163,113 +164,113 @@ function App() {
       <AuthProvider>
         <AppThemeProvider>
           <ThemeContainer>
-            <BrowserRouter>
-              <Routes>
-                {/* Public Auth Route */}
-                <Route path="/login" element={<LoginRoute />} />
+            <OrganizationProvider>
+              <BrowserRouter>
+                <Routes>
+                  {/* Public Authentication */}
+                  <Route path="/login" element={<LoginRoute />} />
 
-                {/* Protected Application Routes */}
-                <Route
-                  path="/app"
-                  element={
-                    <ProtectedRoute>
-                      <MainLayout />
-                    </ProtectedRoute>
-                  }
-                >
-                  {/* Redirect /app to /app/tasks */}
-                  <Route index element={<Navigate to="/app/tasks" replace />} />
-                  
-                  <Route path="tasks" element={<Tasks />} />
-                  <Route path="projects" element={<Projects />} />
-                  <Route path="projects/:id" element={<ProjectDetail />} />
-                  <Route path="search" element={<Search />} />
-                  <Route path="profile" element={<Profile />} />
-                  <Route path="keep/*" element={<Keep />} />
+                  {/* Main Application Layout (Authenticated) */}
+                  <Route path="/dashboard/*" element={<Navigate to="/app/tasks" replace />} />
+                  <Route
+                    path="/app"
+                    element={
+                      <ProtectedRoute>
+                        <MainLayout />
+                      </ProtectedRoute>
+                    }
+                  >
+                    <Route index element={<Home />} />
+                    <Route path="home" element={<Home />} />
+                    <Route path="tasks" element={<Tasks />} />
+                    <Route path="projects" element={<Projects />} />
+                    <Route path="projects/:id" element={<ProjectDetail />} />
+                    <Route path="keep" element={<Keep />} />
+                    <Route path="search" element={<Search />} />
+                    <Route path="profile" element={<Profile />} />
+                    <Route
+                      path="clients"
+                      element={
+                        <ProtectedRoute requiredRole="ADMIN">
+                          <Clients />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="clients/:id"
+                      element={
+                        <ProtectedRoute requiredRole="ADMIN">
+                          <ClientDetail viewMode="full" />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="clients/:id/projects"
+                      element={
+                        <ProtectedRoute requiredRole="ADMIN">
+                          <ClientDetail viewMode="projects-only" />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="clients/:id/brand-assets"
+                      element={
+                        <ProtectedRoute requiredRole="ADMIN">
+                          <ClientDetail viewMode="brand-assets-only" />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="team"
+                      element={
+                        <ProtectedRoute requiredRole="ADMIN">
+                          <Team />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="team/:id"
+                      element={
+                        <ProtectedRoute requiredRole="ADMIN">
+                          <TeamDetail />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="activity"
+                      element={
+                        <ProtectedRoute requiredRole="ADMIN">
+                          <ActivityLog />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="reports"
+                      element={
+                        <ProtectedRoute requiredRole="ADMIN">
+                          <Reports />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="settings"
+                      element={
+                        <ProtectedRoute requiredRole="ADMIN">
+                          <Settings />
+                        </ProtectedRoute>
+                      }
+                    />
+                  </Route>
 
-                  {/* Admin-Only Routes */}
-                  <Route
-                    path="clients"
-                    element={
-                      <ProtectedRoute requiredRole="ADMIN">
-                        <Clients />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="clients/:id"
-                    element={
-                      <ProtectedRoute requiredRole="ADMIN">
-                        <ClientDetail viewMode="full" />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="clients/:id/projects"
-                    element={
-                      <ProtectedRoute requiredRole="ADMIN">
-                        <ClientDetail viewMode="projects-only" />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="clients/:id/brand-assets"
-                    element={
-                      <ProtectedRoute requiredRole="ADMIN">
-                        <ClientDetail viewMode="brand-assets-only" />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="team"
-                    element={
-                      <ProtectedRoute requiredRole="ADMIN">
-                        <Team />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="team/:id"
-                    element={
-                      <ProtectedRoute requiredRole="ADMIN">
-                        <TeamDetail />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="activity"
-                    element={
-                      <ProtectedRoute requiredRole="ADMIN">
-                        <ActivityLog />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="reports"
-                    element={
-                      <ProtectedRoute requiredRole="ADMIN">
-                        <Reports />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="settings"
-                    element={
-                      <ProtectedRoute requiredRole="ADMIN">
-                        <Settings />
-                      </ProtectedRoute>
-                    }
-                  />
-                </Route>
+                  {/* Public Marketing Landing Page */}
+                  <Route path="/" element={<PublicLandingRoute><Home /></PublicLandingRoute>} />
+                  <Route path="/landing" element={<PublicLandingRoute><Landing /></PublicLandingRoute>} />
 
-                {/* Public Marketing Landing Page */}
-                <Route path="/" element={<PublicLandingRoute><Home /></PublicLandingRoute>} />
-                <Route path="/landing" element={<PublicLandingRoute><Landing /></PublicLandingRoute>} />
-
-                {/* Fallback Redirects */}
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </BrowserRouter>
+                  {/* Fallback Redirects */}
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </BrowserRouter>
+            </OrganizationProvider>
           </ThemeContainer>
         </AppThemeProvider>
       </AuthProvider>

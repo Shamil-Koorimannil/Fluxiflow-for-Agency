@@ -1,15 +1,33 @@
 import uuid
 from django.db import models
 from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.utils import timezone
 
 class Organization(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255)
+    slug = models.CharField(max_length=255, unique=True, null=True, blank=True)
+    logo = models.ImageField(upload_to='org_logos/', null=True, blank=True)
+    description = models.TextField(blank=True, default='')
     enable_task_types = models.BooleanField(default=True)
     weekly_capacity_hours = models.IntegerField(default=40)
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     objects = models.Manager()
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            from django.utils.text import slugify
+            base_slug = slugify(self.name) or 'org'
+            slug = base_slug
+            counter = 1
+            while Organization.objects.filter(slug=slug).exclude(id=self.id).exists():
+                slug = f"{base_slug}-{counter}"
+                counter += 1
+            self.slug = slug
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name
@@ -21,7 +39,6 @@ class CustomUserManager(BaseUserManager):
         email = self.normalize_email(email)
         extra_fields.setdefault('role', 'MEMBER')
         extra_fields.setdefault('status', 'INVITED')
-        # Use email as username since username is not utilized
         username = email
         user = self.model(email=email, username=username, **extra_fields)
         if password:
@@ -53,6 +70,13 @@ class CustomUser(AbstractUser):
     name = models.CharField(max_length=255)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='MEMBER')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='INVITED')
+    active_organization = models.ForeignKey(
+        Organization,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='active_users'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     deactivated_at = models.DateTimeField(null=True, blank=True)
@@ -66,18 +90,30 @@ class CustomUser(AbstractUser):
         return f"{self.name} ({self.email} - {self.role} - {self.status})"
 
 class Membership(models.Model):
+    ROLE_CHOICES = (
+        ('ORG_ADMIN', 'Organization Admin'),
+        ('ADMIN', 'Admin/Manager'),
+        ('MEMBER', 'Member'),
+    )
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='memberships')
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='memberships')
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='MEMBER')
+    is_active = models.BooleanField(default=True)
+    joined_at = models.DateTimeField(default=timezone.now)
     created_at = models.DateTimeField(auto_now_add=True)
 
     objects = models.Manager()
 
     class Meta:
         unique_together = ('organization', 'user')
+        indexes = [
+            models.Index(fields=['user', 'organization']),
+            models.Index(fields=['organization', 'role']),
+        ]
 
     def __str__(self):
-        return f"{self.user.email} in {self.organization.name}"
+        return f"{self.user.email} in {self.organization.name} ({self.role})"
 
 class Profile(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -90,6 +126,11 @@ class Profile(models.Model):
         return f"Profile of {self.user.name}"
 
 class Invitation(models.Model):
+    ROLE_CHOICES = (
+        ('ORG_ADMIN', 'Organization Admin'),
+        ('ADMIN', 'Admin/Manager'),
+        ('MEMBER', 'Member'),
+    )
     STATUS_CHOICES = (
         ('PENDING', 'Pending'),
         ('ACCEPTED', 'Accepted'),
@@ -99,7 +140,8 @@ class Invitation(models.Model):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='invitations')
     email = models.EmailField()
     name = models.CharField(max_length=255)
-    role = models.CharField(max_length=20, choices=CustomUser.ROLE_CHOICES, default='MEMBER')
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='MEMBER')
+    token = models.UUIDField(default=uuid.uuid4, editable=False)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
     invited_by = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='sent_invitations')
     created_at = models.DateTimeField(auto_now_add=True)

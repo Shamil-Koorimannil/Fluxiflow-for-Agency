@@ -4,7 +4,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { X, Folder, AlertCircle, RefreshCw } from 'lucide-react';
 import type { Client, Project } from '../../types';
 import { api } from '../../services/api';
-import { useAuth } from '../auth/AuthContext';
 
 interface ProjectFormModalProps {
   isOpen: boolean;
@@ -13,15 +12,16 @@ interface ProjectFormModalProps {
   onProjectCreated?: () => void;
 }
 
+import { useOrganization } from '../../context/OrganizationContext';
+
 export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   isOpen,
   onClose,
   preselectedClientId,
   onProjectCreated
 }) => {
-  const { user } = useAuth();
   const queryClient = useQueryClient();
-  const isAdmin = user?.role === 'ADMIN';
+  const { isAdmin } = useOrganization();
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');

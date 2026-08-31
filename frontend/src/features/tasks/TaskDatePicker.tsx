@@ -3,17 +3,17 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import type { Task } from '../../types';
 import { DatePicker } from '../../components/common/DatePicker';
-import { useAuth } from '../auth/AuthContext';
 
 interface TaskDatePickerProps {
   task: Task;
   disabled?: boolean;
 }
 
+import { useOrganization } from '../../context/OrganizationContext';
+
 export const TaskDatePicker: React.FC<TaskDatePickerProps> = ({ task, disabled = false }) => {
   const queryClient = useQueryClient();
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'ADMIN';
+  const { isAdmin } = useOrganization();
 
   const updateDateMutation = useMutation({
     mutationFn: async (newDate: string) => {
@@ -61,6 +61,8 @@ interface TaskDatePickerInternalProps {
   onChange: (val: string) => void;
 }
 
+import { getLocalDateString } from '../../utils/time';
+
 const TaskDatePickerInternal: React.FC<TaskDatePickerInternalProps> = ({ task, disabled, value, onChange }) => {
   // Translate formatted display values or standard date
   const getPlaceholder = () => {
@@ -70,6 +72,8 @@ const TaskDatePickerInternal: React.FC<TaskDatePickerInternalProps> = ({ task, d
     return 'No due date';
   };
 
+  const isOverdue = task.status !== 'COMPLETED' && !!task.due_date && task.due_date < getLocalDateString(new Date());
+
   return (
     <div onClick={(e) => e.stopPropagation()} className="inline-block">
       <DatePicker
@@ -77,6 +81,7 @@ const TaskDatePickerInternal: React.FC<TaskDatePickerInternalProps> = ({ task, d
         onChange={onChange}
         disabled={disabled}
         variant="inline"
+        isOverdue={isOverdue}
         placeholder={getPlaceholder()}
       />
     </div>

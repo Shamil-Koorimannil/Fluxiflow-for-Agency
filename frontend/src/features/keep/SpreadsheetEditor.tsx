@@ -147,7 +147,7 @@ export const SpreadsheetEditor: React.FC<SpreadsheetEditorProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 relative">
+    <div className="flex flex-col h-full bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 relative pb-20 md:pb-0">
       {/* Top Header Bar */}
       <div className="flex items-center justify-between px-6 py-3 border-b border-zinc-200 dark:border-zinc-800 bg-white/80 dark:bg-zinc-900/80 backdrop-blur sticky top-0 z-30">
         <div className="flex items-center gap-3">

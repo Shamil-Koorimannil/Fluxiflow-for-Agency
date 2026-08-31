@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../../services/api';
-import type { User } from '../../types';
+import type { User, UserRole } from '../../types';
 import { useAuth } from '../auth/AuthContext';
 import { TeamDetailDrawer } from './TeamDetailDrawer';
 import { TaskFormModal } from '../tasks/TaskFormModal';
@@ -103,7 +103,7 @@ export const Team: React.FC = () => {
   // Form fields
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState<'ADMIN' | 'MEMBER'>('MEMBER');
+  const [role, setRole] = useState<UserRole>('MEMBER');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
 
@@ -1503,7 +1503,7 @@ export const Team: React.FC = () => {
                           {member.name}
                         </Typography>
                         <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
-                          {member.role === 'ADMIN' ? 'Admin/Manager' : 'Member'}
+                          {member.role === 'ORG_ADMIN' ? 'Org Admin' : member.role === 'ADMIN' ? 'Admin/Manager' : 'Member'}
                         </Typography>
                       </Box>
                     </Box>
@@ -1637,7 +1637,7 @@ export const Team: React.FC = () => {
                           {member.name}
                         </Typography>
                         <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
-                          {member.role === 'ADMIN' ? 'Admin/Manager' : 'Member'}
+                          {member.role === 'ORG_ADMIN' ? 'Org Admin' : member.role === 'ADMIN' ? 'Admin/Manager' : 'Member'}
                         </Typography>
                       </Box>
                     </Box>

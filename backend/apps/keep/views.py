@@ -33,32 +33,38 @@ class KeepItemViewSet(viewsets.ModelViewSet):
         if not user or not user.is_authenticated:
             return KeepItem.objects.none()
 
+        active_org = get_user_organization(user)
+        if not active_org:
+            return KeepItem.objects.none()
+
+        base_qs = KeepItem.objects.filter(organization=active_org)
+
         section = self.request.query_params.get('section', 'all')
         parent_folder_id = self.request.query_params.get('parent_folder')
 
         if section == 'trash':
-            qs = KeepItem.objects.filter(is_deleted=True)
+            qs = base_qs.filter(is_deleted=True)
             accessible_ids = [item.id for item in qs if check_item_access(user, item, 'VIEW')]
-            return KeepItem.objects.filter(id__in=accessible_ids)
+            return base_qs.filter(id__in=accessible_ids)
 
         if section == 'pinned':
             pinned_item_ids = KeepUserPin.objects.filter(user=user).values_list('item_id', flat=True)
-            qs = KeepItem.objects.filter(id__in=pinned_item_ids, is_deleted=False)
+            qs = base_qs.filter(id__in=pinned_item_ids, is_deleted=False)
             accessible_ids = [item.id for item in qs if check_item_access(user, item, 'VIEW')]
-            return KeepItem.objects.filter(id__in=accessible_ids)
+            return base_qs.filter(id__in=accessible_ids)
 
         if section == 'recent':
             recent_item_ids = KeepRecentItem.objects.filter(user=user).values_list('item_id', flat=True)
-            qs = KeepItem.objects.filter(id__in=recent_item_ids, is_deleted=False)
+            qs = base_qs.filter(id__in=recent_item_ids, is_deleted=False)
             accessible_ids = [item.id for item in qs if check_item_access(user, item, 'VIEW')]
-            return KeepItem.objects.filter(id__in=accessible_ids)
+            return base_qs.filter(id__in=accessible_ids)
 
         if section == 'shared':
-            qs = KeepItem.objects.filter(is_deleted=False).exclude(owner=user)
+            qs = base_qs.filter(is_deleted=False).exclude(owner=user)
             accessible_ids = [item.id for item in qs if check_item_access(user, item, 'VIEW')]
-            return KeepItem.objects.filter(id__in=accessible_ids)
+            return base_qs.filter(id__in=accessible_ids)
 
-        qs = KeepItem.objects.filter(is_deleted=False)
+        qs = base_qs.filter(is_deleted=False)
         if parent_folder_id:
             if parent_folder_id == 'root':
                 qs = qs.filter(parent_folder__isnull=True)

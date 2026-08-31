@@ -11,6 +11,8 @@ interface CommentsSectionProps {
   title?: string;
 }
 
+import { useOrganization } from '../../context/OrganizationContext';
+
 export const CommentsSection: React.FC<CommentsSectionProps> = ({
   taskId,
   subtaskId = null,
@@ -18,7 +20,7 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({
 }) => {
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
-  const isAdmin = currentUser?.role === 'ADMIN';
+  const { isAdmin } = useOrganization();
 
   const [newComment, setNewComment] = useState('');
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);

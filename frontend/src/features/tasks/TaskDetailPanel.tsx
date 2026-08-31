@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import type { Task, User } from '../../types';
 import { useAuth } from '../auth/AuthContext';
-import { X, CheckSquare, Calendar, Clock, AlertCircle, Trash2, Edit, CheckCircle2, Circle, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
+import { X, CheckSquare, Calendar, Clock, AlertCircle, Trash2, Edit, CheckCircle2, Circle, AlertTriangle, ChevronDown, ChevronRight, Copy } from 'lucide-react';
 import { formatLateDuration, formatDateOnly, formatTimeOnly } from '../../utils/time';
 import { TimePicker } from '../../components/common/TimePicker';
 import { DatePicker } from '../../components/common/DatePicker';
@@ -16,8 +16,10 @@ import { TaskTypeBadge } from './TaskTypeBadge';
 interface TaskDetailPanelProps {
   taskId: string | null;
   onClose: () => void;
-  onEdit: (task: Task) => void;
+  onEdit?: (task: any) => void;
 }
+
+import { useOrganization } from '../../context/OrganizationContext';
 
 export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
   taskId,
@@ -26,7 +28,7 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
 }) => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const isAdmin = user?.role === 'ADMIN';
+  const { isAdmin } = useOrganization();
 
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
@@ -213,6 +215,28 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setIsDeleteModalOpen(false);
       onClose();
+    },
+  });
+
+  // Duplicate Task Mutation
+  const duplicateTaskMutation = useMutation({
+    mutationFn: async () => {
+      const response = await api.post(`/tasks/${taskId}/duplicate/`);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
+      queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
+      queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
+      queryClient.invalidateQueries({ queryKey: ['team'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      alert('Task duplicated successfully.');
+      onClose();
+    },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || 'Failed to duplicate task.');
     },
   });
 
@@ -453,7 +477,7 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                onEdit(task);
+                                onEdit?.(task);
                               }}
                               className="px-2 py-0.5 bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 rounded text-[10px] font-bold transition-colors shrink-0"
                             >
@@ -897,7 +921,15 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
             {isAdmin && (
               <>
                 <button
-                  onClick={() => onEdit(task)}
+                  onClick={() => duplicateTaskMutation.mutate()}
+                  disabled={duplicateTaskMutation.isPending}
+                  className="p-2 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black hover:bg-zinc-50 dark:hover:bg-white/10 text-zinc-600 dark:text-zinc-300 rounded-lg transition-colors disabled:opacity-50"
+                  title="Duplicate Task"
+                >
+                  <Copy className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => onEdit?.(task)}
                   className="p-2 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black hover:bg-zinc-50 dark:hover:bg-white/10 text-zinc-600 dark:text-zinc-300 rounded-lg transition-colors"
                   title="Edit Task"
                 >

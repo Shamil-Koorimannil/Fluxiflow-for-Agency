@@ -5,7 +5,7 @@ from datetime import timedelta
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.conf import settings
-from rest_framework.test import APITestCase
+from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
 from apps.accounts.models import OTPVerification, Session, Organization, Membership, Invitation, Profile
 
@@ -1598,4 +1598,288 @@ class TeamMemberDetailEndpointTestSuite(APITestCase):
         url = f'/api/team/{self.member_a.id}/workload/'
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class OrganizationMultiTenantTestSuite(APITestCase):
+    def setUp(self):
+        self.org_a = Organization.objects.create(name='Organization Alpha', slug='org-alpha')
+        self.org_b = Organization.objects.create(name='Organization Beta', slug='org-beta')
+
+        self.user = User.objects.create_user(
+            email='multiuser@example.com',
+            name='Multi Tenant User',
+            password='password123',
+            status='ACTIVE'
+        )
+
+        self.mem_a = Membership.objects.create(
+            organization=self.org_a,
+            user=self.user,
+            role='ORG_ADMIN',
+            is_active=True
+        )
+        self.mem_b = Membership.objects.create(
+            organization=self.org_b,
+            user=self.user,
+            role='MEMBER',
+            is_active=True
+        )
+
+        self.user.active_organization = self.org_a
+        self.user.save()
+
+        from rest_framework_simplejwt.tokens import RefreshToken
+        self.token = str(RefreshToken.for_user(self.user).access_token)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.token}')
+
+    def test_list_user_organizations(self):
+        """1. User lists organizations and receives role per organization."""
+        res = self.client.get('/api/organizations/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data['organizations']), 2)
+        self.assertEqual(res.data['active_organization']['id'], str(self.org_a.id))
+        self.assertEqual(res.data['active_organization']['role'], 'ORG_ADMIN')
+
+    def test_switch_organization_changes_active_context(self):
+        """2. Switching organization changes user.active_organization and role."""
+        res = self.client.post('/api/organizations/switch/', {'organization_id': str(self.org_b.id)})
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['active_organization']['id'], str(self.org_b.id))
+        self.assertEqual(res.data['role'], 'MEMBER')
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.active_organization, self.org_b)
+
+    def test_create_new_organization(self):
+        """3. User creates a new organization and automatically becomes ORG_ADMIN."""
+        res = self.client.post('/api/organizations/', {'name': 'New Gamma Agency'})
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data['name'], 'New Gamma Agency')
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.active_organization.name, 'New Gamma Agency')
+        new_mem = Membership.objects.get(organization_id=res.data['id'], user=self.user)
+        self.assertEqual(new_mem.role, 'ORG_ADMIN')
+
+    def test_prevent_unauthorized_org_switch(self):
+        """4. User cannot switch to an organization they do not belong to."""
+        unauthorized_org = Organization.objects.create(name='Secret Corp', slug='secret-corp')
+        res = self.client.post('/api/organizations/switch/', {'organization_id': str(unauthorized_org.id)})
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_prevent_demoting_final_org_admin(self):
+        """5. Cannot demote or remove the last ORG_ADMIN of an organization."""
+        res = self.client.patch(f'/api/organizations/members/{self.user.id}/role/', {'role': 'MEMBER'})
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("last Organization Admin", res.data['detail'])
+
+        del_res = self.client.delete(f'/api/organizations/members/{self.user.id}/')
+        self.assertEqual(del_res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("last Organization Admin", del_res.data['detail'])
+
+    def test_zero_organization_database_and_bootstrap_command(self):
+        """6. Zero organization DB handles API without crash and bootstraps idempotently."""
+        from django.core.management import call_command
+        from io import StringIO
+        from apps.projects.models import Project
+        from apps.tasks.models import Task
+        from apps.clients.models import Client
+        from apps.keep.models import KeepItem
+
+        proj = Project.objects.create(name='Legacy Project', created_by=self.user)
+        task = Task.objects.create(name='Legacy Task', created_by=self.user)
+        client = Client.objects.create(name='Legacy Client', created_by=self.user)
+        keep = KeepItem.objects.create(name='Legacy Doc', item_type='DOCUMENT', owner=self.user, created_by=self.user)
+
+        out = StringIO()
+        call_command('bootstrap_organization', '--dry-run', stdout=out)
+        self.assertIn('DRY RUN', out.getvalue())
+
+        out_actual = StringIO()
+        call_command('bootstrap_organization', stdout=out_actual)
+        self.assertIn('Organization bootstrap complete', out_actual.getvalue())
+
+        proj.refresh_from_db()
+        task.refresh_from_db()
+        client.refresh_from_db()
+        keep.refresh_from_db()
+
+        self.assertIsNotNone(proj.organization)
+        self.assertIsNotNone(task.organization)
+        self.assertIsNotNone(client.organization)
+class RoleMigrationAndMultiTenantPermissionsTestSuite(APITestCase):
+    def test_primary_admin_migrated_as_org_admin_and_pm_as_admin_and_member_as_member(self):
+        """Verify primary admin becomes ORG_ADMIN, Project Manager/Admin becomes ADMIN, member remains MEMBER."""
+        from django.core.management import call_command
+
+        Organization.objects.all().delete()
+        User.objects.filter(email__in=['primary@example.com', 'pm@example.com', 'user@example.com']).delete()
+
+        now = timezone.now()
+        primary_admin = User.objects.create_user(
+            email='primary@example.com', name='Primary Admin', password='password123', role='ADMIN', status='ACTIVE'
+        )
+        primary_admin.created_at = now - timedelta(days=2)
+        primary_admin.save()
+
+        pm_admin = User.objects.create_user(
+            email='pm@example.com', name='PM Admin', password='password123', role='ADMIN', status='ACTIVE'
+        )
+        pm_admin.created_at = now - timedelta(days=1)
+        pm_admin.save()
+
+        normal_member = User.objects.create_user(
+            email='user@example.com', name='Normal Member', password='password123', role='MEMBER', status='ACTIVE'
+        )
+
+        call_command('bootstrap_organization')
+
+        org = Organization.objects.first()
+        self.assertIsNotNone(org)
+
+        mem_primary = Membership.objects.get(user=primary_admin, organization=org)
+        mem_pm = Membership.objects.get(user=pm_admin, organization=org)
+        mem_member = Membership.objects.get(user=normal_member, organization=org)
+
+        self.assertEqual(mem_primary.role, 'ORG_ADMIN')
+        self.assertEqual(mem_pm.role, 'ADMIN')
+        self.assertNotEqual(mem_pm.role, 'MEMBER')
+        self.assertEqual(mem_member.role, 'MEMBER')
+
+    def test_repair_accidental_member_downgrade(self):
+        """Verify existing membership with MEMBER role for an ADMIN user is repaired to ADMIN/ORG_ADMIN."""
+        from apps.accounts.tenant_context import get_active_membership
+
+        org = Organization.objects.create(name='Test Org', slug='test-org-repair')
+        now = timezone.now()
+
+        primary_admin = User.objects.create_user(
+            email='primary_repair@example.com', name='Primary Repair', password='password123', role='ADMIN', status='ACTIVE'
+        )
+        primary_admin.created_at = now - timedelta(days=1)
+        primary_admin.save()
+
+        pm_user = User.objects.create_user(
+            email='pm_repair@example.com', name='PM Repair', password='password123', role='ADMIN', status='ACTIVE'
+        )
+        mem = Membership.objects.create(organization=org, user=pm_user, role='MEMBER', is_active=True)
+        pm_user.active_organization = org
+        pm_user.save()
+
+        active_mem = get_active_membership(pm_user)
+        self.assertEqual(active_mem.role, 'ADMIN')
+        self.assertNotEqual(active_mem.role, 'MEMBER')
+
+    def test_multi_tenant_different_roles_per_organization(self):
+        """Verify user can be ORG_ADMIN in Org A and MEMBER in Org B, and switching orgs updates permissions instantly."""
+        org_a = Organization.objects.create(name='Agency A', slug='agency-a')
+        org_b = Organization.objects.create(name='Agency B', slug='agency-b')
+
+        multi_user = User.objects.create_user(
+            email='multi@example.com', name='Multi User', password='password123', role='MEMBER', status='ACTIVE'
+        )
+
+        Membership.objects.create(organization=org_a, user=multi_user, role='ORG_ADMIN', is_active=True)
+        Membership.objects.create(organization=org_b, user=multi_user, role='MEMBER', is_active=True)
+
+        multi_user.active_organization = org_a
+        multi_user.save()
+
+        from rest_framework_simplejwt.tokens import RefreshToken
+        token = str(RefreshToken.for_user(multi_user).access_token)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+        # 1. In Org A (ORG_ADMIN)
+        res_me_a = client.get('/api/auth/me/')
+        self.assertEqual(res_me_a.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_me_a.data['role'], 'ORG_ADMIN')
+        self.assertEqual(res_me_a.data['active_organization']['role'], 'ORG_ADMIN')
+
+        # 2. Switch to Org B (MEMBER)
+        res_switch = client.post('/api/organizations/switch/', {'organization_id': str(org_b.id)})
+        self.assertEqual(res_switch.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_switch.data['role'], 'MEMBER')
+
+        res_me_b = client.get('/api/auth/me/')
+        self.assertEqual(res_me_b.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_me_b.data['role'], 'MEMBER')
+        self.assertEqual(res_me_b.data['active_organization']['role'], 'MEMBER')
+
+    def test_unassigned_data_preserved_during_bootstrap(self):
+        """Verify unassigned legacy data is never lost or assigned to wrong organization."""
+        from django.core.management import call_command
+        from apps.projects.models import Project
+        from apps.tasks.models import Task
+        from apps.clients.models import Client
+        from apps.keep.models import KeepItem
+
+        user = User.objects.create_user(
+            email='owner@example.com', name='Owner', password='password123', role='ADMIN', status='ACTIVE'
+        )
+
+        proj = Project.objects.create(name='Preserved Project', created_by=user)
+        task = Task.objects.create(name='Preserved Task', created_by=user)
+        client = Client.objects.create(name='Preserved Client', created_by=user)
+        keep = KeepItem.objects.create(name='Preserved Note', item_type='DOCUMENT', owner=user, created_by=user)
+
+        call_command('bootstrap_organization')
+
+        proj.refresh_from_db()
+        task.refresh_from_db()
+        client.refresh_from_db()
+        keep.refresh_from_db()
+
+        self.assertIsNotNone(proj.organization)
+        self.assertIsNotNone(task.organization)
+        self.assertIsNotNone(client.organization)
+        self.assertIsNotNone(keep.organization)
+        self.assertEqual(proj.name, 'Preserved Project')
+        self.assertEqual(task.name, 'Preserved Task')
+
+    def test_cross_tenant_idor_protection(self):
+        """Verify user in Org A cannot access resources in Org B."""
+        from apps.projects.models import Project
+        from apps.tasks.models import Task
+        from apps.clients.models import Client
+        from apps.keep.models import KeepItem
+
+        org_a = Organization.objects.create(name='Org A', slug='org-a-idor')
+        org_b = Organization.objects.create(name='Org B', slug='org-b-idor')
+
+        user_a = User.objects.create_user(email='usera@example.com', name='User A', password='password123', role='ADMIN', status='ACTIVE')
+        user_b = User.objects.create_user(email='userb@example.com', name='User B', password='password123', role='ADMIN', status='ACTIVE')
+
+        Membership.objects.create(organization=org_a, user=user_a, role='ORG_ADMIN', is_active=True)
+        Membership.objects.create(organization=org_b, user=user_b, role='ORG_ADMIN', is_active=True)
+
+        user_a.active_organization = org_a
+        user_a.save()
+        user_b.active_organization = org_b
+        user_b.save()
+
+        proj_b = Project.objects.create(name='Org B Project', organization=org_b, created_by=user_b)
+        task_b = Task.objects.create(name='Org B Task', organization=org_b, created_by=user_b)
+        client_b = Client.objects.create(name='Org B Client', organization=org_b, created_by=user_b)
+        keep_b = KeepItem.objects.create(name='Org B Keep', organization=org_b, item_type='DOCUMENT', owner=user_b, created_by=user_b)
+
+        from rest_framework_simplejwt.tokens import RefreshToken
+        token_a = str(RefreshToken.for_user(user_a).access_token)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {token_a}')
+
+        # Cross-tenant GET requests must return 404
+        res_proj = client.get(f'/api/projects/{proj_b.id}/')
+        self.assertEqual(res_proj.status_code, status.HTTP_404_NOT_FOUND)
+
+        res_task = client.get(f'/api/tasks/{task_b.id}/')
+        self.assertEqual(res_task.status_code, status.HTTP_404_NOT_FOUND)
+
+        res_client = client.get(f'/api/clients/{client_b.id}/')
+        self.assertEqual(res_client.status_code, status.HTTP_404_NOT_FOUND)
+
+        res_keep = client.get(f'/api/keep/{keep_b.id}/')
+        self.assertEqual(res_keep.status_code, status.HTTP_404_NOT_FOUND)
+
+
 
