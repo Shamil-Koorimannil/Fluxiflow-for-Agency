@@ -275,3 +275,23 @@ class KeepBackendTestSuite(TestCase):
         res_shared_after = self.client2.get('/api/keep/items/?section=shared')
         shared_ids_after = [i['id'] for i in res_shared_after.data]
         self.assertNotIn(item_id, shared_ids_after)
+
+    # General File Upload and Download
+    def test_general_file_upload_and_download(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        binary_content = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
+        file_obj = SimpleUploadedFile("logo.png", binary_content, content_type="image/png")
+
+        res_upload = self.client1.post('/api/keep/items/upload_file/', {'file': file_obj}, format='multipart')
+        self.assertEqual(res_upload.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res_upload.data['item_type'], 'FILE')
+        self.assertEqual(res_upload.data['original_filename'], 'logo.png')
+        self.assertEqual(res_upload.data['file_type'], 'image/png')
+        item_id = res_upload.data['id']
+
+        # Download file
+        res_download = self.client1.get(f'/api/keep/items/{item_id}/download/')
+        self.assertEqual(res_download.status_code, status.HTTP_200_OK)
+        self.assertIn('attachment; filename="logo.png"', res_download['Content-Disposition'])
+        self.assertEqual(res_download['Content-Type'], 'image/png')
+        self.assertEqual(b''.join(res_download.streaming_content), binary_content)

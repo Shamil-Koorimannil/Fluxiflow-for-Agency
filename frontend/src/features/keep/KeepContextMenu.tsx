@@ -14,6 +14,7 @@ interface KeepContextMenuProps {
   onShare: (item: KeepItem) => void;
   onMove: (item: KeepItem) => void;
   onDuplicate: (item: KeepItem) => void;
+  onDownload?: (item: KeepItem) => void;
   onExport: (item: KeepItem, format: 'xlsx' | 'csv') => void;
   onSoftDelete: (item: KeepItem) => void;
   onRestore?: (item: KeepItem) => void;
@@ -31,6 +32,7 @@ export const KeepContextMenu: React.FC<KeepContextMenuProps> = ({
   onShare,
   onMove,
   onDuplicate,
+  onDownload,
   onExport,
   onSoftDelete,
   onRestore,
@@ -51,7 +53,7 @@ export const KeepContextMenu: React.FC<KeepContextMenuProps> = ({
 
   // Adjust coordinates if menu would overflow screen
   const menuWidth = 200;
-  const menuHeight = 260;
+  const menuHeight = 280;
   const adjustedX = Math.min(x, window.innerWidth - menuWidth - 10);
   const adjustedY = Math.min(y, window.innerHeight - menuHeight - 10);
 
@@ -70,6 +72,16 @@ export const KeepContextMenu: React.FC<KeepContextMenuProps> = ({
             <ExternalLink className="h-4 w-4 text-zinc-400" />
             <span>Open</span>
           </button>
+
+          {item.item_type !== 'FOLDER' && onDownload && (
+            <button
+              onClick={() => { onDownload(item); onClose(); }}
+              className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-left"
+            >
+              <Download className="h-4 w-4 text-purple-500" />
+              <span>Download File</span>
+            </button>
+          )}
 
           <button
             onClick={() => { onTogglePin(item); onClose(); }}

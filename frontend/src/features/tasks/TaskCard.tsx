@@ -15,6 +15,12 @@ export interface TaskCardProps {
   isMutating?: boolean;
   isSelected?: boolean;
   onToggleSelect?: (taskId: string, isShiftKey: boolean) => void;
+  onPointerDown?: (e: React.PointerEvent, taskId: string) => void;
+  onPointerMove?: (e: React.PointerEvent) => void;
+  onPointerUp?: (e: React.PointerEvent) => void;
+  onPointerCancel?: (e: React.PointerEvent) => void;
+  onCardClick?: (e: React.MouseEvent, taskId: string, defaultOpenId?: string) => void;
+  isSelectionActive?: boolean;
 }
 
 export const TaskCard: React.FC<TaskCardProps> = ({
@@ -27,6 +33,12 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   isMutating = false,
   isSelected = false,
   onToggleSelect,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
+  onCardClick,
+  isSelectionActive = false,
 }) => {
   const isAssigned = task.assignees?.some((a) => a.id === currentUser?.id);
   const canComplete = isAdmin || isAssigned;
@@ -126,12 +138,25 @@ export const TaskCard: React.FC<TaskCardProps> = ({
 
   return (
     <div
+      data-task-id={task.id}
+      onPointerDown={(e) => onPointerDown?.(e, task.id)}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onClick={(e) =>
+        onCardClick
+          ? onCardClick(e, task.id, task.is_subtask ? task.parent_task_id! : task.id)
+          : onOpenDetail(task.is_subtask ? task.parent_task_id! : task.id)
+      }
       className={`bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 flex items-center justify-between gap-4 hover:border-black dark:hover:border-white transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-sm animate-slide-up ${
         task.is_subtask ? 'ml-6 md:ml-8 border-dashed' : ''
       } ${getPriorityBorder(task.priority)} ${
         isCompleted ? 'bg-zinc-50/50 dark:bg-zinc-950/40' : ''
+      } ${
+        isSelected
+          ? 'ring-2 ring-blue-500 border-blue-500 bg-blue-50/30 dark:bg-blue-950/30 shadow-md'
+          : ''
       }`}
-      onClick={() => onOpenDetail(task.is_subtask ? task.parent_task_id! : task.id)}
     >
       <div className="flex items-start md:items-center gap-3 min-w-0 flex-1">
         {/* Completion Checkbox Button with smooth 300ms transition */}
@@ -275,17 +300,21 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           </button>
         )}
 
-        {onToggleSelect && (
-          <input
-            type="checkbox"
-            checked={isSelected}
+        {(onToggleSelect || isSelectionActive) && (
+          <div
             onClick={(e) => {
               e.stopPropagation();
-              onToggleSelect(task.id, e.shiftKey);
+              onToggleSelect?.(task.id, e.shiftKey);
             }}
-            onChange={() => {}}
-            className="rounded border-zinc-300 dark:border-zinc-700 text-black focus:ring-black focus:ring-0 cursor-pointer w-4 h-4"
-          />
+            className={`h-5 w-5 rounded-md border flex items-center justify-center transition-all cursor-pointer ${
+              isSelected
+                ? 'bg-blue-600 border-blue-600 text-white font-bold shadow-xs'
+                : 'border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 hover:border-blue-400'
+            }`}
+            title={isSelected ? 'Deselect task' : 'Select task'}
+          >
+            {isSelected && <span className="text-xs">✓</span>}
+          </div>
         )}
       </div>
     </div>

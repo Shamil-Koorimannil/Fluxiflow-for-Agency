@@ -6,7 +6,6 @@ import type { Task, Project, User, TaskType, OrganizationSettings } from '../../
 import { X, Tag } from 'lucide-react';
 import { TimePicker } from '../../components/common/TimePicker';
 import { DatePicker } from '../../components/common/DatePicker';
-import { getLocalDateString } from '../../utils/time';
 
 interface TaskFormModalProps {
   isOpen: boolean;
@@ -36,7 +35,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
 
   // Form states
   const [name, setName] = useState('');
-  const [dueDate, setDueDate] = useState('');
+  const [dates, setDates] = useState<string[]>([]);
   const [dueTime, setDueTime] = useState('');
   const [priority, setPriority] = useState<'LOW' | 'MEDIUM' | 'HIGH'>('MEDIUM');
   const [description, setDescription] = useState('');
@@ -56,7 +55,10 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
     if (isOpen && !hasInitialized) {
       if (taskToEdit) {
         setName(taskToEdit.name);
-        setDueDate(taskToEdit.due_date);
+        const taskDates = taskToEdit.dates && taskToEdit.dates.length > 0
+          ? taskToEdit.dates
+          : (taskToEdit.due_date ? [taskToEdit.due_date] : []);
+        setDates(taskDates);
         setDueTime(taskToEdit.due_time ? taskToEdit.due_time.substring(0, 5) : '');
         setPriority(taskToEdit.priority || 'MEDIUM');
         setDescription(taskToEdit.description || '');
@@ -65,7 +67,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
         setSelectedAssigneeIds(taskToEdit.assignees ? taskToEdit.assignees.map((a) => a.id) : []);
       } else {
         setName('');
-        setDueDate(getLocalDateString(new Date()));
+        setDates([]);
         setDueTime('');
         setPriority('MEDIUM');
         setDescription('');
@@ -190,14 +192,11 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
       setError('Task Name is required.');
       return;
     }
-    if (!dueDate) {
-      setError('Due Date is required.');
-      return;
-    }
 
     const payload: any = {
       name: name.trim(),
-      due_date: dueDate,
+      dates: dates,
+      due_date: dates.length > 0 ? dates[0] : null,
       priority,
       description: description || null,
       assignee_ids: selectedAssigneeIds,
@@ -287,15 +286,15 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">
-                Due Date *
+            <div className="space-y-1 sm:col-span-2">
+              <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider block mb-1">
+                Task Dates
               </label>
               <DatePicker
-                value={dueDate}
-                onChange={setDueDate}
+                multiSelect={true}
+                values={dates}
+                onMultiChange={setDates}
                 disabled={submitMutation.isPending}
-                required={true}
               />
             </div>
 

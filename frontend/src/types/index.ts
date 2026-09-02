@@ -142,6 +142,7 @@ export interface Task {
   name: string;
   description: string | null;
   due_date: string;
+  dates?: string[];
   due_time: string | null;
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | null;
   status: 'PENDING' | 'COMPLETED';
@@ -264,7 +265,7 @@ export interface TaskAttachment {
   updated_at: string;
 }
 
-export type KeepItemType = 'FOLDER' | 'DOCUMENT' | 'NOTE' | 'SPREADSHEET';
+export type KeepItemType = 'FOLDER' | 'DOCUMENT' | 'NOTE' | 'SPREADSHEET' | 'FILE';
 export type KeepAccessLevel = 'ONLY_ME' | 'YOU_AND_ADMINS' | 'EVERYONE' | 'SPECIFIC';
 export type KeepRole = 'VIEW' | 'EDIT';
 
@@ -311,6 +312,11 @@ export interface KeepItem {
   parent_folder?: string | null;
   document_content?: string;
   spreadsheet_data?: KeepSpreadsheetData;
+  file?: string | null;
+  file_url?: string | null;
+  file_size?: number | null;
+  file_type?: string | null;
+  original_filename?: string | null;
   original_import_filename?: string | null;
   original_import_format?: string | null;
   imported_by?: string | null;

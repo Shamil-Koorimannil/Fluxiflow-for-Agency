@@ -5,12 +5,14 @@ import type { KeepItemType } from '../../types';
 interface NewKeepItemMenuProps {
   onCreateItem: (type: KeepItemType) => void;
   onOpenUploadModal: () => void;
+  onOpenSpreadsheetImportModal?: () => void;
   disabled?: boolean;
 }
 
 export const NewKeepItemMenu: React.FC<NewKeepItemMenuProps> = ({
   onCreateItem,
   onOpenUploadModal,
+  onOpenSpreadsheetImportModal,
   disabled = false
 }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -40,7 +42,7 @@ export const NewKeepItemMenu: React.FC<NewKeepItemMenuProps> = ({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-56 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xl py-1.5 z-[9999] text-sm animate-in fade-in zoom-in-95 duration-100">
+        <div className="absolute right-0 top-full mt-2 w-60 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xl py-1.5 z-[9999] text-sm animate-in fade-in zoom-in-95 duration-100">
           <button
             onClick={() => {
               onCreateItem('DOCUMENT');
@@ -118,10 +120,28 @@ export const NewKeepItemMenu: React.FC<NewKeepItemMenuProps> = ({
               <Upload className="h-4 w-4" />
             </div>
             <div>
-              <div className="font-semibold">Upload Spreadsheet</div>
-              <div className="text-xs text-zinc-400">Import Excel or CSV</div>
+              <div className="font-semibold">Upload File</div>
+              <div className="text-xs text-zinc-400">PDF, PNG, DOCX, Code, Zip, etc.</div>
             </div>
           </button>
+
+          {onOpenSpreadsheetImportModal && (
+            <button
+              onClick={() => {
+                onOpenSpreadsheetImportModal();
+                setIsOpen(false);
+              }}
+              className="w-full flex items-center gap-3 px-3.5 py-2 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-left font-medium text-xs"
+            >
+              <div className="p-1 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
+                <Table className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="font-semibold">Import Spreadsheet</div>
+                <div className="text-xs text-zinc-400">Convert Excel or CSV</div>
+              </div>
+            </button>
+          )}
         </div>
       )}
     </div>

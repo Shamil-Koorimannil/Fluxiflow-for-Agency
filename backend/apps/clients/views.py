@@ -182,26 +182,28 @@ class ClientViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='unassigned-projects')
     def unassigned_projects(self, request):
         user = request.user
-        if not user.is_authenticated or getattr(user, 'role', None) != 'ADMIN':
+        from apps.accounts.tenant_context import get_active_organization, is_admin_or_org_admin
+        if not user.is_authenticated or not is_admin_or_org_admin(user):
             return Response([], status=status.HTTP_403_FORBIDDEN)
 
-        membership = user.memberships.first()
-        if not membership:
+        active_org = get_active_organization(user)
+        if not active_org:
             return Response([])
 
         from apps.projects.models import Project
         client_id = request.query_params.get('client_id')
         search_query = request.query_params.get('search') or request.query_params.get('q')
 
-        # Strictly filter by user's organization
-        qs = Project.objects.filter(organization=membership.organization)
+        # Strictly filter by active organization
+        qs = Project.objects.filter(organization=active_org)
 
         # Exclude projects already associated with this client
         if client_id:
             qs = qs.exclude(client_id=client_id)
 
-        if search_query:
-            qs = qs.filter(name__icontains=search_query.strip())
+        if search_query and search_query.strip():
+            query_str = search_query.strip()
+            qs = qs.filter(Q(name__icontains=query_str) | Q(description__icontains=query_str))
 
         serializer = ProjectSerializer(qs.order_by('-created_at'), many=True)
         return Response(serializer.data)
@@ -255,18 +257,19 @@ class ClientViewSet(viewsets.ModelViewSet):
 
 class ClientBrandAssetViewSet(viewsets.ModelViewSet):
     serializer_class = ClientBrandAssetSerializer
-    permission_classes = [permissions.IsAuthenticated, IsAdminUserRole]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
-        if not user.is_authenticated or getattr(user, 'role', None) != 'ADMIN':
+        from apps.accounts.tenant_context import get_active_organization, is_admin_or_org_admin
+        if not user.is_authenticated or not is_admin_or_org_admin(user):
             return ClientBrandAsset.objects.none()
 
-        membership = user.memberships.first()
-        if not membership:
+        active_org = get_active_organization(user)
+        if not active_org:
             return ClientBrandAsset.objects.none()
 
-        return ClientBrandAsset.objects.filter(organization=membership.organization)
+        return ClientBrandAsset.objects.filter(organization=active_org)
 
     def perform_destroy(self, instance):
         ActivityLog.objects.create(
@@ -284,6 +287,10 @@ class ClientBrandAssetViewSet(viewsets.ModelViewSet):
         if not asset.file or not os.path.exists(asset.file.path):
             raise Http404("File does not exist.")
 
-        response = FileResponse(asset.file.open('rb'), content_type=asset.file_type)
-        response['Content-Disposition'] = f'attachment; filename="{os.path.basename(asset.file.name)}"'
+        original_filename = os.path.basename(asset.file.name)
+        mime_type = asset.file_type or mimetypes.guess_type(original_filename)[0] or 'application/octet-stream'
+
+        response = FileResponse(asset.file.open('rb'), content_type=mime_type)
+        response['Content-Disposition'] = f'attachment; filename="{original_filename}"'
+        response['Access-Control-Expose-Headers'] = 'Content-Disposition'
         return response

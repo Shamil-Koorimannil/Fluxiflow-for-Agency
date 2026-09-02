@@ -6,18 +6,20 @@ class KeepItemSerializer(serializers.ModelSerializer):
     is_pinned = serializers.SerializerMethodField()
     owner_name = serializers.ReadOnlyField(source='owner.name')
     created_by_name = serializers.ReadOnlyField(source='created_by.name')
+    file_url = serializers.SerializerMethodField()
 
     class Meta:
         model = KeepItem
         fields = [
             'id', 'item_type', 'name', 'version', 'owner', 'owner_name',
             'organization', 'parent_folder', 'document_content', 'spreadsheet_data',
+            'file', 'file_url', 'file_size', 'file_type', 'original_filename',
             'original_import_filename', 'original_import_format', 'imported_by',
             'imported_at', 'import_warnings', 'is_deleted', 'deleted_at',
             'created_by', 'created_by_name', 'updated_by', 'created_at', 'updated_at',
             'is_pinned'
         ]
-        read_only_fields = ['id', 'version', 'owner', 'created_by', 'updated_by', 'created_at', 'updated_at', 'imported_at']
+        read_only_fields = ['id', 'version', 'owner', 'created_by', 'updated_by', 'created_at', 'updated_at', 'imported_at', 'file_size', 'file_type']
         extra_kwargs = {
             'item_type': {'required': False}
         }
@@ -27,6 +29,14 @@ class KeepItemSerializer(serializers.ModelSerializer):
         if request and request.user and request.user.is_authenticated:
             return KeepUserPin.objects.filter(user=request.user, item=obj).exists()
         return False
+
+    def get_file_url(self, obj):
+        if obj.file:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.file.url)
+            return obj.file.url
+        return None
 
 
 class KeepPermissionSerializer(serializers.ModelSerializer):

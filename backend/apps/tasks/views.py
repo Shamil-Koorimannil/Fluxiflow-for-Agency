@@ -199,7 +199,7 @@ class TaskViewSet(viewsets.ModelViewSet):
                 entity_id=updated_task.id,
                 description=f"{request.user.name} updated details of task '{updated_task.name}'."
             )
-            return Response(serializer.data)
+            return Response(self.get_serializer(updated_task).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def destroy(self, request, *args, **kwargs):
@@ -220,6 +220,53 @@ class TaskViewSet(viewsets.ModelViewSet):
             description=f"{request.user.name} deleted task '{task_name}'."
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=False, methods=['delete', 'post'], url_path='bulk-delete')
+    def bulk_delete(self, request):
+        if not self.check_modify_permission(request):
+            return Response({"detail": "Only Admins can delete tasks."}, status=status.HTTP_403_FORBIDDEN)
+        
+        task_ids = request.data.get('task_ids', [])
+        if not isinstance(task_ids, list) or not task_ids:
+            return Response({"detail": "No task IDs provided for bulk deletion."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        from apps.accounts.tenant_context import get_active_organization
+        from django.db.models import Q
+        from django.db import transaction
+
+        active_org = get_active_organization(request.user)
+        if not active_org:
+            return Response({"detail": "Active organization not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        org_filter = Q(organization=active_org) | Q(organization__isnull=True)
+        tasks_qs = Task.objects.filter(org_filter, id__in=task_ids)
+        found_ids = set(str(tid) for tid in tasks_qs.values_list('id', flat=True))
+        
+        if len(found_ids) != len(set(str(tid) for tid in task_ids)):
+            return Response(
+                {"detail": "One or more selected tasks do not exist or belong to another organization."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        task_list = list(tasks_qs)
+        count = len(task_list)
+
+        with transaction.atomic():
+            tasks_qs.delete()
+            for t in task_list:
+                ActivityLog.objects.create(
+                    user=request.user,
+                    action='TASK_DELETED',
+                    entity_type='Task',
+                    entity_id=t.id,
+                    description=f"{request.user.name} bulk deleted task '{t.name}'."
+                )
+
+        return Response({
+            "detail": f"Successfully deleted {count} task(s).",
+            "deleted_count": count,
+            "deleted_ids": list(found_ids)
+        }, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['POST'])
     def complete(self, request, pk=None):
@@ -482,6 +529,23 @@ class TaskViewSet(viewsets.ModelViewSet):
                 paused_at=timezone.now(),
                 duration_seconds=duration_secs
             )
+
+        task.refresh_from_db()
+        return Response(self.get_serializer(task).data)
+
+    @action(detail=True, methods=['POST'], url_path='timer/reset')
+    def timer_reset(self, request, pk=None):
+        task = self.get_object()
+        user = request.user
+
+        is_assigned = TaskAssignee.objects.filter(task=task, user=user).exists()
+        if user.role != 'ADMIN' and not is_assigned:
+            return Response({"detail": "You do not have permission to reset this task timer."}, status=status.HTTP_403_FORBIDDEN)
+
+        task.elapsed_seconds = 0
+        task.timer_started_at = None
+        task.timer_status = 'NOT_STARTED'
+        task.save(update_fields=['elapsed_seconds', 'timer_started_at', 'timer_status'])
 
         task.refresh_from_db()
         return Response(self.get_serializer(task).data)

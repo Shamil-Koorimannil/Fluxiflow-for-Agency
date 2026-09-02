@@ -9,24 +9,38 @@ export type TaskCategory =
   | 'no_due_date'
   | 'completed';
 
+export function getTaskDates(task: Task): string[] {
+  if (task.dates && task.dates.length > 0) {
+    return task.dates;
+  }
+  if (task.due_date) {
+    return [task.due_date];
+  }
+  return [];
+}
+
 export function classifyTask(task: Task): TaskCategory {
   if (task.status === 'COMPLETED') {
     return 'completed';
   }
 
-  if (!task.due_date) {
+  const dates = getTaskDates(task);
+  if (dates.length === 0) {
     return 'no_due_date';
   }
 
   const today = getLocalDateString(new Date());
-
   const tomorrowDate = new Date();
   tomorrowDate.setDate(tomorrowDate.getDate() + 1);
   const tomorrow = getLocalDateString(tomorrowDate);
 
-  if (task.due_date < today) return 'overdue';
-  if (task.due_date === today) return 'today';
-  if (task.due_date === tomorrow) return 'tomorrow';
+  if (dates.includes(today)) return 'today';
+  if (dates.includes(tomorrow)) return 'tomorrow';
 
-  return 'upcoming';
+  // If any date is in the future, it is upcoming
+  const hasFutureDate = dates.some((d) => d > today);
+  if (hasFutureDate) return 'upcoming';
+
+  // If all assigned dates have passed and task is incomplete, it is overdue
+  return 'overdue';
 }

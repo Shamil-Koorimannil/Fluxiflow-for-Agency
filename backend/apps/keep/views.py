@@ -1,7 +1,9 @@
+import os
 import secrets
+import mimetypes
 from django.utils import timezone
 from django.db import transaction
-from django.http import HttpResponse
+from django.http import HttpResponse, FileResponse, Http404
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
@@ -125,7 +127,20 @@ class KeepItemViewSet(viewsets.ModelViewSet):
 
         doc_content = serializer.validated_data.get('document_content')
         if doc_content is not None:
-            serializer.validated_data['document_content'] = sanitize_html(doc_content)
+            doc_content = sanitize_html(doc_content)
+            serializer.validated_data['document_content'] = doc_content
+            # Sync text file content on disk if attached
+            if item.file and os.path.exists(item.file.path):
+                ext = (item.original_filename or '').rsplit('.', 1)[-1].lower() if '.' in (item.original_filename or '') else ''
+                text_exts = {'txt', 'md', 'rtf', 'csv', 'json', 'xml', 'html', 'css', 'js', 'ts', 'py', 'sh', 'yml', 'yaml'}
+                if ext in text_exts or (item.file_type and item.file_type.startswith('text/')):
+                    try:
+                        with open(item.file.path, 'w', encoding='utf-8') as f:
+                            f.write(doc_content)
+                        item.file_size = os.path.getsize(item.file.path)
+                        item.save(update_fields=['file_size'])
+                    except Exception:
+                        pass
 
         serializer.validated_data['version'] = item.version + 1
         serializer.validated_data['updated_by'] = request.user
@@ -133,7 +148,7 @@ class KeepItemViewSet(viewsets.ModelViewSet):
         updated_item = serializer.save()
 
         # Snapshot version for documents/notes on explicit milestone or larger saves
-        if updated_item.item_type in ['DOCUMENT', 'NOTE', 'SPREADSHEET'] and request.data.get('create_snapshot'):
+        if updated_item.item_type in ['DOCUMENT', 'NOTE', 'SPREADSHEET', 'FILE'] and request.data.get('create_snapshot'):
             KeepVersionHistory.objects.create(
                 item=updated_item,
                 author=request.user,
@@ -234,6 +249,109 @@ class KeepItemViewSet(viewsets.ModelViewSet):
         item = self.get_object()
         new_item = duplicate_keep_item(request.user, item)
         return Response(self.get_serializer(new_item).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'], url_path='upload_file')
+    def upload_file(self, request):
+        file_obj = request.FILES.get('file')
+        if not file_obj:
+            return Response({'detail': 'No file provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        parent_folder_id = request.data.get('parent_folder')
+        parent_folder = None
+        if parent_folder_id and parent_folder_id != 'root':
+            try:
+                parent_folder = KeepItem.objects.get(id=parent_folder_id)
+            except KeepItem.DoesNotExist:
+                pass
+
+        user = request.user
+        org = get_user_organization(user)
+        original_filename = file_obj.name
+        file_size = file_obj.size
+        file_type = file_obj.content_type or mimetypes.guess_type(original_filename)[0] or 'application/octet-stream'
+
+        ext = ''
+        if '.' in original_filename:
+            ext = original_filename.rsplit('.', 1)[1].lower()
+
+        doc_content = ''
+        text_extensions = {'txt', 'md', 'rtf', 'csv', 'json', 'xml', 'html', 'css', 'js', 'ts', 'py', 'sh', 'yml', 'yaml'}
+        if ext in text_extensions or file_type.startswith('text/'):
+            try:
+                raw_bytes = file_obj.read()
+                doc_content = raw_bytes.decode('utf-8', errors='ignore')
+                file_obj.seek(0)
+            except Exception:
+                doc_content = ''
+
+        item_name = request.data.get('name') or original_filename
+
+        item = KeepItem.objects.create(
+            item_type='FILE',
+            name=item_name,
+            version=1,
+            owner=user,
+            organization=org,
+            parent_folder=parent_folder,
+            file=file_obj,
+            file_size=file_size,
+            file_type=file_type,
+            original_filename=original_filename,
+            document_content=doc_content,
+            created_by=user
+        )
+
+        log_audit_event(user, item, 'CREATE', f"Uploaded file '{original_filename}'")
+        return Response(self.get_serializer(item).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['get'], url_path='download')
+    def download(self, request, pk=None):
+        item = self.get_object()
+
+        if not check_item_access(request.user, item, 'VIEW'):
+            return Response({'detail': 'You do not have permission to access this item.'}, status=status.HTTP_403_FORBIDDEN)
+
+        log_audit_event(request.user, item, 'DOWNLOAD', f"Downloaded '{item.name}'")
+
+        # 1. Stored Binary File
+        if item.file and os.path.exists(item.file.path):
+            filename = item.original_filename or os.path.basename(item.file.name)
+            mime_type = item.file_type or mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+            response = FileResponse(item.file.open('rb'), content_type=mime_type)
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            response['Access-Control-Expose-Headers'] = 'Content-Disposition'
+            return response
+
+        # 2. Spreadsheet item
+        if item.item_type == 'SPREADSHEET':
+            export_format = request.query_params.get('export_format') or request.query_params.get('format', 'xlsx')
+            export_format = str(export_format).lower()
+            sheet_id = request.query_params.get('sheet_id')
+            if export_format == 'csv':
+                content = export_to_csv(item.spreadsheet_data, sheet_id=sheet_id)
+                filename = f"{item.name}.csv" if not item.name.endswith('.csv') else item.name
+                response = HttpResponse(content, content_type='text/csv')
+                response['Content-Disposition'] = f'attachment; filename="{filename}"'
+                response['Access-Control-Expose-Headers'] = 'Content-Disposition'
+                return response
+            else:
+                content = export_to_xlsx(item.spreadsheet_data)
+                filename = f"{item.name}.xlsx" if not item.name.endswith('.xlsx') else item.name
+                response = HttpResponse(content, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                response['Content-Disposition'] = f'attachment; filename="{filename}"'
+                response['Access-Control-Expose-Headers'] = 'Content-Disposition'
+                return response
+
+        # 3. Document / Note / Text content
+        filename = item.original_filename or item.name
+        if '.' not in filename:
+            filename = f"{filename}.txt"
+
+        mime_type = item.file_type or mimetypes.guess_type(filename)[0] or 'text/plain; charset=utf-8'
+        response = HttpResponse(item.document_content or '', content_type=mime_type)
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response['Access-Control-Expose-Headers'] = 'Content-Disposition'
+        return response
 
     @action(detail=False, methods=['post'], url_path='upload_spreadsheet')
     def upload_spreadsheet(self, request):

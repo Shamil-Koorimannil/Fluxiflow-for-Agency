@@ -28,9 +28,6 @@ def get_active_membership(user: CustomUser) -> Optional[Membership]:
                 organization__is_active=True
             ).select_related('organization').first()
             if membership:
-                if getattr(user, 'role', 'MEMBER') == 'ADMIN' and membership.role == 'MEMBER':
-                    membership.role = resolve_target_role(user)
-                    membership.save(update_fields=['role'])
                 return membership
 
         # Fallback to user's first active membership
@@ -41,9 +38,6 @@ def get_active_membership(user: CustomUser) -> Optional[Membership]:
         ).select_related('organization').first()
         
         if membership:
-            if getattr(user, 'role', 'MEMBER') == 'ADMIN' and membership.role == 'MEMBER':
-                membership.role = resolve_target_role(user)
-                membership.save(update_fields=['role'])
             if getattr(user, 'active_organization', None) != membership.organization:
                 user.active_organization = membership.organization
                 user.save(update_fields=['active_organization'])

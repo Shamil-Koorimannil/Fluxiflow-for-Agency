@@ -244,17 +244,22 @@ class VerifyOTPView(views.APIView):
         if not success:
             return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
             
-        # Update user from INVITED to ACTIVE if this is their first login
+        # Update user status & process pending invitations
         with transaction.atomic():
+            pending_invites = Invitation.objects.filter(email=user.email, status='PENDING')
+            for invite in pending_invites:
+                Membership.objects.get_or_create(
+                    organization=invite.organization,
+                    user=user,
+                    defaults={'role': invite.role, 'is_active': True}
+                )
+                invite.status = 'ACCEPTED'
+                invite.accepted_at = timezone.now()
+                invite.save()
+
             if user.status == 'INVITED':
                 user.status = 'ACTIVE'
                 user.save()
-                
-                # Update any pending invitations
-                Invitation.objects.filter(email=user.email, status='PENDING').update(
-                    status='ACCEPTED',
-                    accepted_at=timezone.now()
-                )
 
                 ActivityLog.objects.create(
                     user=user,
@@ -427,7 +432,10 @@ class TeamListView(views.APIView):
         if not active_org:
             return Response([], status=status.HTTP_200_OK)
 
-        member_ids = Membership.objects.filter(organization=active_org, is_active=True).values_list('user_id', flat=True)
+        memberships_map = {
+            m.user_id: m.role for m in Membership.objects.filter(organization=active_org, is_active=True)
+        }
+        member_ids = list(memberships_map.keys())
         users = User.objects.filter(id__in=member_ids).order_by('name').prefetch_related('task_assignments__task')
         data = []
         
@@ -435,6 +443,9 @@ class TeamListView(views.APIView):
             metrics = calculate_user_health_metrics(user, start_date=start_date, end_date=end_date)
             user_data = UserSerializer(user, context={'request': request}).data
             
+            # Map role based on active organization membership
+            user_data['role'] = memberships_map.get(user.id, user.role)
+
             user_data['health_score'] = metrics['health_score']
             user_data['health_status'] = metrics['health_status']
             user_data['pending_tasks'] = metrics['pending_tasks']
@@ -462,30 +473,69 @@ class TeamListView(views.APIView):
         if not email or not name:
             return Response({"detail": "Name and email are required fields."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Enforce unique email
-        if User.objects.filter(email=email).exists():
-            return Response({"detail": "A user with this email address already exists."}, status=status.HTTP_400_BAD_REQUEST)
+        active_org = get_active_organization(request.user)
+        if not active_org:
+            return Response({"detail": "No active organization found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        target_user = User.objects.filter(email=email).first()
+        if target_user:
+            existing_mem = Membership.objects.filter(organization=active_org, user=target_user).first()
+            if existing_mem:
+                if existing_mem.is_active:
+                    return Response({"detail": "This user is already a member of this organization."}, status=status.HTTP_400_BAD_REQUEST)
+                else:
+                    existing_mem.is_active = True
+                    existing_mem.role = role
+                    existing_mem.save()
+                    return Response({"detail": "Member reactivated in this organization.", "email_sent": False}, status=status.HTTP_201_CREATED)
+            else:
+                with transaction.atomic():
+                    Membership.objects.create(
+                        organization=active_org,
+                        user=target_user,
+                        role=role,
+                        is_active=True
+                    )
+                    Invitation.objects.get_or_create(
+                        organization=active_org,
+                        email=email,
+                        defaults={
+                            'name': target_user.name,
+                            'role': role,
+                            'status': 'ACCEPTED' if target_user.status == 'ACTIVE' else 'PENDING',
+                            'invited_by': request.user,
+                            'expires_at': timezone.now() + timedelta(days=7)
+                        }
+                    )
+                    ActivityLog.objects.create(
+                        user=request.user,
+                        action='USER_INVITED',
+                        entity_type='User',
+                        entity_id=target_user.id,
+                        description=f"{request.user.name} added {target_user.name} ({email}) to organization {active_org.name}."
+                    )
+                frontend_url = str(getattr(settings, 'FRONTEND_URL', 'http://localhost:5173'))
+                email_sent, email_error = InvitationEmailService.send_invitation_email(
+                    member_name=target_user.name,
+                    member_email=email,
+                    invited_by_name=request.user.name,
+                    frontend_url=frontend_url,
+                )
+                return Response({"detail": "Existing user added to organization successfully.", "email_sent": email_sent}, status=status.HTTP_201_CREATED)
 
         with transaction.atomic():
-            # Get default organization
-            org = Organization.objects.first()
-            if not org:
-                org = Organization.objects.create(name="Fluxiflow Agency")
-
-            # Create User in INVITED state
             new_user = User.objects.create_user(  # type: ignore
                 email=email,
                 name=name,
-                role=role,
+                role='MEMBER',
                 status='INVITED'
             )
             Profile.objects.get_or_create(user=new_user)
-            Membership.objects.create(organization=org, user=new_user)
+            Membership.objects.create(organization=active_org, user=new_user, role=role, is_active=True)
 
-            # Create invitation
             expires_at = timezone.now() + timedelta(days=7)
             Invitation.objects.create(
-                organization=org,
+                organization=active_org,
                 email=email,
                 name=name,
                 role=role,
@@ -494,17 +544,14 @@ class TeamListView(views.APIView):
                 expires_at=expires_at
             )
 
-            # Log activity
             ActivityLog.objects.create(
                 user=request.user,
                 action='USER_INVITED',
                 entity_type='User',
                 entity_id=new_user.id,
-                description=f"{request.user.name} invited {name} ({email}) to the team."
+                description=f"{request.user.name} invited {name} ({email}) to organization {active_org.name}."
             )
 
-        # Send invitation email AFTER transaction commit so a DB rollback
-        # doesn't result in an email going out for a failed creation.
         frontend_url = str(getattr(settings, 'FRONTEND_URL', 'http://localhost:5173'))
         email_sent, email_error = InvitationEmailService.send_invitation_email(
             member_name=name,
@@ -1024,16 +1071,22 @@ class PasswordLoginView(views.APIView):
         if not user.check_password(password):
             return Response({"detail": "No active account found with the given credentials."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Successful login: Update status if INVITED to ACTIVE
+        # Successful login: Update status & process pending invitations
         with transaction.atomic():
+            pending_invites = Invitation.objects.filter(email=user.email, status='PENDING')
+            for invite in pending_invites:
+                Membership.objects.get_or_create(
+                    organization=invite.organization,
+                    user=user,
+                    defaults={'role': invite.role, 'is_active': True}
+                )
+                invite.status = 'ACCEPTED'
+                invite.accepted_at = timezone.now()
+                invite.save()
+
             if user.status == 'INVITED':
                 user.status = 'ACTIVE'
                 user.save()
-                
-                Invitation.objects.filter(email=user.email, status='PENDING').update(
-                    status='ACCEPTED',
-                    accepted_at=timezone.now()
-                )
 
                 ActivityLog.objects.create(
                     user=user,
@@ -1270,7 +1323,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             existing_mem = Membership.objects.filter(organization=active_org, user=target_user).first()
             if existing_mem:
                 if existing_mem.is_active:
-                    return Response({"detail": "User is already an active member of this organization."}, status=status.HTTP_400_BAD_REQUEST)
+                    return Response({"detail": "This user is already a member of this organization."}, status=status.HTTP_400_BAD_REQUEST)
                 else:
                     existing_mem.is_active = True
                     existing_mem.role = role
@@ -1283,6 +1336,17 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                     role=role,
                     is_active=True
                 )
+                Invitation.objects.get_or_create(
+                    organization=active_org,
+                    email=email,
+                    defaults={
+                        'name': target_user.name,
+                        'role': role,
+                        'status': 'ACCEPTED' if target_user.status == 'ACTIVE' else 'PENDING',
+                        'invited_by': request.user,
+                        'expires_at': timezone.now() + timedelta(days=7)
+                    }
+                )
                 return Response(MembershipSerializer(mem, context={'request': request}).data, status=status.HTTP_201_CREATED)
         else:
             target_user = CustomUser.objects.create_user(
@@ -1291,11 +1355,21 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                 role='MEMBER',
                 status='INVITED'
             )
+            Profile.objects.get_or_create(user=target_user)
             mem = Membership.objects.create(
                 organization=active_org,
                 user=target_user,
                 role=role,
                 is_active=True
+            )
+            Invitation.objects.create(
+                organization=active_org,
+                email=email,
+                name=name,
+                role=role,
+                status='PENDING',
+                invited_by=request.user,
+                expires_at=timezone.now() + timedelta(days=7)
             )
             return Response(MembershipSerializer(mem, context={'request': request}).data, status=status.HTTP_201_CREATED)
 

@@ -10,6 +10,8 @@ import { ArrowLeft, Plus, Upload, Trash2, CheckSquare, X, Pencil, Download, Load
 import { BulkUploadModal } from './BulkUploadModal';
 import { PasteTasksModal } from '../tasks/PasteTasksModal';
 import { TaskCard } from '../tasks/TaskCard';
+import { useTaskDragSelect } from '../../hooks/useTaskDragSelect';
+import { SelectionToolbar } from '../../components/common/SelectionToolbar';
 import { classifyTask } from '../../utils/taskClassifier';
 import { formatDateOnly } from '../../utils/time';
 
@@ -38,7 +40,6 @@ export const ProjectDetail: React.FC = () => {
   const [isDownloadingReport, setIsDownloadingReport] = useState(false);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
 
-  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
   const [isPasteModalOpen, setIsPasteModalOpen] = useState(false);
   const [copiedTasksCount, setCopiedTasksCount] = useState(0);
 
@@ -60,13 +61,6 @@ export const ProjectDetail: React.FC = () => {
     window.addEventListener('fluxiflow_copied_tasks_changed', updateCount);
     return () => window.removeEventListener('fluxiflow_copied_tasks_changed', updateCount);
   }, []);
-
-  const [lastSelectedTaskId, setLastSelectedTaskId] = useState<string | null>(null);
-
-  useEffect(() => {
-    setSelectedTaskIds([]);
-    setLastSelectedTaskId(null);
-  }, [activeFilter]);
 
   const handleDownloadReport = async () => {
     if (isDownloadingReport) return;
@@ -265,67 +259,29 @@ export const ProjectDetail: React.FC = () => {
   } else if (activeFilter !== 'all') {
     filteredTasks = deduplicatedTasks.filter((t) => classifyTask(t) === activeFilter);
   }
-  const handleToggleSelect = (taskId: string, isShiftPressed?: boolean) => {
-    if (isShiftPressed && lastSelectedTaskId) {
-      const startIdx = filteredTasks.findIndex(t => t.id === lastSelectedTaskId);
-      const endIdx = filteredTasks.findIndex(t => t.id === taskId);
-      if (startIdx !== -1 && endIdx !== -1) {
-        const minIdx = Math.min(startIdx, endIdx);
-        const maxIdx = Math.max(startIdx, endIdx);
-        const rangeIds = filteredTasks.slice(minIdx, maxIdx + 1).map(t => t.id);
-        setSelectedTaskIds(prev => {
-          const next = new Set(prev);
-          rangeIds.forEach(id => next.add(id));
-          return Array.from(next);
-        });
-        setLastSelectedTaskId(taskId);
-        return;
-      }
-    }
-    setSelectedTaskIds(prev =>
-      prev.includes(taskId) ? prev.filter(id => id !== taskId) : [...prev, taskId]
-    );
-    setLastSelectedTaskId(taskId);
-  };
+  const dragSelect = useTaskDragSelect({
+    visibleTasks: filteredTasks,
+    onOpenDetail: (taskId) => setSelectedTaskId(taskId),
+  });
 
-  const handleClearSelection = () => {
-    setSelectedTaskIds([]);
-    setLastSelectedTaskId(null);
-  };
+  useEffect(() => {
+    dragSelect.clearSelection();
+  }, [activeFilter]);
 
-  const handleBulkCopy = () => {
-    const tasksToCopy = filteredTasks.filter(t => selectedTaskIds.includes(t.id));
-    const serialized = tasksToCopy.map(t => ({
-      name: t.name,
-      description: t.description,
-      priority: t.priority,
-      due_date: t.due_date,
-      due_time: t.due_time,
-      subtasks: t.subtasks?.map(s => ({
-        name: s.name,
-        due_date: s.due_date,
-        due_time: s.due_time
-      })) || []
-    }));
-    localStorage.setItem('fluxiflow_copied_tasks', JSON.stringify(serialized));
-    setSelectedTaskIds([]);
-    window.dispatchEvent(new Event('fluxiflow_copied_tasks_changed'));
-  };
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (taskIds: string[]) => {
+      const response = await api.post('/tasks/bulk-delete/', { task_ids: taskIds });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['project', id] });
+      queryClient.invalidateQueries({ queryKey: ['team'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      dragSelect.clearSelection();
+    },
+  });
 
-  const areAllVisibleSelected = filteredTasks.length > 0 && filteredTasks.every(t => selectedTaskIds.includes(t.id));
-
-  const handleSelectAllToggle = () => {
-    if (areAllVisibleSelected) {
-      const visibleIds = filteredTasks.map(t => t.id);
-      setSelectedTaskIds(prev => prev.filter(id => !visibleIds.includes(id)));
-    } else {
-      setSelectedTaskIds(prev => {
-        const next = new Set(prev);
-        filteredTasks.forEach(t => next.add(t.id));
-        return Array.from(next);
-      });
-    }
-  };
   const renderTaskTile = (task: Task) => (
     <TaskCard
       key={task.id}
@@ -345,8 +301,14 @@ export const ProjectDetail: React.FC = () => {
         }
       }}
       isMutating={completeTaskMutation.isPending || reopenTaskMutation.isPending}
-      isSelected={selectedTaskIds.includes(task.id)}
-      onToggleSelect={handleToggleSelect}
+      isSelected={dragSelect.isSelected(task.id)}
+      onToggleSelect={(id, shift) => dragSelect.toggleSelect(id, shift)}
+      onPointerDown={dragSelect.handlePointerDown}
+      onPointerMove={dragSelect.handlePointerMove}
+      onPointerUp={dragSelect.handlePointerUpOrCancel}
+      onPointerCancel={dragSelect.handlePointerUpOrCancel}
+      onCardClick={dragSelect.handleCardClick}
+      isSelectionActive={dragSelect.isSelectionActive}
     />
   );
 
@@ -523,10 +485,17 @@ export const ProjectDetail: React.FC = () => {
         {!isTasksLoading && filteredTasks.length > 0 && (
           <div className="flex justify-end pr-1">
             <button
-              onClick={handleSelectAllToggle}
-              className="text-xs font-bold text-zinc-555 hover:text-black dark:text-zinc-400 dark:hover:text-white transition-colors"
+              onClick={() => {
+                const areAllSelected = filteredTasks.length > 0 && filteredTasks.every((t) => dragSelect.isSelected(t.id));
+                if (areAllSelected) {
+                  dragSelect.clearSelection();
+                } else {
+                  dragSelect.selectAll();
+                }
+              }}
+              className="text-xs font-bold text-zinc-500 hover:text-black dark:text-zinc-400 dark:hover:text-white transition-colors"
             >
-              {areAllVisibleSelected ? 'Deselect All' : 'Select All'}
+              {filteredTasks.length > 0 && filteredTasks.every((t) => dragSelect.isSelected(t.id)) ? 'Deselect All' : 'Select All'}
             </button>
           </div>
         )}
@@ -714,25 +683,16 @@ export const ProjectDetail: React.FC = () => {
           </div>
         </div>
       )}
-      {/* Floating Bulk Action Toolbar */}
-      {selectedTaskIds.length > 0 && (
-        <div className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 shadow-lg z-[90] flex items-center gap-4 animate-in fade-in slide-in-from-bottom duration-200 text-xs text-black dark:text-white max-w-[90vw] overflow-x-auto">
-          <span className="font-bold">{selectedTaskIds.length} Task{selectedTaskIds.length > 1 ? 's' : ''} Selected</span>
-          <div className="h-4 w-px bg-zinc-250 dark:bg-zinc-800" />
-          <button
-            onClick={handleBulkCopy}
-            className="font-bold text-zinc-650 hover:text-black dark:text-zinc-400 dark:hover:text-white transition-colors"
-          >
-            Copy
-          </button>
-          <button
-            onClick={handleClearSelection}
-            className="font-bold text-zinc-400 hover:text-zinc-600 transition-colors"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
+      {/* Floating Selection & Bulk Delete Toolbar */}
+      <SelectionToolbar
+        selectedCount={dragSelect.selectedTaskIds.length}
+        totalVisibleCount={filteredTasks.length}
+        onClearSelection={dragSelect.clearSelection}
+        onSelectAll={() => dragSelect.selectAll()}
+        areAllSelected={filteredTasks.length > 0 && filteredTasks.every((t) => dragSelect.isSelected(t.id))}
+        onConfirmDelete={() => bulkDeleteMutation.mutateAsync(dragSelect.selectedTaskIds)}
+        isDeleting={bulkDeleteMutation.isPending}
+      />
 
       {/* Paste Tasks Modal */}
       <PasteTasksModal

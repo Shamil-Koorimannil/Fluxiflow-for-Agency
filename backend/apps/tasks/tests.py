@@ -1919,6 +1919,237 @@ class TaskAndProjectDuplicationTestSuite(APITestCase):
         self.assertEqual(res_proj.status_code, status.HTTP_404_NOT_FOUND)
 
 
+class MultiDateTaskTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_superuser(
+            email='admin_multidate@test.com',
+            name='MultiDate Admin',
+            password='password123'
+        )
+        self.member = User.objects.create_user(
+            email='member_multidate@test.com',
+            name='MultiDate Member',
+            password='password123',
+            role='MEMBER'
+        )
+
+        from apps.accounts.models import Organization, Membership
+        self.org1 = Organization.objects.create(name="Org One", slug="org-one")
+        self.org2 = Organization.objects.create(name="Org Two", slug="org-two")
+
+        Membership.objects.create(user=self.admin, organization=self.org1, role='ADMIN')
+        Membership.objects.create(user=self.member, organization=self.org1, role='MEMBER')
+
+        self.admin_token = self.get_jwt_token(self.admin.email)
+
+    def get_jwt_token(self, email):
+        user = User.objects.get(email=email)
+        refresh = RefreshToken.for_user(user)
+        refresh['email'] = user.email
+        refresh['name'] = user.name
+        refresh['role'] = user.role
+        return str(refresh.access_token)
+
+    def set_auth(self, token):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+    def test_single_date_task_creation(self):
+        self.set_auth(self.admin_token)
+        url = reverse('task-list')
+        response = self.client.post(url, {
+            'name': 'Single Date Task',
+            'dates': ['2026-09-02']
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['dates'], ['2026-09-02'])
+        self.assertEqual(response.data['due_date'], '2026-09-02')
+
+        task = Task.objects.get(id=response.data['id'])
+        self.assertEqual(task.task_dates.count(), 1)
+        self.assertEqual(task.task_dates.first().date, datetime.date(2026, 9, 2))
+
+    def test_multi_date_task_creation_single_task_id(self):
+        self.set_auth(self.admin_token)
+        url = reverse('task-list')
+        response = self.client.post(url, {
+            'name': 'Multi Date Task',
+            'dates': ['2026-09-02', '2026-09-04', '2026-09-08']
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task_id = response.data['id']
+        self.assertEqual(response.data['dates'], ['2026-09-02', '2026-09-04', '2026-09-08'])
+        self.assertEqual(response.data['due_date'], '2026-09-02')
+
+        # Verify only 1 Task was created in DB
+        self.assertEqual(Task.objects.filter(name='Multi Date Task').count(), 1)
+        task = Task.objects.get(id=task_id)
+        self.assertEqual(task.task_dates.count(), 3)
+        dates_in_db = list(task.task_dates.values_list('date', flat=True))
+        self.assertEqual(dates_in_db, [datetime.date(2026, 9, 2), datetime.date(2026, 9, 4), datetime.date(2026, 9, 8)])
+
+    def test_duplicate_dates_deduplicated_and_sorted(self):
+        self.set_auth(self.admin_token)
+        url = reverse('task-list')
+        response = self.client.post(url, {
+            'name': 'Duplicate Dates Task',
+            'dates': ['2026-09-08', '2026-09-02', '2026-09-02', '2026-09-04']
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['dates'], ['2026-09-02', '2026-09-04', '2026-09-08'])
+
+    def test_task_creation_without_dates(self):
+        self.set_auth(self.admin_token)
+        url = reverse('task-list')
+        response = self.client.post(url, {
+            'name': 'No Date Task',
+            'dates': []
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['dates'], [])
+        self.assertIsNone(response.data['due_date'])
+
+    def test_serializer_direct_update(self):
+        from apps.tasks.serializers import TaskSerializer
+        task = Task.objects.create(name="Direct Edit", created_by=self.admin)
+        serializer = TaskSerializer(instance=task, data={'dates': ['2026-09-02', '2026-09-08', '2026-09-12']}, partial=True)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        updated = serializer.save()
+        rep = TaskSerializer(updated).data
+        self.assertEqual(rep['dates'], ['2026-09-02', '2026-09-08', '2026-09-12'])
+
+    def test_editing_task_dates(self):
+        self.set_auth(self.admin_token)
+        url = reverse('task-list')
+        res_create = self.client.post(url, {
+            'name': 'Task to Edit',
+            'dates': ['2026-09-02', '2026-09-04', '2026-09-08']
+        }, format='json')
+        task_id = res_create.data['id']
+
+        # Edit task dates: remove 2026-09-04, add 2026-09-12
+        detail_url = reverse('task-detail', args=[task_id])
+        res_edit = self.client.patch(detail_url, {
+            'dates': ['2026-09-02', '2026-09-08', '2026-09-12']
+        }, format='json')
+        self.assertEqual(res_edit.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_edit.data['dates'], ['2026-09-02', '2026-09-08', '2026-09-12'])
+        self.assertEqual(res_edit.data['id'], task_id)
+
+        task = Task.objects.get(id=task_id)
+        self.assertEqual(task.task_dates.count(), 3)
+
+    def test_backward_compatibility_with_due_date(self):
+        self.set_auth(self.admin_token)
+        url = reverse('task-list')
+        response = self.client.post(url, {
+            'name': 'Legacy Task',
+            'due_date': '2026-09-02'
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['dates'], ['2026-09-02'])
+        self.assertEqual(response.data['due_date'], '2026-09-02')
+
+    def test_tenant_isolation_on_task_dates(self):
+        other_user = User.objects.create_user(
+            email='other@org2.com',
+            name='Other Org User',
+            password='password123'
+        )
+        from apps.accounts.models import Membership
+        Membership.objects.create(user=other_user, organization=self.org2, role='ADMIN')
+        other_token = self.get_jwt_token(other_user.email)
+
+        # Create task in Org 1
+        self.set_auth(self.admin_token)
+        url = reverse('task-list')
+        res = self.client.post(url, {
+            'name': 'Org1 Task',
+            'dates': ['2026-09-02']
+        }, format='json')
+        task_id = res.data['id']
+
+        # User from Org 2 cannot read or edit task dates of Org 1
+        self.set_auth(other_token)
+        detail_url = reverse('task-detail', args=[task_id])
+        res_get = self.client.get(detail_url)
+        self.assertIn(res_get.status_code, [status.HTTP_404_NOT_FOUND, status.HTTP_403_FORBIDDEN])
+
+        res_patch = self.client.patch(detail_url, {'dates': ['2026-09-10']})
+        self.assertIn(res_patch.status_code, [status.HTTP_404_NOT_FOUND, status.HTTP_403_FORBIDDEN])
+
+
+class BulkDeleteTaskTests(APITestCase):
+    def setUp(self):
+        from apps.accounts.models import Organization, Membership
+        self.org1 = Organization.objects.create(name="Org 1", slug="org-1")
+        self.org2 = Organization.objects.create(name="Org 2", slug="org-2")
+
+        self.admin = User.objects.create_user(
+            email="admin_bulk@test.com",
+            name="Bulk Admin",
+            role="ADMIN",
+            password="password123"
+        )
+        self.member = User.objects.create_user(
+            email="member_bulk@test.com",
+            name="Bulk Member",
+            role="MEMBER",
+            password="password123"
+        )
+
+        Membership.objects.create(user=self.admin, organization=self.org1, role="ADMIN")
+        Membership.objects.create(user=self.member, organization=self.org1, role="MEMBER")
+
+        self.admin_token = RefreshToken.for_user(self.admin).access_token
+        self.member_token = RefreshToken.for_user(self.member).access_token
+
+        self.task1 = Task.objects.create(name="Task 1", organization=self.org1, created_by=self.admin)
+        self.task2 = Task.objects.create(name="Task 2", organization=self.org1, created_by=self.admin)
+        self.task3 = Task.objects.create(name="Task 3", organization=self.org1, created_by=self.admin)
+        self.org2_task = Task.objects.create(name="Org2 Task", organization=self.org2, created_by=self.admin)
+
+    def set_auth(self, token):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+    def test_successful_bulk_delete(self):
+        self.set_auth(self.admin_token)
+        url = reverse('task-bulk-delete')
+        res = self.client.post(url, {
+            'task_ids': [str(self.task1.id), str(self.task2.id), str(self.task3.id)]
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['deleted_count'], 3)
+        self.assertFalse(Task.objects.filter(id__in=[self.task1.id, self.task2.id, self.task3.id]).exists())
+
+    def test_bulk_delete_non_admin_forbidden(self):
+        self.set_auth(self.member_token)
+        url = reverse('task-bulk-delete')
+        res = self.client.post(url, {
+            'task_ids': [str(self.task1.id)]
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(Task.objects.filter(id=self.task1.id).exists())
+
+    def test_bulk_delete_cross_org_isolation(self):
+        self.set_auth(self.admin_token)
+        url = reverse('task-bulk-delete')
+        res = self.client.post(url, {
+            'task_ids': [str(self.task1.id), str(self.org2_task.id)]
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        # Verify neither task was deleted due to transaction rollback / validation
+        self.assertTrue(Task.objects.filter(id=self.task1.id).exists())
+        self.assertTrue(Task.objects.filter(id=self.org2_task.id).exists())
+
+    def test_bulk_delete_empty_task_ids(self):
+        self.set_auth(self.admin_token)
+        url = reverse('task-bulk-delete')
+        res = self.client.post(url, {'task_ids': []}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+
 
 
 

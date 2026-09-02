@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import ReactDOM from 'react-dom';
 import { X, Search, Folder, RefreshCw, AlertCircle, Check } from 'lucide-react';
 import type { Project } from '../../types';
@@ -20,7 +20,7 @@ export const AddExistingProjectModal: React.FC<AddExistingProjectModalProps> = (
   onProjectsAdded
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [unassignedProjects, setUnassignedProjects] = useState<Project[]>([]);
+  const [allProjects, setAllProjects] = useState<Project[]>([]);
   const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(new Set());
 
   const [loading, setLoading] = useState(false);
@@ -31,19 +31,14 @@ export const AddExistingProjectModal: React.FC<AddExistingProjectModalProps> = (
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams();
-      params.append('client_id', clientId);
-      if (searchQuery.trim()) {
-        params.append('search', searchQuery.trim());
-      }
-      const res = await api.get<Project[]>(`/clients/unassigned-projects/?${params.toString()}`);
-      setUnassignedProjects(res.data);
+      const res = await api.get<Project[]>(`/clients/unassigned-projects/?client_id=${clientId}`);
+      setAllProjects(res.data || []);
     } catch (err: any) {
       setError('Failed to fetch available projects.');
     } finally {
       setLoading(false);
     }
-  }, [clientId, searchQuery]);
+  }, [clientId]);
 
   useEffect(() => {
     if (isOpen) {
@@ -52,6 +47,18 @@ export const AddExistingProjectModal: React.FC<AddExistingProjectModalProps> = (
       setSearchQuery('');
     }
   }, [isOpen, fetchUnassignedProjects]);
+
+  // Client-side search filtering
+  const filteredProjects = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return allProjects;
+    return allProjects.filter(p => {
+      const matchName = p.name ? p.name.toLowerCase().includes(q) : false;
+      const matchDesc = p.description ? p.description.toLowerCase().includes(q) : false;
+      const matchClient = p.client_display_name ? p.client_display_name.toLowerCase().includes(q) : false;
+      return matchName || matchDesc || matchClient;
+    });
+  }, [allProjects, searchQuery]);
 
   if (!isOpen) return null;
 
@@ -62,6 +69,20 @@ export const AddExistingProjectModal: React.FC<AddExistingProjectModalProps> = (
         next.delete(id);
       } else {
         next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const isAllFilteredSelected = filteredProjects.length > 0 && filteredProjects.every(p => selectedProjectIds.has(p.id));
+
+  const toggleSelectAllFiltered = () => {
+    setSelectedProjectIds(prev => {
+      const next = new Set(prev);
+      if (isAllFilteredSelected) {
+        filteredProjects.forEach(p => next.delete(p.id));
+      } else {
+        filteredProjects.forEach(p => next.add(p.id));
       }
       return next;
     });
@@ -92,23 +113,37 @@ export const AddExistingProjectModal: React.FC<AddExistingProjectModalProps> = (
 
   return ReactDOM.createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95 duration-150 flex flex-col max-h-[85vh]">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50">
-          <div>
-            <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
-              Add Existing Project
-            </h2>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Associate existing organization projects with <span className="font-semibold text-zinc-700 dark:text-zinc-300">{clientName}</span>
-            </p>
+      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-in zoom-in-95 duration-150 flex flex-col max-h-[85vh]">
+        {/* Header with Sticky Search */}
+        <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
+                Add Existing Projects
+              </h2>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Associate existing organization projects with <span className="font-semibold text-zinc-700 dark:text-zinc-300">{clientName}</span>
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors"
-          >
-            <X className="h-5 w-5" />
-          </button>
+
+          {/* Search Box */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search existing projects..."
+              className="w-full pl-9 pr-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs outline-none focus:border-black dark:focus:border-white transition-colors"
+            />
+          </div>
         </div>
 
         {/* Content Body */}
@@ -120,17 +155,29 @@ export const AddExistingProjectModal: React.FC<AddExistingProjectModalProps> = (
             </div>
           )}
 
-          {/* Search Box */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search projects by name..."
-              className="w-full pl-9 pr-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs outline-none focus:border-black dark:focus:border-white transition-colors"
-            />
-          </div>
+          {/* List Toolbar (Select All & Selection Count) */}
+          {!loading && allProjects.length > 0 && (
+            <div className="flex items-center justify-between px-1 py-1 text-xs text-zinc-500 font-medium">
+              {filteredProjects.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={toggleSelectAllFiltered}
+                  className="flex items-center gap-2 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
+                >
+                  <div className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${
+                    isAllFilteredSelected ? 'bg-blue-600 border-blue-600 text-white' : 'border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900'
+                  }`}>
+                    {isAllFilteredSelected && <Check className="h-3 w-3 stroke-[3]" />}
+                  </div>
+                  <span>Select All ({filteredProjects.length})</span>
+                </button>
+              ) : <div />}
+
+              <span>
+                {selectedProjectIds.size} {selectedProjectIds.size === 1 ? 'project' : 'projects'} selected
+              </span>
+            </div>
+          )}
 
           {/* List of unassigned projects */}
           {loading ? (
@@ -138,15 +185,21 @@ export const AddExistingProjectModal: React.FC<AddExistingProjectModalProps> = (
               <RefreshCw className="h-4 w-4 animate-spin" />
               <span>Loading projects...</span>
             </div>
-          ) : unassignedProjects.length === 0 ? (
+          ) : allProjects.length === 0 ? (
             <div className="text-center py-8 text-zinc-400">
               <Folder className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p className="font-semibold">No available projects found</p>
-              <p className="text-[11px] mt-0.5">All projects in your organization are already linked or no projects match your query.</p>
+              <p className="font-semibold text-zinc-700 dark:text-zinc-300">No projects are available to add to this client.</p>
+              <p className="text-[11px] mt-0.5">All projects in your organization are already linked to this client or no projects exist.</p>
+            </div>
+          ) : filteredProjects.length === 0 ? (
+            <div className="text-center py-8 text-zinc-400">
+              <Folder className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <p className="font-semibold text-zinc-700 dark:text-zinc-300">No projects found matching "{searchQuery.trim()}".</p>
+              <p className="text-[11px] mt-0.5">Try a different search term or clear the search filter.</p>
             </div>
           ) : (
             <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
-              {unassignedProjects.map(project => {
+              {filteredProjects.map(project => {
                 const isSelected = selectedProjectIds.has(project.id);
                 return (
                   <div
@@ -166,8 +219,11 @@ export const AddExistingProjectModal: React.FC<AddExistingProjectModalProps> = (
                       </div>
                       <div className="min-w-0">
                         <p className="font-semibold text-xs truncate">{project.name}</p>
+                        {project.description && (
+                          <p className="text-[10px] text-zinc-400 truncate mt-0.5">{project.description}</p>
+                        )}
                         {project.client_display_name && (
-                          <p className="text-[10px] text-zinc-400 truncate">Current client: {project.client_display_name}</p>
+                          <p className="text-[10px] text-zinc-400 truncate mt-0.5">Current client: {project.client_display_name}</p>
                         )}
                       </div>
                     </div>
@@ -181,7 +237,7 @@ export const AddExistingProjectModal: React.FC<AddExistingProjectModalProps> = (
         {/* Footer */}
         <div className="px-6 py-4 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 flex items-center justify-between">
           <span className="text-xs text-zinc-500 font-medium">
-            {selectedProjectIds.size} selected
+            {selectedProjectIds.size} {selectedProjectIds.size === 1 ? 'project' : 'projects'} selected
           </span>
 
           <div className="flex items-center gap-3">

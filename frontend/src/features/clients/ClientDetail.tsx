@@ -131,13 +131,33 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
       const res = await api.get(`/client-brand-assets/${asset.id}/download/`, {
         responseType: 'blob'
       });
-      const url = window.URL.createObjectURL(new Blob([res.data]));
+      let filename = '';
+      const disposition = res.headers['content-disposition'];
+      if (disposition && disposition.includes('filename=')) {
+        const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
+        if (matches != null && matches[1]) {
+          filename = matches[1].replace(/['"]/g, '');
+        }
+      }
+      if (!filename) {
+        const originalExt = asset.file ? asset.file.split('.').pop() : '';
+        if (originalExt && !asset.name.toLowerCase().endsWith(`.${originalExt.toLowerCase()}`)) {
+          filename = `${asset.name}.${originalExt}`;
+        } else {
+          filename = asset.name || 'asset';
+        }
+      }
+
+      const headerMime = res.headers['content-type'] ? String(res.headers['content-type']) : '';
+      const mimeType = asset.file_type || headerMime || 'application/octet-stream';
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: mimeType }));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', asset.name || 'asset');
+      link.setAttribute('download', filename);
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.URL.revokeObjectURL(url);
     } catch (err) {
       alert('Failed to download asset.');
     }

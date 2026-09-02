@@ -9,6 +9,7 @@ class KeepItem(models.Model):
         ('DOCUMENT', 'Document'),
         ('NOTE', 'Note'),
         ('SPREADSHEET', 'Spreadsheet'),
+        ('FILE', 'File'),
     )
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -39,6 +40,12 @@ class KeepItem(models.Model):
     # Content storage
     document_content = models.TextField(blank=True, default='')
     spreadsheet_data = models.JSONField(default=dict, blank=True)
+
+    # File storage for binary and general file uploads
+    file = models.FileField(upload_to='keep_files/', null=True, blank=True)
+    file_size = models.BigIntegerField(null=True, blank=True)
+    file_type = models.CharField(max_length=150, null=True, blank=True)
+    original_filename = models.CharField(max_length=255, null=True, blank=True)
 
     # Import metadata (populated for imported spreadsheets)
     original_import_filename = models.CharField(max_length=255, null=True, blank=True)

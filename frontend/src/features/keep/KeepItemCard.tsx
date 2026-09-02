@@ -1,6 +1,7 @@
 import React from 'react';
 import {
-  Folder, FileText, StickyNote, Pin, MoreVertical, FileSpreadsheet
+  Folder, FileText, StickyNote, Pin, MoreVertical, FileSpreadsheet,
+  Image as ImageIcon, FileCode, Archive, File
 } from 'lucide-react';
 import type { KeepItem } from '../../types';
 
@@ -17,7 +18,36 @@ export const KeepItemCard: React.FC<KeepItemCardProps> = ({
   onOpen,
   onContextMenu
 }) => {
+  const getFileExtension = (): string => {
+    const filename = item.original_filename || item.name;
+    if (filename.includes('.')) {
+      return filename.split('.').pop()?.toLowerCase() || '';
+    }
+    return '';
+  };
+
   const getItemIcon = () => {
+    if (item.item_type === 'FILE') {
+      const ext = getFileExtension();
+      const mime = item.file_type || '';
+      if (mime.startsWith('image/') || ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'ico'].includes(ext)) {
+        return <ImageIcon className="h-6 w-6 text-purple-500 flex-shrink-0" />;
+      }
+      if (ext === 'pdf' || mime === 'application/pdf') {
+        return <FileText className="h-6 w-6 text-red-500 flex-shrink-0" />;
+      }
+      if (['txt', 'md', 'json', 'xml', 'html', 'css', 'js', 'ts', 'py', 'sh', 'csv', 'yml', 'yaml'].includes(ext) || mime.startsWith('text/')) {
+        return <FileCode className="h-6 w-6 text-blue-500 flex-shrink-0" />;
+      }
+      if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext) || mime.includes('zip') || mime.includes('compressed')) {
+        return <Archive className="h-6 w-6 text-amber-500 flex-shrink-0" />;
+      }
+      if (['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext)) {
+        return <FileSpreadsheet className="h-6 w-6 text-emerald-500 flex-shrink-0" />;
+      }
+      return <File className="h-6 w-6 text-zinc-400 flex-shrink-0" />;
+    }
+
     switch (item.item_type) {
       case 'FOLDER':
         return <Folder className="h-6 w-6 text-amber-500 flex-shrink-0" />;
@@ -28,8 +58,25 @@ export const KeepItemCard: React.FC<KeepItemCardProps> = ({
       case 'SPREADSHEET':
         return <FileSpreadsheet className="h-6 w-6 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />;
       default:
-        return <FileText className="h-6 w-6 text-zinc-400 flex-shrink-0" />;
+        return <File className="h-6 w-6 text-zinc-400 flex-shrink-0" />;
     }
+  };
+
+  const formatFileSize = (bytes?: number | null): string => {
+    if (!bytes || bytes === 0) return '';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  };
+
+  const getSubLabel = (): string => {
+    if (item.item_type === 'FILE') {
+      const ext = getFileExtension().toUpperCase() || 'FILE';
+      const sizeStr = formatFileSize(item.file_size);
+      return sizeStr ? `${ext} • ${sizeStr}` : ext;
+    }
+    return item.item_type.toLowerCase();
   };
 
   const formatDate = (dateStr: string) => {
@@ -54,7 +101,7 @@ export const KeepItemCard: React.FC<KeepItemCardProps> = ({
               {item.name}
             </h4>
             <div className="flex items-center gap-2 text-xs text-zinc-400 mt-0.5">
-              <span>{item.item_type.toLowerCase()}</span>
+              <span>{getSubLabel()}</span>
               <span>•</span>
               <span>Updated {formatDate(item.updated_at)}</span>
               {item.owner_name && (
@@ -119,7 +166,7 @@ export const KeepItemCard: React.FC<KeepItemCardProps> = ({
           {item.name}
         </h4>
         <div className="flex items-center justify-between text-xs text-zinc-400 mt-1">
-          <span className="capitalize">{item.item_type.toLowerCase()}</span>
+          <span>{getSubLabel()}</span>
           <span>{formatDate(item.updated_at)}</span>
         </div>
       </div>

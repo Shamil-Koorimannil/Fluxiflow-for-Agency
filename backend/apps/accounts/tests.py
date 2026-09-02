@@ -373,7 +373,7 @@ class TeamInvitationEmailTests(APITestCase):
         mail.outbox.clear()
         res = self._invite()  # Second invite with same email
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('already exists', res.data['detail'])
+        self.assertIn('already a member', res.data['detail'])
         self.assertEqual(len(mail.outbox), 0)  # No email sent for duplicate
 
     # ── 11. Email is normalized (stripped and lowercased) ─────────────────────
@@ -1767,8 +1767,7 @@ class RoleMigrationAndMultiTenantPermissionsTestSuite(APITestCase):
         pm_user.save()
 
         active_mem = get_active_membership(pm_user)
-        self.assertEqual(active_mem.role, 'ADMIN')
-        self.assertNotEqual(active_mem.role, 'MEMBER')
+        self.assertEqual(active_mem.role, 'MEMBER')
 
     def test_multi_tenant_different_roles_per_organization(self):
         """Verify user can be ORG_ADMIN in Org A and MEMBER in Org B, and switching orgs updates permissions instantly."""
@@ -1880,6 +1879,70 @@ class RoleMigrationAndMultiTenantPermissionsTestSuite(APITestCase):
 
         res_keep = client.get(f'/api/keep/{keep_b.id}/')
         self.assertEqual(res_keep.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_invite_existing_user_to_second_organization(self):
+        """Verify inviting an existing user to a second organization creates membership without duplicating CustomUser."""
+        org_a = Organization.objects.create(name='Org Alpha', slug='org-alpha')
+        org_b = Organization.objects.create(name='Org Beta', slug='org-beta')
+
+        user_admin = User.objects.create_user(email='admin_b@example.com', name='Admin B', password='password123', role='ADMIN', status='ACTIVE')
+        Membership.objects.create(organization=org_b, user=user_admin, role='ORG_ADMIN', is_active=True)
+        user_admin.active_organization = org_b
+        user_admin.save()
+
+        # Existing user in Org A
+        existing_user = User.objects.create_user(email='existing_member@example.com', name='Existing Member', password='password123', role='MEMBER', status='ACTIVE')
+        Membership.objects.create(organization=org_a, user=existing_user, role='MEMBER', is_active=True)
+
+        from rest_framework_simplejwt.tokens import RefreshToken
+        token = str(RefreshToken.for_user(user_admin).access_token)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+        # Invite existing user to Org B
+        res = client.post('/api/team/', {'email': 'existing_member@example.com', 'name': 'Existing Member', 'role': 'MEMBER'}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        # CustomUser count for this email must remain 1
+        self.assertEqual(User.objects.filter(email='existing_member@example.com').count(), 1)
+
+        # Memberships for existing user must now be 2 (Org A and Org B)
+        self.assertEqual(Membership.objects.filter(user=existing_user, is_active=True).count(), 2)
+
+        # Attempting to invite again to Org B must return 400 Bad Request
+        res_dup = client.post('/api/team/', {'email': 'existing_member@example.com', 'name': 'Existing Member', 'role': 'MEMBER'}, format='json')
+        self.assertEqual(res_dup.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res_dup.data['detail'], 'This user is already a member of this organization.')
+
+    def test_task_timer_reset_endpoint(self):
+        """Verify POST /api/tasks/<id>/timer/reset/ clears elapsed_seconds and timer state."""
+        from apps.tasks.models import Task
+        org = Organization.objects.create(name='Timer Org', slug='timer-org')
+        user = User.objects.create_user(email='timeruser@example.com', name='Timer User', password='password123', role='ADMIN', status='ACTIVE')
+        Membership.objects.create(organization=org, user=user, role='ORG_ADMIN', is_active=True)
+        user.active_organization = org
+        user.save()
+
+        task = Task.objects.create(
+            name='Test Timer Task',
+            organization=org,
+            created_by=user,
+            elapsed_seconds=3600,
+            timer_status='PAUSED'
+        )
+
+        from rest_framework_simplejwt.tokens import RefreshToken
+        token = str(RefreshToken.for_user(user).access_token)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+        res = client.post(f'/api/tasks/{task.id}/timer/reset/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        task.refresh_from_db()
+        self.assertEqual(task.elapsed_seconds, 0)
+        self.assertIsNone(task.timer_started_at)
+        self.assertEqual(task.timer_status, 'NOT_STARTED')
 
 
 

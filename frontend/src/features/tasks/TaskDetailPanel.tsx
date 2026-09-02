@@ -12,6 +12,7 @@ import { CommentsSection } from './CommentsSection';
 import { AttachmentsSection } from './AttachmentsSection';
 import { TaskTimer } from './TaskTimer';
 import { TaskTypeBadge } from './TaskTypeBadge';
+import { TaskDatePicker } from './TaskDatePicker';
 
 interface TaskDetailPanelProps {
   taskId: string | null;
@@ -344,11 +345,10 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
               <div className="grid grid-cols-2 gap-4 border border-zinc-100 dark:border-zinc-855 bg-zinc-50/20 dark:bg-black p-4 rounded-xl text-xs">
                 <div className="space-y-1">
                   <span className="text-zinc-400 font-semibold uppercase tracking-wider block">
-                    Due Date
+                    Task Dates
                   </span>
                   <div className="flex items-center gap-1.5 font-medium text-black dark:text-white">
-                    <Calendar className="h-3.5 w-3.5 text-zinc-400" />
-                    <span>{formatDateOnly(task.due_date)}</span>
+                    <TaskDatePicker task={task} />
                   </div>
                 </div>
 

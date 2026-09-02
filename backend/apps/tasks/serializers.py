@@ -1,10 +1,12 @@
 from rest_framework import serializers
+import uuid
 from django.utils import timezone
 from apps.accounts.models import CustomUser as User
 from apps.accounts.serializers import UserSerializer
 from apps.projects.models import Project
 from apps.projects.serializers import ProjectSerializer
-from .models import Task, TaskAssignee, SubTask, SubTaskAssignee, TaskComment, TaskAttachment, TaskType, TaskTimeLog
+from django.db import transaction
+from .models import Task, TaskAssignee, SubTask, SubTaskAssignee, TaskComment, TaskAttachment, TaskType, TaskTimeLog, TaskDate
 
 class SubTaskAssigneeSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
@@ -215,10 +217,15 @@ class TaskSerializer(serializers.ModelSerializer):
     is_overtime = serializers.SerializerMethodField()
     overtime_seconds = serializers.SerializerMethodField()
 
+    dates = serializers.ListField(
+        child=serializers.DateField(),
+        required=False
+    )
+
     class Meta:  # type: ignore
         model = Task
         fields = [
-            'id', 'project', 'name', 'description', 'due_date', 'due_time',
+            'id', 'project', 'name', 'description', 'due_date', 'due_time', 'dates',
             'priority', 'status', 'created_by', 'created_by_detail', 'completed_by', 'completed_by_detail',
             'completed_at', 'created_at', 'updated_at', 'subtasks', 'assignees', 'assignee_ids',
             'project_detail',
@@ -284,16 +291,13 @@ class TaskSerializer(serializers.ModelSerializer):
     def validate_assignee_ids(self, value):
         if not value:
             return value
-        # Find any inactive users in value
         inactive_users = User.objects.filter(id__in=value, is_active=False)
-        # If this is a create request, we fail if any user is inactive
         is_create = self.instance is None
         if is_create:
             if inactive_users.exists():
                 names = ", ".join([u.name for u in inactive_users])
                 raise serializers.ValidationError(f"Cannot assign task to deactivated member(s): {names}")
         else:
-            # For update: check if any of the inactive users in 'value' were NOT already assigned to this task
             existing_assignee_ids = set(
                 TaskAssignee.objects.filter(task=self.instance).values_list('user_id', flat=True)
             )
@@ -305,6 +309,36 @@ class TaskSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         assignee_ids = validated_data.pop('assignee_ids', [])
+
+        raw_dates = None
+        if 'dates' in validated_data:
+            raw_dates = validated_data.pop('dates', [])
+        elif hasattr(self, 'initial_data') and 'dates' in self.initial_data:
+            raw_dates = self.initial_data['dates']
+        elif 'due_date' in validated_data and validated_data.get('due_date'):
+            raw_dates = [validated_data.get('due_date')]
+        elif hasattr(self, 'initial_data') and self.initial_data.get('due_date'):
+            raw_dates = [self.initial_data.get('due_date')]
+        else:
+            raw_dates = []
+
+        import datetime
+        parsed_dates = []
+        for d in (raw_dates or []):
+            if hasattr(d, 'isoformat'):
+                if isinstance(d, datetime.datetime):
+                    parsed_dates.append(d.date())
+                else:
+                    parsed_dates.append(d)
+            elif isinstance(d, str) and d:
+                try:
+                    parsed_dates.append(datetime.datetime.strptime(d[:10], '%Y-%m-%d').date())
+                except ValueError:
+                    pass
+
+        unique_dates = sorted(list(set(parsed_dates)))
+        validated_data['due_date'] = unique_dates[0] if unique_dates else None
+
         request = self.context.get('request')
         if request and request.user:
             validated_data['created_by'] = request.user
@@ -322,11 +356,13 @@ class TaskSerializer(serializers.ModelSerializer):
         if task_type and validated_data.get('allocated_seconds') is None:
             validated_data['allocated_seconds'] = task_type.allocated_seconds
 
-        task = Task.objects.create(**validated_data)
-        
+        with transaction.atomic():
+            task = Task.objects.create(**validated_data)
+            for d in unique_dates:
+                TaskDate.objects.create(task=task, date=d)
+
         from apps.notifications.services import NotificationService
 
-        # Create TaskAssignee relationships
         current_assignees = []
         for uid in assignee_ids:
             try:
@@ -346,14 +382,16 @@ class TaskSerializer(serializers.ModelSerializer):
                 
         return task
 
-    def update(self, instance, validated_data):
-        if 'task_type' in validated_data:
-            new_task_type = validated_data['task_type']
-            if new_task_type and ('allocated_seconds' not in validated_data or validated_data['allocated_seconds'] is None):
-                validated_data['allocated_seconds'] = new_task_type.allocated_seconds
-        return super().update(instance, validated_data)
     def to_representation(self, instance):
         rep = super().to_representation(instance)
+
+        if not rep.get('dates') and instance.due_date:
+            rep['dates'] = [instance.due_date.isoformat()]
+        elif 'dates' not in rep or rep['dates'] is None:
+            rep['dates'] = []
+
+        rep['due_date'] = rep['dates'][0] if rep.get('dates') else None
+
         # Calculate overall status based on assignees
         assignees_rels = TaskAssignee.objects.filter(task=instance)
         total_assignees = assignees_rels.count()
@@ -510,40 +548,72 @@ class TaskSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         assignee_ids = validated_data.pop('assignee_ids', None)
-        
-        # Call super update
-        instance = super().update(instance, validated_data)
-        
-        # If assignee_ids are updated
-        if assignee_ids is not None:
-            from apps.notifications.services import NotificationService
-            request = self.context.get('request')
-            
-            # Fetch previous assignees list
-            previous_assignees = [rel.user for rel in TaskAssignee.objects.filter(task=instance).select_related('user')]
 
-            # Delete assignee relations that are no longer assigned
-            TaskAssignee.objects.filter(task=instance).exclude(user_id__in=assignee_ids).delete()
-            
-            # Add new assignees without resetting existing ones
-            current_assignees = []
-            for uid in assignee_ids:
-                try:
-                    user = User.objects.get(id=uid)
-                    TaskAssignee.objects.get_or_create(task=instance, user=user)
-                    current_assignees.append(user)
-                except User.DoesNotExist:
-                    pass
+        raw_dates = None
+        if 'dates' in validated_data:
+            raw_dates = validated_data.pop('dates')
+        elif hasattr(self, 'initial_data') and 'dates' in self.initial_data:
+            raw_dates = self.initial_data['dates']
+        elif 'due_date' in validated_data:
+            due_val = validated_data.get('due_date')
+            raw_dates = [due_val] if due_val else []
+        elif hasattr(self, 'initial_data') and 'due_date' in self.initial_data:
+            due_val = self.initial_data.get('due_date')
+            raw_dates = [due_val] if due_val else []
 
-            # Trigger assignment/unassignment/reassignment notifications
-            actor = request.user if (request and request.user.is_authenticated) else instance.created_by
-            NotificationService.handle_task_assignment_notifications(
-                task=instance,
-                previous_assignees=previous_assignees,
-                current_assignees=current_assignees,
-                actor=actor
-            )
-                    
+        if 'task_type' in validated_data:
+            new_task_type = validated_data['task_type']
+            if new_task_type and ('allocated_seconds' not in validated_data or validated_data['allocated_seconds'] is None):
+                validated_data['allocated_seconds'] = new_task_type.allocated_seconds
+
+        with transaction.atomic():
+            instance = super().update(instance, validated_data)
+
+            if raw_dates is not None:
+                import datetime
+                parsed_dates = []
+                for d in raw_dates:
+                    if hasattr(d, 'isoformat'):
+                        if isinstance(d, datetime.datetime):
+                            parsed_dates.append(d.date())
+                        else:
+                            parsed_dates.append(d)
+                    elif isinstance(d, str) and d:
+                        try:
+                            parsed_dates.append(datetime.datetime.strptime(d[:10], '%Y-%m-%d').date())
+                        except ValueError:
+                            pass
+                unique_dates = sorted(list(set(parsed_dates)))
+                TaskDate.objects.filter(task=instance).delete()
+                for d in unique_dates:
+                    TaskDate.objects.create(task=instance, date=d)
+                instance.due_date = unique_dates[0] if unique_dates else None
+                instance.save(update_fields=['due_date'])
+
+            if assignee_ids is not None:
+                from apps.notifications.services import NotificationService
+                request = self.context.get('request')
+
+                previous_assignees = [rel.user for rel in TaskAssignee.objects.filter(task=instance).select_related('user')]
+                TaskAssignee.objects.filter(task=instance).exclude(user_id__in=assignee_ids).delete()
+
+                current_assignees = []
+                for uid in assignee_ids:
+                    try:
+                        user = User.objects.get(id=uid)
+                        TaskAssignee.objects.get_or_create(task=instance, user=user)
+                        current_assignees.append(user)
+                    except User.DoesNotExist:
+                        pass
+
+                actor = request.user if (request and request.user.is_authenticated) else instance.created_by
+                NotificationService.handle_task_assignment_notifications(
+                    task=instance,
+                    previous_assignees=previous_assignees,
+                    current_assignees=current_assignees,
+                    actor=actor
+                )
+
         return instance
 
 
