@@ -220,6 +220,41 @@ export const ProjectDetail: React.FC = () => {
     },
   });
 
+  // Local filtering logic
+  const deduplicatedTasks = tasks ? Array.from(new Map(tasks.map(t => [t.id, t])).values()) : [];
+  let filteredTasks = deduplicatedTasks;
+
+  if (activeFilter === 'assigned_to_me') {
+    filteredTasks = deduplicatedTasks.filter((t) => t.assignees.some((a) => a.id === user?.id));
+  } else if (activeFilter === 'incompleted') {
+    filteredTasks = deduplicatedTasks.filter((t) => t.status !== 'COMPLETED');
+  } else if (activeFilter !== 'all') {
+    filteredTasks = deduplicatedTasks.filter((t) => classifyTask(t) === activeFilter);
+  }
+
+  const dragSelect = useTaskDragSelect({
+    visibleTasks: filteredTasks,
+    onOpenDetail: (taskId) => setSelectedTaskId(taskId),
+  });
+
+  useEffect(() => {
+    dragSelect.clearSelection();
+  }, [activeFilter]);
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (taskIds: string[]) => {
+      const response = await api.post('/tasks/bulk-delete/', { task_ids: taskIds });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['project', id] });
+      queryClient.invalidateQueries({ queryKey: ['team'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      dragSelect.clearSelection();
+    },
+  });
+
   if (isProjectLoading) {
     return (
       <div className="space-y-6 max-w-5xl mx-auto animate-pulse">
@@ -247,40 +282,6 @@ export const ProjectDetail: React.FC = () => {
       </div>
     );
   }
-
-  // Local filtering logic
-  const deduplicatedTasks = tasks ? Array.from(new Map(tasks.map(t => [t.id, t])).values()) : [];
-  let filteredTasks = deduplicatedTasks;
-
-  if (activeFilter === 'assigned_to_me') {
-    filteredTasks = deduplicatedTasks.filter((t) => t.assignees.some((a) => a.id === user?.id));
-  } else if (activeFilter === 'incompleted') {
-    filteredTasks = deduplicatedTasks.filter((t) => t.status !== 'COMPLETED');
-  } else if (activeFilter !== 'all') {
-    filteredTasks = deduplicatedTasks.filter((t) => classifyTask(t) === activeFilter);
-  }
-  const dragSelect = useTaskDragSelect({
-    visibleTasks: filteredTasks,
-    onOpenDetail: (taskId) => setSelectedTaskId(taskId),
-  });
-
-  useEffect(() => {
-    dragSelect.clearSelection();
-  }, [activeFilter]);
-
-  const bulkDeleteMutation = useMutation({
-    mutationFn: async (taskIds: string[]) => {
-      const response = await api.post('/tasks/bulk-delete/', { task_ids: taskIds });
-      return response.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      queryClient.invalidateQueries({ queryKey: ['project', id] });
-      queryClient.invalidateQueries({ queryKey: ['team'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      dragSelect.clearSelection();
-    },
-  });
 
   const renderTaskTile = (task: Task) => (
     <TaskCard

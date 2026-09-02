@@ -6,6 +6,7 @@ import { ThemeProvider as AppThemeProvider, useAppTheme } from './context/ThemeC
 import { AuthProvider, useAuth } from './features/auth/AuthContext';
 import { OrganizationProvider } from './context/OrganizationContext';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { MainLayout } from './layouts/MainLayout';
 import { Login } from './features/auth/Login';
 import { Landing } from './pages/Landing';
@@ -183,8 +184,8 @@ function App() {
                     <Route index element={<Home />} />
                     <Route path="home" element={<Home />} />
                     <Route path="tasks" element={<Tasks />} />
-                    <Route path="projects" element={<Projects />} />
-                    <Route path="projects/:id" element={<ProjectDetail />} />
+                    <Route path="projects" element={<ErrorBoundary fallbackMessage="Unable to load projects."><Projects /></ErrorBoundary>} />
+                    <Route path="projects/:id" element={<ErrorBoundary fallbackMessage="Unable to load project details."><ProjectDetail /></ErrorBoundary>} />
                     <Route path="keep" element={<Keep />} />
                     <Route path="search" element={<Search />} />
                     <Route path="profile" element={<Profile />} />
