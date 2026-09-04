@@ -7,6 +7,7 @@ import { api } from '../../services/api';
 interface BrandAssetUploadModalProps {
   isOpen: boolean;
   clientId: string;
+  folderId?: string | null;
   onClose: () => void;
   onAssetUploaded: (asset: ClientBrandAsset) => void;
 }
@@ -24,6 +25,7 @@ const ASSET_TYPES: { value: AssetType; label: string }[] = [
 export const BrandAssetUploadModal: React.FC<BrandAssetUploadModalProps> = ({
   isOpen,
   clientId,
+  folderId,
   onClose,
   onAssetUploaded
 }) => {
@@ -61,6 +63,9 @@ export const BrandAssetUploadModal: React.FC<BrandAssetUploadModalProps> = ({
     formData.append('file', selectedFile);
     formData.append('name', name.trim() || selectedFile.name);
     formData.append('asset_type', assetType);
+    if (folderId) {
+      formData.append('folder_id', folderId);
+    }
     if (description.trim()) {
       formData.append('description', description.trim());
     }

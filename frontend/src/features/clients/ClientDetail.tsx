@@ -2,14 +2,21 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
   ArrowLeft, Edit, Plus, Folder, FileText, Download, Trash2, Mail, Phone, Globe, MapPin,
-  RefreshCw, AlertCircle, Upload, Link2, ExternalLink, Unlink
+  RefreshCw, AlertCircle, Upload, Link2, ExternalLink, Unlink, ArrowUpDown, Check, Calendar,
+  Filter, MoreVertical, ChevronRight, FolderPlus, Edit2, MoveRight, Eye
 } from 'lucide-react';
-import type { Client, Project, ClientBrandAsset } from '../../types';
+import { Button, Menu, MenuItem } from '@mui/material';
+import type { Client, Project, ClientBrandAsset, ClientBrandAssetFolder } from '../../types';
 import { api } from '../../services/api';
+import { formatDateOnly } from '../../utils/time';
 import { ClientFormModal } from './ClientFormModal';
 import { BrandAssetUploadModal } from './BrandAssetUploadModal';
 import { ProjectFormModal } from '../projects/ProjectFormModal';
 import { AddExistingProjectModal } from './AddExistingProjectModal';
+import { ProjectMonthPickerModal } from '../projects/ProjectMonthPickerModal';
+import { CreateFolderModal } from './CreateFolderModal';
+import { RenameModal } from './RenameModal';
+import { MoveAssetModal } from './MoveAssetModal';
 
 interface ClientDetailProps {
   viewMode?: 'full' | 'projects-only' | 'brand-assets-only';
@@ -38,14 +45,39 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
   const [client, setClient] = useState<Client | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [brandAssets, setBrandAssets] = useState<ClientBrandAsset[]>([]);
+  const [folders, setFolders] = useState<ClientBrandAssetFolder[]>([]);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Client Projects Filtering & Sorting State
+  const [projectStatusTab, setProjectStatusTab] = useState<'ongoing' | 'completed'>('ongoing');
+  const [projectSortBy, setProjectSortBy] = useState<'newest' | 'oldest' | 'project_date_desc' | 'project_date_asc'>('newest');
+  const [projectDateFilter, setProjectDateFilter] = useState<'all' | 'custom'>('all');
+  const [projectCustomYear, setProjectCustomYear] = useState<number>(new Date().getFullYear());
+  const [projectCustomMonth, setProjectCustomMonth] = useState<number | null>(new Date().getMonth());
+  
   // Modals state
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isAssetUploadModalOpen, setIsAssetUploadModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isAddExistingModalOpen, setIsAddExistingModalOpen] = useState(false);
+  const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
+  const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false);
+
+  const [renameTarget, setRenameTarget] = useState<
+    { type: 'folder'; item: ClientBrandAssetFolder } | { type: 'asset'; item: ClientBrandAsset } | null
+  >(null);
+  const [moveAssetTarget, setMoveAssetTarget] = useState<ClientBrandAsset | null>(null);
+
+  // MUI Menu anchors
+  const [sortAnchorEl, setSortAnchorEl] = useState<null | HTMLElement>(null);
+  const [dateFilterAnchorEl, setDateFilterAnchorEl] = useState<null | HTMLElement>(null);
+
+  // Context Menus
+  const [folderMenuState, setFolderMenuState] = useState<{ anchorEl: HTMLElement | null; folder: ClientBrandAssetFolder | null }>({ anchorEl: null, folder: null });
+  const [assetMenuState, setAssetMenuState] = useState<{ anchorEl: HTMLElement | null; asset: ClientBrandAsset | null }>({ anchorEl: null, asset: null });
 
   const fetchClientDetails = useCallback(async () => {
     if (!id) return;
@@ -60,9 +92,12 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
       const projectsRes = await api.get<Project[]>(`/clients/${id}/projects/`);
       setProjects(projectsRes.data);
 
-      // Fetch Brand assets
-      const assetsRes = await api.get<ClientBrandAsset[]>(`/clients/${id}/brand_assets/`);
+      // Fetch Brand assets & folders
+      const assetsRes = await api.get<ClientBrandAsset[]>(`/clients/${id}/brand_assets/?folder=all`);
       setBrandAssets(assetsRes.data);
+
+      const foldersRes = await api.get<ClientBrandAssetFolder[]>(`/clients/${id}/brand_asset_folders/?parent=all`);
+      setFolders(foldersRes.data);
     } catch (err: any) {
       if (err?.response?.status === 403) {
         setErrorMessage('Access denied. Client details are restricted to Admin users.');
@@ -79,6 +114,109 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
   useEffect(() => {
     fetchClientDetails();
   }, [fetchClientDetails]);
+
+  // Helper for timezone-safe date parsing
+  const parseProjectDate = (dateStr?: string | null) => {
+    if (!dateStr) return null;
+    const parts = dateStr.split('T')[0].split('-');
+    if (parts.length < 3) return null;
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1; // 0-indexed
+    const day = parseInt(parts[2], 10);
+    if (isNaN(year) || isNaN(month) || isNaN(day)) return null;
+    return { year, month, day };
+  };
+
+  // Filter projects by completion status
+  // Ongoing: progress === null || progress < 100
+  // Completed: progress !== null && progress >= 100
+  const ongoingProjects = projects.filter((p) => p.progress === null || p.progress < 100);
+  const completedProjects = projects.filter((p) => p.progress !== null && p.progress >= 100);
+
+  const displayedByStatus = projectStatusTab === 'ongoing' ? ongoingProjects : completedProjects;
+
+  // Filter projects by date
+  const dateFilteredProjects = displayedByStatus.filter((project) => {
+    if (projectDateFilter === 'all') return true;
+    const parsed = parseProjectDate(project.project_date);
+    if (!parsed) return false;
+
+    if (projectCustomYear !== null && projectCustomMonth !== null) {
+      return parsed.year === projectCustomYear && parsed.month === projectCustomMonth;
+    }
+    if (projectCustomYear !== null && projectCustomMonth === null) {
+      return parsed.year === projectCustomYear;
+    }
+    return true;
+  });
+
+  // Sort projects
+  const sortedProjects = [...dateFilteredProjects].sort((a, b) => {
+    switch (projectSortBy) {
+      case 'project_date_desc': {
+        if (!a.project_date && !b.project_date) return 0;
+        if (!a.project_date) return 1;
+        if (!b.project_date) return -1;
+        return b.project_date.localeCompare(a.project_date);
+      }
+      case 'project_date_asc': {
+        if (!a.project_date && !b.project_date) return 0;
+        if (!a.project_date) return 1;
+        if (!b.project_date) return -1;
+        return a.project_date.localeCompare(b.project_date);
+      }
+      case 'newest':
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      case 'oldest':
+        return new Date(a.created_at).getTime() - new Date(a.created_at).getTime();
+      default:
+        return 0;
+    }
+  });
+
+  const getSortLabel = () => {
+    switch (projectSortBy) {
+      case 'project_date_desc': return 'Project Date — Newest First';
+      case 'project_date_asc': return 'Project Date — Oldest First';
+      case 'newest': return 'Newest Created';
+      case 'oldest': return 'Oldest Created';
+      default: return 'Newest Created';
+    }
+  };
+
+  const getDateFilterLabel = () => {
+    if (projectDateFilter === 'all') return 'All Dates';
+    if (projectCustomMonth !== null) {
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      return `${monthNames[projectCustomMonth]} ${projectCustomYear}`;
+    }
+    return `${projectCustomYear}`;
+  };
+
+  // Folder Breadcrumbs path calculation
+  const getBreadcrumbs = () => {
+    const crumbs: { id: string | null; name: string }[] = [{ id: null, name: 'Brand Assets' }];
+    if (!currentFolderId) return crumbs;
+
+    const path: ClientBrandAssetFolder[] = [];
+    let currId: string | null = currentFolderId;
+    while (currId) {
+      const folder = folders.find((f) => f.id === currId);
+      if (folder) {
+        path.unshift(folder);
+        currId = folder.parent || null;
+      } else {
+        break;
+      }
+    }
+
+    path.forEach((f) => crumbs.push({ id: f.id, name: f.name }));
+    return crumbs;
+  };
+
+  // Current folder level items
+  const visibleFolders = folders.filter((f) => currentFolderId ? f.parent === currentFolderId : !f.parent);
+  const visibleAssets = brandAssets.filter((a) => currentFolderId ? a.folder === currentFolderId : !a.folder);
 
   const handleStatusToggle = async () => {
     if (!client) return;
@@ -116,7 +254,32 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
     }
   };
 
+  const handleDeleteFolder = async (folder: ClientBrandAssetFolder) => {
+    setFolderMenuState({ anchorEl: null, folder: null });
+    // Check if folder contains files or subfolders
+    const hasAssets = brandAssets.some((a) => a.folder === folder.id);
+    const hasSubfolders = folders.some((f) => f.parent === folder.id);
+
+    if (hasAssets || hasSubfolders) {
+      alert(`Cannot delete folder "${folder.name}": Folder is not empty. Please move or remove all files and subfolders first.`);
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to delete folder "${folder.name}"?`)) return;
+
+    try {
+      await api.delete(`/client-brand-asset-folders/${folder.id}/`);
+      if (currentFolderId === folder.id) {
+        setCurrentFolderId(folder.parent || null);
+      }
+      fetchClientDetails();
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || 'Failed to delete folder.');
+    }
+  };
+
   const handleDeleteAsset = async (assetId: string, assetName: string) => {
+    setAssetMenuState({ anchorEl: null, asset: null });
     if (!confirm(`Are you sure you want to delete brand asset "${assetName}"?`)) return;
     try {
       await api.delete(`/client-brand-assets/${assetId}/`);
@@ -127,6 +290,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
   };
 
   const handleDownloadAsset = async (asset: ClientBrandAsset) => {
+    setAssetMenuState({ anchorEl: null, asset: null });
     try {
       const res = await api.get(`/client-brand-assets/${asset.id}/download/`, {
         responseType: 'blob'
@@ -140,12 +304,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
         }
       }
       if (!filename) {
-        const originalExt = asset.file ? asset.file.split('.').pop() : '';
-        if (originalExt && !asset.name.toLowerCase().endsWith(`.${originalExt.toLowerCase()}`)) {
-          filename = `${asset.name}.${originalExt}`;
-        } else {
-          filename = asset.name || 'asset';
-        }
+        filename = asset.name || 'asset';
       }
 
       const headerMime = res.headers['content-type'] ? String(res.headers['content-type']) : '';
@@ -164,7 +323,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
   };
 
   const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 B';
+    if (!bytes || bytes === 0) return '0 B';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -197,9 +356,194 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
     );
   }
 
-  // Render Projects Grid (Reusable component logic)
+  // Render Client Projects Section
   const renderProjectsGrid = () => (
-    <div>
+    <div className="space-y-4">
+      {/* Status Tabs, Date Filter & Sorting Controls */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-3 border-b border-zinc-100 dark:border-zinc-900">
+        {/* Status Tabs (Ongoing vs Completed) */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => setProjectStatusTab('ongoing')}
+            className={`px-4 py-2 text-xs font-semibold rounded-xl transition-all border ${
+              projectStatusTab === 'ongoing'
+                ? 'bg-black text-white border-black dark:bg-white dark:text-black dark:border-white shadow-sm'
+                : 'bg-transparent text-zinc-550 border-zinc-200 dark:border-zinc-800 hover:text-black dark:hover:text-white'
+            }`}
+          >
+            Ongoing ({ongoingProjects.length})
+          </button>
+          <button
+            onClick={() => setProjectStatusTab('completed')}
+            className={`px-4 py-2 text-xs font-semibold rounded-xl transition-all border ${
+              projectStatusTab === 'completed'
+                ? 'bg-black text-white border-black dark:bg-white dark:text-black dark:border-white shadow-sm'
+                : 'bg-transparent text-zinc-550 border-zinc-200 dark:border-zinc-800 hover:text-black dark:hover:text-white'
+            }`}
+          >
+            Completed ({completedProjects.length})
+          </button>
+        </div>
+
+        {/* Date Filter & Sort Controls */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Date Filter Trigger */}
+          <Button
+            onClick={(e) => setDateFilterAnchorEl(e.currentTarget)}
+            variant="outlined"
+            startIcon={<Filter size={14} />}
+            endIcon={<span>▾</span>}
+            sx={{
+              textTransform: 'none',
+              fontWeight: 600,
+              borderRadius: '8px',
+              borderColor: 'divider',
+              color: 'text.primary',
+              height: '36px',
+              fontSize: '12px',
+              px: 1.5,
+              whiteSpace: 'nowrap',
+              '&:hover': { borderColor: 'text.primary', bgcolor: 'action.hover' }
+            }}
+          >
+            Date: {getDateFilterLabel()}
+          </Button>
+
+          <Menu
+            anchorEl={dateFilterAnchorEl}
+            open={Boolean(dateFilterAnchorEl)}
+            onClose={() => setDateFilterAnchorEl(null)}
+            slotProps={{
+              paper: {
+                elevation: 1,
+                sx: {
+                  border: '1px solid #e4e4e7',
+                  borderRadius: '8px',
+                  minWidth: 180,
+                  '& .MuiMenuItem-root': {
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    py: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 1.5,
+                    '&:hover': { bgcolor: '#f4f4f5' },
+                  },
+                },
+              },
+            }}
+          >
+            <MenuItem
+              onClick={() => {
+                setProjectDateFilter('all');
+                setDateFilterAnchorEl(null);
+              }}
+            >
+              <span>All Dates</span>
+              {projectDateFilter === 'all' && <Check size={14} className="text-zinc-800" />}
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                setDateFilterAnchorEl(null);
+                setIsMonthPickerOpen(true);
+              }}
+            >
+              <span className="flex items-center gap-1.5">
+                <Calendar size={14} className="text-zinc-500" /> Select Month / Year...
+              </span>
+              {projectDateFilter === 'custom' && <Check size={14} className="text-zinc-800" />}
+            </MenuItem>
+          </Menu>
+
+          {/* Sort Trigger */}
+          <Button
+            onClick={(e) => setSortAnchorEl(e.currentTarget)}
+            variant="outlined"
+            startIcon={<ArrowUpDown size={15} />}
+            endIcon={<span>▾</span>}
+            sx={{
+              textTransform: 'none',
+              fontWeight: 600,
+              borderRadius: '8px',
+              borderColor: 'divider',
+              color: 'text.primary',
+              height: '36px',
+              fontSize: '12px',
+              px: 1.5,
+              whiteSpace: 'nowrap',
+              '&:hover': { borderColor: 'text.primary', bgcolor: 'action.hover' }
+            }}
+          >
+            Sort: {getSortLabel()}
+          </Button>
+
+          <Menu
+            anchorEl={sortAnchorEl}
+            open={Boolean(sortAnchorEl)}
+            onClose={() => setSortAnchorEl(null)}
+            slotProps={{
+              paper: {
+                elevation: 1,
+                sx: {
+                  border: '1px solid #e4e4e7',
+                  borderRadius: '8px',
+                  minWidth: 190,
+                  '& .MuiMenuItem-root': {
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    py: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 1.5,
+                    '&:hover': { bgcolor: '#f4f4f5' },
+                  },
+                },
+              },
+            }}
+          >
+            <MenuItem
+              onClick={() => {
+                setProjectSortBy('newest');
+                setSortAnchorEl(null);
+              }}
+            >
+              <span>Newest Created</span>
+              {projectSortBy === 'newest' && <Check size={14} className="text-zinc-800" />}
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                setProjectSortBy('oldest');
+                setSortAnchorEl(null);
+              }}
+            >
+              <span>Oldest Created</span>
+              {projectSortBy === 'oldest' && <Check size={14} className="text-zinc-800" />}
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                setProjectSortBy('project_date_desc');
+                setSortAnchorEl(null);
+              }}
+            >
+              <span>Project Date — Newest First</span>
+              {projectSortBy === 'project_date_desc' && <Check size={14} className="text-zinc-800" />}
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                setProjectSortBy('project_date_asc');
+                setSortAnchorEl(null);
+              }}
+            >
+              <span>Project Date — Oldest First</span>
+              {projectSortBy === 'project_date_asc' && <Check size={14} className="text-zinc-800" />}
+            </MenuItem>
+          </Menu>
+        </div>
+      </div>
+
+      {/* Projects Grid / Context Empty States */}
       {projects.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-center border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl bg-white/40 dark:bg-zinc-900/20 p-6">
           <Folder className="h-8 w-8 text-zinc-400 mb-2" />
@@ -220,9 +564,21 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
             </button>
           </div>
         </div>
+      ) : displayedByStatus.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 text-center border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl bg-white/40 dark:bg-zinc-900/20 p-6 text-zinc-500">
+          <Folder className="h-6 w-6 text-zinc-400 mb-2" />
+          <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+            {projectStatusTab === 'ongoing' ? 'No ongoing projects.' : 'No completed projects.'}
+          </p>
+        </div>
+      ) : sortedProjects.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 text-center border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl bg-white/40 dark:bg-zinc-900/20 p-6 text-zinc-500">
+          <Folder className="h-6 w-6 text-zinc-400 mb-2" />
+          <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">No projects match the selected filters.</p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {projects.map(p => (
+          {sortedProjects.map(p => (
             <div
               key={p.id}
               onClick={() => navigate(`/app/projects/${p.id}`)}
@@ -234,6 +590,11 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
                     {p.name}
                   </h3>
                   <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                    {p.project_date && (
+                      <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-900 px-2 py-0.5 rounded border border-zinc-200/50 dark:border-zinc-800">
+                        {formatDateOnly(p.project_date)}
+                      </span>
+                    )}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -271,87 +632,342 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
     </div>
   );
 
-  // Render Brand Assets Table (Reusable component logic)
-  const renderBrandAssetsTable = () => (
-    <div>
-      {brandAssets.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 text-center border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl bg-white/40 dark:bg-zinc-900/20 p-6">
-          <FileText className="h-8 w-8 text-zinc-400 mb-2" />
-          <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1">No brand assets uploaded yet</p>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">Upload logos, brand books, typography specs, or guideline PDFs for team access.</p>
-          <button
-            onClick={() => setIsAssetUploadModalOpen(true)}
-            className="px-3 py-1.5 bg-purple-600 text-white text-xs font-semibold rounded-xl"
-          >
-            + Upload First Asset
-          </button>
-        </div>
-      ) : (
-        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-zinc-50 dark:bg-zinc-950 text-zinc-500 dark:text-zinc-400 font-semibold border-b border-zinc-200 dark:border-zinc-800">
-                <tr>
-                  <th className="py-3 px-4">Asset Name</th>
-                  <th className="py-3 px-4">Category</th>
-                  <th className="py-3 px-4">File Size</th>
-                  <th className="py-3 px-4">Uploaded By</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60 text-zinc-800 dark:text-zinc-200">
-                {brandAssets.map(asset => (
-                  <tr key={asset.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/40 transition-colors">
-                    <td className="py-3 px-4 font-semibold">
-                      <div className="flex items-center gap-2">
-                        <FileText className="h-4 w-4 text-purple-500 flex-shrink-0" />
-                        <span className="truncate max-w-xs">{asset.name}</span>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 text-[10px] font-semibold border border-purple-200 dark:border-purple-800">
-                        {asset.asset_type.replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 font-mono text-zinc-500">
-                      {formatFileSize(asset.file_size)}
-                    </td>
-                    <td className="py-3 px-4 text-zinc-500">
-                      {asset.uploaded_by_name || 'Admin'}
-                    </td>
-                    <td className="py-3 px-4 text-right space-x-1">
-                      <button
-                        onClick={() => handleDownloadAsset(asset)}
-                        className="p-1.5 text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg transition-colors"
-                        title="Download Asset"
-                      >
-                        <Download className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteAsset(asset.id, asset.name)}
-                        className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors"
-                        title="Delete Asset"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+  // Render Brand Assets Section (Folder management & Asset list)
+  const renderBrandAssetsSection = () => {
+    const breadcrumbs = getBreadcrumbs();
+
+    return (
+      <div className="space-y-4">
+        {/* Breadcrumb Bar & Actions */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-zinc-900 p-3 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
+          {/* Breadcrumb Path */}
+          <nav className="flex items-center gap-1 text-xs font-semibold overflow-x-auto">
+            {breadcrumbs.map((crumb, idx) => {
+              const isLast = idx === breadcrumbs.length - 1;
+              return (
+                <React.Fragment key={crumb.id || 'root'}>
+                  {idx > 0 && <ChevronRight className="h-3.5 w-3.5 text-zinc-400 shrink-0" />}
+                  <button
+                    onClick={() => setCurrentFolderId(crumb.id)}
+                    className={`px-2 py-1 rounded-lg transition-colors flex items-center gap-1.5 shrink-0 ${
+                      isLast
+                        ? 'bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 font-bold'
+                        : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                    }`}
+                  >
+                    {idx === 0 && <Folder className="h-3.5 w-3.5 text-purple-500" />}
+                    <span>{crumb.name}</span>
+                  </button>
+                </React.Fragment>
+              );
+            })}
+          </nav>
+
+          {/* Action buttons */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setIsCreateFolderModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 text-xs font-semibold rounded-xl transition-colors"
+            >
+              <FolderPlus className="h-3.5 w-3.5 text-purple-500" />
+              <span>New Folder</span>
+            </button>
+            <button
+              onClick={() => setIsAssetUploadModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-xl transition-colors shadow-sm"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              <span>Upload Asset</span>
+            </button>
           </div>
         </div>
-      )}
-    </div>
-  );
 
-  // -------------------------------------------------------------
+        {/* Content: Folders & Files Grid/Table */}
+        {visibleFolders.length === 0 && visibleAssets.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl bg-white/40 dark:bg-zinc-900/20 p-6">
+            <FileText className="h-8 w-8 text-zinc-400 mb-2" />
+            <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1">
+              {currentFolderId ? 'This folder is empty' : 'No brand assets uploaded yet'}
+            </p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">
+              Create subfolders or upload logos, brand books, typography specs, and PDF guidelines.
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsCreateFolderModalOpen(true)}
+                className="px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 text-xs font-semibold rounded-xl"
+              >
+                + New Folder
+              </button>
+              <button
+                onClick={() => setIsAssetUploadModalOpen(true)}
+                className="px-3 py-1.5 bg-purple-600 text-white text-xs font-semibold rounded-xl"
+              >
+                + Upload Asset
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Folders Grid */}
+            {visibleFolders.length > 0 && (
+              <div>
+                <h3 className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-2">
+                  Folders ({visibleFolders.length})
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                  {visibleFolders.map((folder) => (
+                    <div
+                      key={folder.id}
+                      onClick={() => setCurrentFolderId(folder.id)}
+                      className="group bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-purple-500/50 rounded-2xl p-3.5 transition-all cursor-pointer flex items-center justify-between shadow-sm hover:shadow-md"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <Folder className="h-5 w-5 text-purple-500 shrink-0 group-hover:scale-105 transition-transform" />
+                        <span className="font-bold text-xs text-zinc-900 dark:text-zinc-100 truncate">
+                          {folder.name}
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setFolderMenuState({ anchorEl: e.currentTarget, folder });
+                        }}
+                        className="p-1 text-zinc-400 hover:text-black dark:hover:text-white rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                      >
+                        <MoreVertical className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Assets Table */}
+            {visibleAssets.length > 0 && (
+              <div>
+                {visibleFolders.length > 0 && (
+                  <h3 className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-2 mt-4">
+                    Assets ({visibleAssets.length})
+                  </h3>
+                )}
+                <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-zinc-50 dark:bg-zinc-950 text-zinc-500 dark:text-zinc-400 font-semibold border-b border-zinc-200 dark:border-zinc-800">
+                        <tr>
+                          <th className="py-3 px-4">Asset Name</th>
+                          <th className="py-3 px-4">Category</th>
+                          <th className="py-3 px-4">File Size</th>
+                          <th className="py-3 px-4">Uploaded By</th>
+                          <th className="py-3 px-4 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60 text-zinc-800 dark:text-zinc-200">
+                        {visibleAssets.map((asset) => (
+                          <tr key={asset.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/40 transition-colors">
+                            <td className="py-3 px-4 font-semibold">
+                              <div className="flex items-center gap-2">
+                                <FileText className="h-4 w-4 text-purple-500 flex-shrink-0" />
+                                <span className="truncate max-w-xs">{asset.name}</span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 text-[10px] font-semibold border border-purple-200 dark:border-purple-800">
+                                {asset.asset_type.replace('_', ' ')}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 font-mono text-zinc-500">
+                              {formatFileSize(asset.file_size)}
+                            </td>
+                            <td className="py-3 px-4 text-zinc-500">
+                              {asset.uploaded_by_name || 'Admin'}
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setAssetMenuState({ anchorEl: e.currentTarget, asset });
+                                }}
+                                className="p-1 text-zinc-400 hover:text-black dark:hover:text-white rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                              >
+                                <MoreVertical className="h-4 w-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Folder Context Menu */}
+        <Menu
+          anchorEl={folderMenuState.anchorEl}
+          open={Boolean(folderMenuState.anchorEl)}
+          onClose={() => setFolderMenuState({ anchorEl: null, folder: null })}
+          onClick={(e) => e.stopPropagation()}
+          slotProps={{
+            paper: {
+              elevation: 3,
+              sx: {
+                borderRadius: '12px',
+                border: '1px solid #e4e4e7',
+                minWidth: 150,
+                p: 0.5,
+                '& .MuiMenuItem-root': {
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  borderRadius: '8px',
+                  py: 1,
+                  px: 1.5,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.5,
+                  '&:hover': { bgcolor: '#f4f4f5' },
+                },
+              },
+            },
+          }}
+        >
+          <MenuItem
+            onClick={() => {
+              if (folderMenuState.folder) {
+                setCurrentFolderId(folderMenuState.folder.id);
+                setFolderMenuState({ anchorEl: null, folder: null });
+              }
+            }}
+          >
+            <Folder className="h-4 w-4 text-purple-500" />
+            <span>Open</span>
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              if (folderMenuState.folder) {
+                const folderToRename = folderMenuState.folder;
+                setFolderMenuState({ anchorEl: null, folder: null });
+                setRenameTarget({ type: 'folder', item: folderToRename });
+              }
+            }}
+          >
+            <Edit2 className="h-4 w-4 text-blue-500" />
+            <span>Rename</span>
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              if (folderMenuState.folder) {
+                handleDeleteFolder(folderMenuState.folder);
+              }
+            }}
+            sx={{ color: 'error.main' }}
+          >
+            <Trash2 className="h-4 w-4 text-red-500" />
+            <span>Delete</span>
+          </MenuItem>
+        </Menu>
+
+        {/* Asset Context Menu */}
+        <Menu
+          anchorEl={assetMenuState.anchorEl}
+          open={Boolean(assetMenuState.anchorEl)}
+          onClose={() => setAssetMenuState({ anchorEl: null, asset: null })}
+          onClick={(e) => e.stopPropagation()}
+          slotProps={{
+            paper: {
+              elevation: 3,
+              sx: {
+                borderRadius: '12px',
+                border: '1px solid #e4e4e7',
+                minWidth: 160,
+                p: 0.5,
+                '& .MuiMenuItem-root': {
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  borderRadius: '8px',
+                  py: 1,
+                  px: 1.5,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.5,
+                  '&:hover': { bgcolor: '#f4f4f5' },
+                },
+              },
+            },
+          }}
+        >
+          <MenuItem
+            onClick={() => {
+              if (assetMenuState.asset) {
+                const url = assetMenuState.asset.file_url || assetMenuState.asset.file;
+                setAssetMenuState({ anchorEl: null, asset: null });
+                window.open(url, '_blank');
+              }
+            }}
+          >
+            <Eye className="h-4 w-4 text-zinc-500" />
+            <span>Open / View</span>
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              if (assetMenuState.asset) {
+                handleDownloadAsset(assetMenuState.asset);
+              }
+            }}
+          >
+            <Download className="h-4 w-4 text-emerald-500" />
+            <span>Download</span>
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              if (assetMenuState.asset) {
+                const assetToRename = assetMenuState.asset;
+                setAssetMenuState({ anchorEl: null, asset: null });
+                setRenameTarget({ type: 'asset', item: assetToRename });
+              }
+            }}
+          >
+            <Edit2 className="h-4 w-4 text-blue-500" />
+            <span>Rename</span>
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              if (assetMenuState.asset) {
+                const assetToMove = assetMenuState.asset;
+                setAssetMenuState({ anchorEl: null, asset: null });
+                setMoveAssetTarget(assetToMove);
+              }
+            }}
+          >
+            <MoveRight className="h-4 w-4 text-purple-500" />
+            <span>Move</span>
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              if (assetMenuState.asset) {
+                handleDeleteAsset(assetMenuState.asset.id, assetMenuState.asset.name);
+              }
+            }}
+            sx={{ color: 'error.main' }}
+          >
+            <Trash2 className="h-4 w-4 text-red-500" />
+            <span>Delete</span>
+          </MenuItem>
+        </Menu>
+      </div>
+    );
+  };
+
   // FOCUSED MODE 1: Projects Only View (/app/clients/:id/projects)
-  // -------------------------------------------------------------
   if (viewMode === 'projects-only') {
     return (
       <div className="flex-1 flex flex-col h-full bg-zinc-50/50 dark:bg-zinc-950 overflow-y-auto p-6 md:p-10">
-        {/* Back button */}
         <div className="mb-6">
           <button
             onClick={() => navigate('/app/clients')}
@@ -361,7 +977,6 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
           </button>
         </div>
 
-        {/* Focused Title & Actions */}
         <div className="flex items-center justify-between gap-4 mb-6">
           <div>
             <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">
@@ -409,17 +1024,26 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
           clientName={client.name}
           onProjectsAdded={() => fetchClientDetails()}
         />
+
+        <ProjectMonthPickerModal
+          isOpen={isMonthPickerOpen}
+          onClose={() => setIsMonthPickerOpen(false)}
+          selectedYear={projectCustomYear}
+          selectedMonth={projectCustomMonth}
+          onSelect={(year, month) => {
+            setProjectCustomYear(year);
+            setProjectCustomMonth(month);
+            setProjectDateFilter('custom');
+          }}
+        />
       </div>
     );
   }
 
-  // -----------------------------------------------------------------
   // FOCUSED MODE 2: Brand Assets Only View (/app/clients/:id/brand-assets)
-  // -----------------------------------------------------------------
   if (viewMode === 'brand-assets-only') {
     return (
       <div className="flex-1 flex flex-col h-full bg-zinc-50/50 dark:bg-zinc-950 overflow-y-auto p-6 md:p-10">
-        {/* Back button */}
         <div className="mb-6">
           <button
             onClick={() => navigate('/app/clients')}
@@ -429,7 +1053,6 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
           </button>
         </div>
 
-        {/* Focused Title & Actions */}
         <div className="flex items-center justify-between gap-4 mb-6">
           <div>
             <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">
@@ -451,22 +1074,44 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
 
         <hr className="border-zinc-200 dark:border-zinc-800 mb-6" />
 
-        {renderBrandAssetsTable()}
+        {renderBrandAssetsSection()}
 
         {/* Modals */}
         <BrandAssetUploadModal
           isOpen={isAssetUploadModalOpen}
           clientId={client.id}
+          folderId={currentFolderId}
           onClose={() => setIsAssetUploadModalOpen(false)}
           onAssetUploaded={() => fetchClientDetails()}
+        />
+
+        <CreateFolderModal
+          isOpen={isCreateFolderModalOpen}
+          clientId={client.id}
+          parentId={currentFolderId}
+          onClose={() => setIsCreateFolderModalOpen(false)}
+          onFolderCreated={() => fetchClientDetails()}
+        />
+
+        <RenameModal
+          isOpen={Boolean(renameTarget)}
+          target={renameTarget}
+          onClose={() => setRenameTarget(null)}
+          onSaved={() => fetchClientDetails()}
+        />
+
+        <MoveAssetModal
+          isOpen={Boolean(moveAssetTarget)}
+          asset={moveAssetTarget}
+          folders={folders}
+          onClose={() => setMoveAssetTarget(null)}
+          onMoved={() => fetchClientDetails()}
         />
       </div>
     );
   }
 
-  // -------------------------------------------------------------
   // FULL OVERVIEW MODE (/app/clients/:id)
-  // -------------------------------------------------------------
   return (
     <div className="flex-1 flex flex-col h-full bg-zinc-50/50 dark:bg-zinc-950 overflow-y-auto p-6 md:p-10">
       {/* Back Button & Header Actions */}
@@ -646,16 +1291,9 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
             <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
               Brand Guidelines & Materials
             </h2>
-            <button
-              onClick={() => setIsAssetUploadModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-xl transition-colors shadow-sm"
-            >
-              <Upload className="h-3.5 w-3.5" />
-              <span>Upload Brand Asset</span>
-            </button>
           </div>
 
-          {renderBrandAssetsTable()}
+          {renderBrandAssetsSection()}
         </div>
       )}
 
@@ -674,6 +1312,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
       <BrandAssetUploadModal
         isOpen={isAssetUploadModalOpen}
         clientId={client.id}
+        folderId={currentFolderId}
         onClose={() => setIsAssetUploadModalOpen(false)}
         onAssetUploaded={() => fetchClientDetails()}
       />
@@ -693,6 +1332,45 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
         clientId={client.id}
         clientName={client.name}
         onProjectsAdded={() => fetchClientDetails()}
+      />
+
+      {/* Month/Year Selection Modal */}
+      <ProjectMonthPickerModal
+        isOpen={isMonthPickerOpen}
+        onClose={() => setIsMonthPickerOpen(false)}
+        selectedYear={projectCustomYear}
+        selectedMonth={projectCustomMonth}
+        onSelect={(year, month) => {
+          setProjectCustomYear(year);
+          setProjectCustomMonth(month);
+          setProjectDateFilter('custom');
+        }}
+      />
+
+      {/* Create Folder Modal */}
+      <CreateFolderModal
+        isOpen={isCreateFolderModalOpen}
+        clientId={client.id}
+        parentId={currentFolderId}
+        onClose={() => setIsCreateFolderModalOpen(false)}
+        onFolderCreated={() => fetchClientDetails()}
+      />
+
+      {/* Rename Modal */}
+      <RenameModal
+        isOpen={Boolean(renameTarget)}
+        target={renameTarget}
+        onClose={() => setRenameTarget(null)}
+        onSaved={() => fetchClientDetails()}
+      />
+
+      {/* Move Asset Modal */}
+      <MoveAssetModal
+        isOpen={Boolean(moveAssetTarget)}
+        asset={moveAssetTarget}
+        folders={folders}
+        onClose={() => setMoveAssetTarget(null)}
+        onMoved={() => fetchClientDetails()}
       />
     </div>
   );

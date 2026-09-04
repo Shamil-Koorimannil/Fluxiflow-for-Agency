@@ -414,10 +414,25 @@ export interface Client {
   brand_assets_count: number;
 }
 
+export interface ClientBrandAssetFolder {
+  id: string;
+  client: string;
+  organization?: string;
+  name: string;
+  parent?: string | null;
+  parent_name?: string | null;
+  created_by?: string | null;
+  created_by_name?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ClientBrandAsset {
   id: string;
   client: string;
   organization?: string;
+  folder?: string | null;
+  folder_name?: string | null;
   name: string;
   file: string;
   file_url?: string | null;
@@ -430,4 +445,5 @@ export interface ClientBrandAsset {
   created_at: string;
   updated_at: string;
 }
+
 

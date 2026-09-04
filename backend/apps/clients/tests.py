@@ -200,3 +200,131 @@ class ClientManagementTestSuite(TestCase):
         }, format='json')
         self.assertEqual(res_cross.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("do not belong to your organization", res_cross.data['detail'])
+
+    # 11. Client Projects Status, Date Filtering & Sorting
+    def test_client_projects_filtering_and_sorting(self):
+        client_obj = Client.objects.create(organization=self.org1, name='Filter Client', created_by=self.admin1)
+        p_ongoing = Project.objects.create(
+            name='Ongoing Project', organization=self.org1, created_by=self.admin1, client=client_obj, project_date='2026-09-01'
+        )
+        p_completed = Project.objects.create(
+            name='Completed Project', organization=self.org1, created_by=self.admin1, client=client_obj, project_date='2026-08-15'
+        )
+        from apps.tasks.models import Task
+        Task.objects.create(project=p_completed, name='Task 1', status='COMPLETED', created_by=self.admin1, due_date='2026-08-15')
+
+        # Filter status=ongoing
+        res_ongoing = self.client_admin1.get(f'/api/clients/{client_obj.id}/projects/?status=ongoing')
+        self.assertEqual(res_ongoing.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_ongoing.data), 1)
+        self.assertEqual(res_ongoing.data[0]['id'], str(p_ongoing.id))
+
+        # Filter status=completed
+        res_completed = self.client_admin1.get(f'/api/clients/{client_obj.id}/projects/?status=completed')
+        self.assertEqual(res_completed.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_completed.data), 1)
+        self.assertEqual(res_completed.data[0]['id'], str(p_completed.id))
+
+        # Date filter month & year (September 2026 = month 9)
+        res_date = self.client_admin1.get(f'/api/clients/{client_obj.id}/projects/?month=9&year=2026')
+        self.assertEqual(res_date.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_date.data), 1)
+        self.assertEqual(res_date.data[0]['id'], str(p_ongoing.id))
+
+        # Sorting project_date_asc vs project_date_desc
+        res_sort_asc = self.client_admin1.get(f'/api/clients/{client_obj.id}/projects/?sort=project_date_asc')
+        self.assertEqual(res_sort_asc.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_sort_asc.data[0]['id'], str(p_completed.id))
+
+    # 12. Brand Asset Folder Management, Validation & Safety
+    def test_brand_asset_folder_lifecycle_and_validation(self):
+        client_obj = Client.objects.create(organization=self.org1, name='Folder Client', created_by=self.admin1)
+
+        # 1. Create valid folder
+        res_f1 = self.client_admin1.post('/api/client-brand-asset-folders/', {
+            'client': str(client_obj.id),
+            'name': '  Logos  '
+        }, format='json')
+        self.assertEqual(res_f1.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res_f1.data['name'], 'Logos') # Trimmed!
+        f1_id = res_f1.data['id']
+
+        # 2. Reject empty/whitespace folder name
+        res_empty = self.client_admin1.post('/api/client-brand-asset-folders/', {
+            'client': str(client_obj.id),
+            'name': '   '
+        }, format='json')
+        self.assertEqual(res_empty.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # 3. Reject duplicate folder name under same parent
+        res_dup = self.client_admin1.post('/api/client-brand-asset-folders/', {
+            'client': str(client_obj.id),
+            'name': 'logos'
+        }, format='json')
+        self.assertEqual(res_dup.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # 4. Create subfolder
+        res_sub = self.client_admin1.post('/api/client-brand-asset-folders/', {
+            'client': str(client_obj.id),
+            'parent': f1_id,
+            'name': 'Primary'
+        }, format='json')
+        self.assertEqual(res_sub.status_code, status.HTTP_201_CREATED)
+        sub_id = res_sub.data['id']
+
+        # 5. Non-empty folder safe deletion rejection
+        res_del_fail = self.client_admin1.delete(f'/api/client-brand-asset-folders/{f1_id}/')
+        self.assertEqual(res_del_fail.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not empty", res_del_fail.data['detail'])
+
+        # 6. Upload file into subfolder
+        png_file = SimpleUploadedFile("brand-logo.png", b"\x89PNG\r\n\x1a\n", content_type="image/png")
+        res_up = self.client_admin1.post(f'/api/clients/{client_obj.id}/brand_assets/', {
+            'name': 'Brand Logo',
+            'folder_id': sub_id,
+            'file': png_file
+        }, format='multipart')
+        self.assertEqual(res_up.status_code, status.HTTP_201_CREATED)
+        asset_id = res_up.data['id']
+
+        # 7. Move asset back to root (folder = null)
+        res_move = self.client_admin1.post(f'/api/client-brand-assets/{asset_id}/move/', {
+            'target_folder_id': None
+        }, format='json')
+        self.assertEqual(res_move.status_code, status.HTTP_200_OK)
+        self.assertIsNone(res_move.data['folder'])
+
+        # 8. Rename asset preserving extension
+        res_rename = self.client_admin1.post(f'/api/client-brand-assets/{asset_id}/rename/', {
+            'name': 'Primary-Logo-2026'
+        }, format='json')
+        self.assertEqual(res_rename.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_rename.data['name'], 'Primary-Logo-2026.png') # Preserved .png!
+
+        # 9. Delete empty subfolder
+        res_del_sub = self.client_admin1.delete(f'/api/client-brand-asset-folders/{sub_id}/')
+        self.assertEqual(res_del_sub.status_code, status.HTTP_204_NO_CONTENT)
+
+    # 13. Cross-Tenant Folder Access Blocked
+    def test_cross_tenant_folder_access_blocked(self):
+        client1 = Client.objects.create(organization=self.org1, name='Org1 Client', created_by=self.admin1)
+        client2 = Client.objects.create(organization=self.org2, name='Org2 Client', created_by=self.admin2)
+
+        res_f = self.client_admin1.post('/api/client-brand-asset-folders/', {
+            'client': str(client1.id),
+            'name': 'Private Folder'
+        }, format='json')
+        self.assertEqual(res_f.status_code, status.HTTP_201_CREATED)
+        f_id = res_f.data['id']
+
+        # Admin 2 (Org 2) attempts to access Org 1 folder
+        res_cross = self.client_admin2.get(f'/api/client-brand-asset-folders/{f_id}/')
+        self.assertEqual(res_cross.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Admin 2 attempts to create folder under Org 1 Client
+        res_cross_create = self.client_admin2.post('/api/client-brand-asset-folders/', {
+            'client': str(client1.id),
+            'name': 'Hacked Folder'
+        }, format='json')
+        self.assertEqual(res_cross_create.status_code, status.HTTP_403_FORBIDDEN)
+

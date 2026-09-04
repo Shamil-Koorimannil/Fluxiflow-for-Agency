@@ -37,6 +37,66 @@ class Client(models.Model):
         return self.name
 
 
+class ClientBrandAssetFolder(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='brand_asset_folders')
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, related_name='client_brand_asset_folders')
+    name = models.CharField(max_length=255)
+    parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='children')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_brand_asset_folders')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+        indexes = [
+            models.Index(fields=['client', 'parent']),
+            models.Index(fields=['organization']),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.name:
+            self.name = self.name.strip()
+        if not self.name:
+            from django.core.exceptions import ValidationError
+            raise ValidationError({'name': 'Folder name cannot be empty or whitespace only.'})
+
+        if self.parent:
+            if self.pk and self.parent_id == self.pk:
+                from django.core.exceptions import ValidationError
+                raise ValidationError({'parent': 'A folder cannot be its own parent.'})
+            if self.parent.client_id != self.client_id:
+                from django.core.exceptions import ValidationError
+                raise ValidationError({'parent': 'Parent folder must belong to the same client.'})
+            if self.parent.organization_id != self.organization_id:
+                from django.core.exceptions import ValidationError
+                raise ValidationError({'parent': 'Parent folder must belong to the same organization.'})
+
+            # Check cycle in hierarchy
+            curr = self.parent
+            while curr:
+                if self.pk and curr.pk == self.pk:
+                    from django.core.exceptions import ValidationError
+                    raise ValidationError({'parent': 'Cannot set parent to a descendant folder (cycle detected).'})
+                curr = curr.parent
+
+        # Unique name under same parent for same client
+        qs = ClientBrandAssetFolder.objects.filter(client=self.client, parent=self.parent, name__iexact=self.name)
+        if self.pk:
+            qs = qs.exclude(pk=self.pk)
+        if qs.exists():
+            from django.core.exceptions import ValidationError
+            raise ValidationError({'name': 'A folder with this name already exists in this directory.'})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.name} ({self.client.name})"
+
+
 class AssetType(models.TextChoices):
     BRAND_GUIDELINES = 'BRAND_GUIDELINES', 'Brand Guidelines'
     LOGO = 'LOGO', 'Logo'
@@ -50,6 +110,7 @@ class ClientBrandAsset(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='brand_assets')
     organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, related_name='client_brand_assets')
+    folder = models.ForeignKey(ClientBrandAssetFolder, on_delete=models.SET_NULL, null=True, blank=True, related_name='assets')
     name = models.CharField(max_length=255)
     file = models.FileField(upload_to='client_brand_assets/')
     asset_type = models.CharField(max_length=30, choices=AssetType.choices, default=AssetType.OTHER)
@@ -65,3 +126,4 @@ class ClientBrandAsset(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.client.name})"
+
