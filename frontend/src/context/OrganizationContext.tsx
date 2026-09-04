@@ -46,6 +46,9 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       setOrganizations(orgList);
       const active = response.data.active_organization || (orgList[0] ?? null);
       setActiveOrganization(active);
+      if (active?.id) {
+        localStorage.setItem('activeOrganizationId', active.id);
+      }
       setActiveRole(active?.role || null);
     } catch (err: any) {
       console.error('Failed to load organizations:', err);
@@ -74,7 +77,11 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       // Clear React Query cache to purge stale organization data
       queryClient.clear();
 
-      setActiveOrganization(response.data.active_organization);
+      const newOrg = response.data.active_organization;
+      setActiveOrganization(newOrg);
+      if (newOrg?.id) {
+        localStorage.setItem('activeOrganizationId', newOrg.id);
+      }
       setActiveRole(response.data.role);
       await fetchOrganizations();
     } catch (err: any) {

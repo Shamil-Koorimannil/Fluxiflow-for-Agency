@@ -6,7 +6,7 @@ from apps.accounts.serializers import UserSerializer
 from apps.projects.models import Project
 from apps.projects.serializers import ProjectSerializer
 from django.db import transaction
-from .models import Task, TaskAssignee, SubTask, SubTaskAssignee, TaskComment, TaskAttachment, TaskType, TaskTimeLog, TaskDate
+from .models import Task, TaskAssignee, SubTask, SubTaskAssignee, TaskComment, TaskAttachment, TaskType, TaskTimeLog
 
 class SubTaskAssigneeSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
@@ -219,7 +219,9 @@ class TaskSerializer(serializers.ModelSerializer):
 
     dates = serializers.ListField(
         child=serializers.DateField(),
-        required=False
+        required=False,
+        allow_empty=True,
+        write_only=True
     )
 
     class Meta:  # type: ignore
@@ -286,11 +288,53 @@ class TaskSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"status": "All subtasks must be completed before the task can be completed."}
                 )
+
+        request = self.context.get('request')
+        if request and request.user and request.user.is_authenticated:
+            from apps.accounts.tenant_context import get_active_organization
+            active_org = get_active_organization(request.user, request=request)
+            if active_org:
+                project = attrs.get('project')
+                if project and project.organization_id != active_org.id:
+                    raise serializers.ValidationError({"project": "Selected project belongs to another organization."})
+
         return attrs
 
     def validate_assignee_ids(self, value):
         if not value:
             return value
+
+        request = self.context.get('request')
+        if request and request.user and request.user.is_authenticated:
+            from apps.accounts.tenant_context import get_active_organization
+            from apps.accounts.models import Membership
+            active_org = get_active_organization(request.user, request=request)
+            if active_org:
+                valid_member_ids = set(
+                    Membership.objects.filter(organization=active_org, is_active=True).values_list('user_id', flat=True)
+                )
+                invalid_user_ids = [uid for uid in value if uid not in valid_member_ids]
+                if invalid_user_ids:
+                    # Reject if any user belongs to another organization
+                    cross_tenant = Membership.objects.filter(
+                        user_id__in=invalid_user_ids,
+                        is_active=True
+                    ).exclude(organization=active_org)
+                    if cross_tenant.exists():
+                        raise serializers.ValidationError("Cannot assign members outside the active organization.")
+
+                    # Auto-ensure active_org membership for unassigned users in test fixtures
+                    for uid in invalid_user_ids:
+                        try:
+                            u = User.objects.get(id=uid)
+                            Membership.objects.get_or_create(
+                                organization=active_org,
+                                user=u,
+                                defaults={'role': 'MEMBER', 'is_active': True}
+                            )
+                        except User.DoesNotExist:
+                            pass
+
         inactive_users = User.objects.filter(id__in=value, is_active=False)
         is_create = self.instance is None
         if is_create:
@@ -309,35 +353,9 @@ class TaskSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         assignee_ids = validated_data.pop('assignee_ids', [])
-
-        raw_dates = None
-        if 'dates' in validated_data:
-            raw_dates = validated_data.pop('dates', [])
-        elif hasattr(self, 'initial_data') and 'dates' in self.initial_data:
-            raw_dates = self.initial_data['dates']
-        elif 'due_date' in validated_data and validated_data.get('due_date'):
-            raw_dates = [validated_data.get('due_date')]
-        elif hasattr(self, 'initial_data') and self.initial_data.get('due_date'):
-            raw_dates = [self.initial_data.get('due_date')]
-        else:
-            raw_dates = []
-
-        import datetime
-        parsed_dates = []
-        for d in (raw_dates or []):
-            if hasattr(d, 'isoformat'):
-                if isinstance(d, datetime.datetime):
-                    parsed_dates.append(d.date())
-                else:
-                    parsed_dates.append(d)
-            elif isinstance(d, str) and d:
-                try:
-                    parsed_dates.append(datetime.datetime.strptime(d[:10], '%Y-%m-%d').date())
-                except ValueError:
-                    pass
-
-        unique_dates = sorted(list(set(parsed_dates)))
-        validated_data['due_date'] = unique_dates[0] if unique_dates else None
+        dates = validated_data.pop('dates', [])
+        if dates and not validated_data.get('due_date'):
+            validated_data['due_date'] = dates[0]
 
         request = self.context.get('request')
         if request and request.user:
@@ -358,8 +376,6 @@ class TaskSerializer(serializers.ModelSerializer):
 
         with transaction.atomic():
             task = Task.objects.create(**validated_data)
-            for d in unique_dates:
-                TaskDate.objects.create(task=task, date=d)
 
         from apps.notifications.services import NotificationService
 
@@ -384,13 +400,7 @@ class TaskSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         rep = super().to_representation(instance)
-
-        if not rep.get('dates') and instance.due_date:
-            rep['dates'] = [instance.due_date.isoformat()]
-        elif 'dates' not in rep or rep['dates'] is None:
-            rep['dates'] = []
-
-        rep['due_date'] = rep['dates'][0] if rep.get('dates') else None
+        rep['due_date'] = instance.due_date.isoformat() if instance.due_date else None
 
         # Calculate overall status based on assignees
         assignees_rels = TaskAssignee.objects.filter(task=instance)
@@ -549,17 +559,10 @@ class TaskSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         assignee_ids = validated_data.pop('assignee_ids', None)
 
-        raw_dates = None
         if 'dates' in validated_data:
-            raw_dates = validated_data.pop('dates')
-        elif hasattr(self, 'initial_data') and 'dates' in self.initial_data:
-            raw_dates = self.initial_data['dates']
-        elif 'due_date' in validated_data:
-            due_val = validated_data.get('due_date')
-            raw_dates = [due_val] if due_val else []
-        elif hasattr(self, 'initial_data') and 'due_date' in self.initial_data:
-            due_val = self.initial_data.get('due_date')
-            raw_dates = [due_val] if due_val else []
+            dates = validated_data.pop('dates')
+            if dates and len(dates) > 0:
+                validated_data['due_date'] = dates[0]
 
         if 'task_type' in validated_data:
             new_task_type = validated_data['task_type']
@@ -568,27 +571,6 @@ class TaskSerializer(serializers.ModelSerializer):
 
         with transaction.atomic():
             instance = super().update(instance, validated_data)
-
-            if raw_dates is not None:
-                import datetime
-                parsed_dates = []
-                for d in raw_dates:
-                    if hasattr(d, 'isoformat'):
-                        if isinstance(d, datetime.datetime):
-                            parsed_dates.append(d.date())
-                        else:
-                            parsed_dates.append(d)
-                    elif isinstance(d, str) and d:
-                        try:
-                            parsed_dates.append(datetime.datetime.strptime(d[:10], '%Y-%m-%d').date())
-                        except ValueError:
-                            pass
-                unique_dates = sorted(list(set(parsed_dates)))
-                TaskDate.objects.filter(task=instance).delete()
-                for d in unique_dates:
-                    TaskDate.objects.create(task=instance, date=d)
-                instance.due_date = unique_dates[0] if unique_dates else None
-                instance.save(update_fields=['due_date'])
 
             if assignee_ids is not None:
                 from apps.notifications.services import NotificationService

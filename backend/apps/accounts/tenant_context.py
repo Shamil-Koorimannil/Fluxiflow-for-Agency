@@ -14,12 +14,40 @@ def resolve_target_role(u: CustomUser) -> str:
     return 'ADMIN'
 
 
-def get_active_membership(user: CustomUser) -> Optional[Membership]:
+def get_active_membership(user: CustomUser, request=None) -> Optional[Membership]:
     if not user or not user.is_authenticated:
         return None
 
     try:
-        # Check user's currently selected active_organization FK first
+        # 1. Check request header 'X-Organization-Id' if provided
+        header_org_id = None
+        if request is not None and hasattr(request, 'META'):
+            header_org_id = request.META.get('HTTP_X_ORGANIZATION_ID') or request.headers.get('X-Organization-Id')
+
+        if header_org_id:
+            header_membership = Membership.objects.filter(
+                user=user,
+                organization_id=header_org_id,
+                is_active=True,
+                organization__is_active=True
+            ).select_related('organization').first()
+            if header_membership:
+                return header_membership
+
+        # 1b. Check JWT token claim 'org_id' if available in request.auth
+        if request is not None and hasattr(request, 'auth') and request.auth:
+            token_org_id = getattr(request.auth, 'get', lambda k, d=None: None)('org_id') or (request.auth.get('org_id') if isinstance(request.auth, dict) else None)
+            if token_org_id:
+                jwt_membership = Membership.objects.filter(
+                    user=user,
+                    organization_id=token_org_id,
+                    is_active=True,
+                    organization__is_active=True
+                ).select_related('organization').first()
+                if jwt_membership:
+                    return jwt_membership
+
+        # 2. Check user's currently selected active_organization FK
         if getattr(user, 'active_organization_id', None):
             membership = Membership.objects.filter(
                 user=user,
@@ -30,7 +58,7 @@ def get_active_membership(user: CustomUser) -> Optional[Membership]:
             if membership:
                 return membership
 
-        # Fallback to user's first active membership
+        # 3. Fallback to user's first active membership
         membership = Membership.objects.filter(
             user=user,
             is_active=True,
@@ -74,22 +102,22 @@ def get_active_membership(user: CustomUser) -> Optional[Membership]:
         return None
 
 
-def get_active_organization(user: CustomUser) -> Optional[Organization]:
-    membership = get_active_membership(user)
+def get_active_organization(user: CustomUser, request=None) -> Optional[Organization]:
+    membership = get_active_membership(user, request=request)
     return membership.organization if membership else None
 
 
-def get_active_role(user: CustomUser) -> Optional[str]:
-    membership = get_active_membership(user)
+def get_active_role(user: CustomUser, request=None) -> Optional[str]:
+    membership = get_active_membership(user, request=request)
     return membership.role if membership else None
 
 
-def is_org_admin(user: CustomUser) -> bool:
-    return get_active_role(user) == 'ORG_ADMIN'
+def is_org_admin(user: CustomUser, request=None) -> bool:
+    return get_active_role(user, request=request) == 'ORG_ADMIN'
 
 
-def is_admin_or_org_admin(user: CustomUser) -> bool:
-    role = get_active_role(user)
+def is_admin_or_org_admin(user: CustomUser, request=None) -> bool:
+    role = get_active_role(user, request=request)
     return role in ('ORG_ADMIN', 'ADMIN') or getattr(user, 'role', None) == 'ADMIN'
 
 
@@ -100,7 +128,7 @@ class IsTenantMember(permissions.BasePermission):
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
             return False
-        membership = get_active_membership(request.user)
+        membership = get_active_membership(request.user, request=request)
         if not membership:
             raise exceptions.PermissionDenied("You do not belong to any active organization.")
         request.active_membership = membership
@@ -116,7 +144,7 @@ class IsTenantOrgAdmin(permissions.BasePermission):
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
             return False
-        membership = get_active_membership(request.user)
+        membership = get_active_membership(request.user, request=request)
         if not membership or membership.role != 'ORG_ADMIN':
             return False
         request.active_membership = membership
@@ -132,7 +160,7 @@ class IsTenantAdmin(permissions.BasePermission):
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
             return False
-        membership = get_active_membership(request.user)
+        membership = get_active_membership(request.user, request=request)
         if not membership or membership.role not in ('ORG_ADMIN', 'ADMIN'):
             return False
         request.active_membership = membership

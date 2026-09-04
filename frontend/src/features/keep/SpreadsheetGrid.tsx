@@ -117,6 +117,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   const [selectedCol, setSelectedCol] = useState<string | null>(null);
 
   const [editingCell, setEditingCell] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState<string>('');
   const [formulaValue, setFormulaValue] = useState<string>('');
   const [numRows, setNumRows] = useState<number>(50);
   const [numCols, setNumCols] = useState<number>(20);
@@ -322,12 +323,28 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         }
         setSelectedRow(null);
         setSelectedCol(null);
+        return;
+      }
+
+      // Enter or F2 -> Start editing active cell with existing value
+      if (!readOnly && (e.key === 'Enter' || e.key === 'F2')) {
+        e.preventDefault();
+        const curCell = activeSheet.cells[activeCell];
+        setEditingValue(curCell?.formula || curCell?.value || '');
+        setEditingCell(activeCell);
+        return;
+      }
+
+      // Typing printable character -> Start editing active cell directly with typed char
+      if (!readOnly && !modifier && e.key.length === 1 && !['Tab', 'Escape'].includes(e.key)) {
+        setEditingValue(e.key);
+        setEditingCell(activeCell);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeCell, anchorCell, activeSheet, columns, numRows, selectedCellKeys, editingCell, onChangeSheetData]);
+  }, [activeCell, anchorCell, activeSheet, columns, numRows, selectedCellKeys, editingCell, readOnly, onChangeSheetData]);
 
   // Cell Interaction Handlers
   const handleCellMouseDown = (cellId: string, e: React.MouseEvent) => {
@@ -343,10 +360,13 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
 
     setSelectedRow(null);
     setSelectedCol(null);
+  };
 
-    if (!readOnly && !e.shiftKey) {
-      setEditingCell(cellId);
-    }
+  const handleCellDoubleClick = (cellId: string) => {
+    if (readOnly) return;
+    const curCell = activeSheet.cells[cellId];
+    setEditingValue(curCell?.formula || curCell?.value || '');
+    setEditingCell(cellId);
   };
 
   const handleCellMouseEnter = (cellId: string) => {
@@ -599,6 +619,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
                       <td
                         key={cellId}
                         onMouseDown={(e) => handleCellMouseDown(cellId, e)}
+                        onDoubleClick={() => handleCellDoubleClick(cellId)}
                         onMouseEnter={() => handleCellMouseEnter(cellId)}
                         style={{
                           fontWeight: fmt.bold ? 'bold' : 'normal',
@@ -618,17 +639,25 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
                           <input
                             ref={cellInputRef}
                             type="text"
-                            defaultValue={cell?.formula || cell?.value || ''}
-                            onBlur={(e) => {
-                              updateCell(cellId, e.target.value);
+                            value={editingValue}
+                            onChange={(e) => setEditingValue(e.target.value)}
+                            onBlur={() => {
+                              updateCell(cellId, editingValue);
                               setEditingCell(null);
                             }}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
-                                updateCell(cellId, (e.target as HTMLInputElement).value);
+                                e.preventDefault();
+                                updateCell(cellId, editingValue);
                                 setEditingCell(null);
+                                const p = parseCellKey(cellId);
+                                const nextRow = Math.min(numRows, p.row + 1);
+                                const nextKey = `${columns[p.colIdx]}${nextRow}`;
+                                setActiveCell(nextKey);
+                                setAnchorCell(nextKey);
                               }
                               if (e.key === 'Escape') {
+                                e.preventDefault();
                                 setEditingCell(null);
                               }
                             }}

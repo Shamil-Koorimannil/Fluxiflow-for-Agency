@@ -68,12 +68,16 @@ export const clearTokens = () => {
   sessionStorage.removeItem('refreshToken');
 };
 
-// Request Interceptor: Attach token
+// Request Interceptor: Attach token and active organization ID
 api.interceptors.request.use(
   (config) => {
     const token = getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+    const activeOrgId = localStorage.getItem('activeOrganizationId') || sessionStorage.getItem('activeOrganizationId');
+    if (activeOrgId) {
+      config.headers['X-Organization-Id'] = activeOrgId;
     }
     return config;
   },

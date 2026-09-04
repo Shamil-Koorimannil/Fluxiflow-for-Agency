@@ -15,6 +15,8 @@ import { DocumentEditor } from './DocumentEditor';
 import { SpreadsheetEditor } from './SpreadsheetEditor';
 import { ShareModal } from './ShareModal';
 import { VersionHistoryModal } from './VersionHistoryModal';
+import { CreateFolderModal } from './CreateFolderModal';
+import { RenameKeepItemModal } from './RenameKeepItemModal';
 
 export const Keep: React.FC = () => {
   const [section, setSection] = useState<'all' | 'shared' | 'recent' | 'pinned' | 'trash'>('all');
@@ -35,6 +37,8 @@ export const Keep: React.FC = () => {
   // Modals state
   const [isUploadFileModalOpen, setIsUploadFileModalOpen] = useState(false);
   const [isSpreadsheetImportModalOpen, setIsSpreadsheetImportModalOpen] = useState(false);
+  const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false);
+  const [renameModalItem, setRenameModalItem] = useState<KeepItem | null>(null);
   const [shareModalItem, setShareModalItem] = useState<KeepItem | null>(null);
   const [versionHistoryItem, setVersionHistoryItem] = useState<KeepItem | null>(null);
 
@@ -112,7 +116,11 @@ export const Keep: React.FC = () => {
 
   // Item Creation Handler
   const handleCreateItem = async (type: KeepItemType) => {
-    const defaultName = type === 'FOLDER' ? 'New Folder' : type === 'SPREADSHEET' ? 'New Spreadsheet' : type === 'NOTE' ? 'New Note' : 'Untitled Document';
+    if (type === 'FOLDER') {
+      setIsCreateFolderModalOpen(true);
+      return;
+    }
+    const defaultName = type === 'SPREADSHEET' ? 'New Spreadsheet' : type === 'NOTE' ? 'New Note' : 'Untitled Document';
     try {
       const payload: Partial<KeepItem> = {
         item_type: type,
@@ -124,12 +132,27 @@ export const Keep: React.FC = () => {
 
       const response = await api.post<KeepItem>('/keep/items/', payload);
       setItems(prev => [response.data, ...prev]);
-
-      if (type !== 'FOLDER') {
-        setActiveEditingItem(response.data);
-      }
+      setActiveEditingItem(response.data);
     } catch (err) {
       console.error('Failed to create Keep item:', err);
+    }
+  };
+
+  const handleCreateFolderSubmit = async (folderName: string) => {
+    const payload: Partial<KeepItem> = {
+      item_type: 'FOLDER',
+      name: folderName,
+      parent_folder: currentFolder ? currentFolder.id : null,
+    };
+    const response = await api.post<KeepItem>('/keep/items/', payload);
+    setItems(prev => [response.data, ...prev]);
+  };
+
+  const handleRenameSubmit = async (itemId: string, newName: string) => {
+    const response = await api.patch<KeepItem>(`/keep/items/${itemId}/`, { name: newName });
+    setItems(prev => prev.map(item => item.id === itemId ? response.data : item));
+    if (activeEditingItem && activeEditingItem.id === itemId) {
+      setActiveEditingItem(response.data);
     }
   };
 
@@ -460,6 +483,7 @@ export const Keep: React.FC = () => {
           y={contextMenu.y}
           onClose={() => setContextMenu(null)}
           onOpen={handleOpenItem}
+          onRename={(itemToRename) => setRenameModalItem(itemToRename)}
           onTogglePin={handleTogglePin}
           onShare={(itemToShare) => setShareModalItem(itemToShare)}
           onMove={(itemToMove) => {
@@ -478,6 +502,21 @@ export const Keep: React.FC = () => {
           isTrashSection={section === 'trash'}
         />
       )}
+
+      {/* Create Folder Modal */}
+      <CreateFolderModal
+        isOpen={isCreateFolderModalOpen}
+        onClose={() => setIsCreateFolderModalOpen(false)}
+        onCreateFolder={handleCreateFolderSubmit}
+      />
+
+      {/* Rename Item Modal */}
+      <RenameKeepItemModal
+        isOpen={Boolean(renameModalItem)}
+        item={renameModalItem}
+        onClose={() => setRenameModalItem(null)}
+        onSave={handleRenameSubmit}
+      />
 
       {/* Upload General File Modal */}
       <UploadFileModal

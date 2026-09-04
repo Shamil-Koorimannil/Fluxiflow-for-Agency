@@ -43,21 +43,13 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
   const [selectedTaskTypeId, setSelectedTaskTypeId] = useState<string | null>(null);
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [hasInitialized, setHasInitialized] = useState(false);
 
   // Load data on edit or defaults
   useEffect(() => {
-    if (!isOpen) {
-      setHasInitialized(false);
-      return;
-    }
-
-    if (isOpen && !hasInitialized) {
+    if (isOpen) {
       if (taskToEdit) {
         setName(taskToEdit.name);
-        const taskDates = taskToEdit.dates && taskToEdit.dates.length > 0
-          ? taskToEdit.dates
-          : (taskToEdit.due_date ? [taskToEdit.due_date] : []);
+        const taskDates = taskToEdit.due_date ? [taskToEdit.due_date] : [];
         setDates(taskDates);
         setDueTime(taskToEdit.due_time ? taskToEdit.due_time.substring(0, 5) : '');
         setPriority(taskToEdit.priority || 'MEDIUM');
@@ -76,9 +68,8 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
         setSelectedAssigneeIds(defaultAssigneeId ? [defaultAssigneeId] : []);
       }
       setError(null);
-      setHasInitialized(true);
     }
-  }, [isOpen, hasInitialized, taskToEdit, defaultProjectId, defaultAssigneeId, projectIdProp]);
+  }, [isOpen, taskToEdit, defaultProjectId, defaultAssigneeId, projectIdProp]);
 
   // Fetch Organization Settings (to check if Task Types feature is enabled)
   const { data: orgSettings } = useQuery<OrganizationSettings>({
@@ -195,7 +186,6 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
 
     const payload: any = {
       name: name.trim(),
-      dates: dates,
       due_date: dates.length > 0 ? dates[0] : null,
       priority,
       description: description || null,
@@ -203,6 +193,10 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
       project: projectId || null,
       task_type: selectedTaskTypeId || null,
     };
+
+    if (!isEditMode) {
+      payload.dates = dates;
+    }
 
     if (dueTime) {
       payload.due_time = `${dueTime}:00`;
@@ -288,14 +282,23 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1 sm:col-span-2">
               <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider block mb-1">
-                Task Dates
+                {isEditMode ? 'Due Date' : 'Task Dates'}
               </label>
-              <DatePicker
-                multiSelect={true}
-                values={dates}
-                onMultiChange={setDates}
-                disabled={submitMutation.isPending}
-              />
+              {isEditMode ? (
+                <DatePicker
+                  multiSelect={false}
+                  value={dates[0] || ''}
+                  onChange={(val) => setDates(val ? [val] : [])}
+                  disabled={submitMutation.isPending}
+                />
+              ) : (
+                <DatePicker
+                  multiSelect={true}
+                  values={dates}
+                  onMultiChange={setDates}
+                  disabled={submitMutation.isPending}
+                />
+              )}
             </div>
 
             <div className="space-y-1">

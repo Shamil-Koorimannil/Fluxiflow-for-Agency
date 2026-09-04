@@ -221,15 +221,17 @@ export const TaskCard: React.FC<TaskCardProps> = ({
 
           {/* Date display, Task Type Badge, & Priority indicator */}
           <div className="flex items-center gap-2.5 flex-wrap text-[11px] text-zinc-450 mt-1">
-            <div className="flex items-center gap-1.5 font-medium">
-              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
-                task.date_color === 'red' ? 'bg-red-500' :
-                task.date_color === 'amber' ? 'bg-amber-500' :
-                task.date_color === 'green' ? 'bg-green-500' :
-                'bg-zinc-400'
-              }`} />
-              <TaskDatePicker task={task} />
-            </div>
+            {task.due_date && (
+              <div className="flex items-center gap-1.5 font-medium">
+                <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                  task.date_color === 'red' ? 'bg-red-500' :
+                  task.date_color === 'amber' ? 'bg-amber-500' :
+                  task.date_color === 'green' ? 'bg-green-500' :
+                  'bg-zinc-400'
+                }`} />
+                <TaskDatePicker task={task} />
+              </div>
+            )}
 
             {/* Prominent Past Due Warning Badge */}
             {!isCompleted && task.due_date && task.due_date < getLocalDateString(new Date()) && (

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Search, Filter, Briefcase, RefreshCw, AlertCircle } from 'lucide-react';
+import { Plus, Search, Briefcase, RefreshCw, AlertCircle } from 'lucide-react';
 import type { Client } from '../../types';
 import { api } from '../../services/api';
 import { ClientCard } from './ClientCard';
 import { ClientFormModal } from './ClientFormModal';
+import { CustomDropdown } from '../../components/common/CustomDropdown';
 
 export const Clients: React.FC = () => {
   const [clients, setClients] = useState<Client[]>([]);
@@ -88,16 +89,15 @@ export const Clients: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto">
-          <Filter className="h-4 w-4 text-zinc-400 hidden sm:block" />
-          <select
+          <CustomDropdown
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="w-full sm:w-auto px-3.5 py-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-medium outline-none focus:border-black dark:focus:border-white transition-colors"
-          >
-            <option value="ALL">All Statuses</option>
-            <option value="ACTIVE">Active</option>
-            <option value="INACTIVE">Inactive</option>
-          </select>
+            onChange={(val) => setStatusFilter(val)}
+            options={[
+              { value: 'ALL', label: 'All Statuses' },
+              { value: 'ACTIVE', label: 'Active' },
+              { value: 'INACTIVE', label: 'Inactive' },
+            ]}
+          />
         </div>
       </div>
 

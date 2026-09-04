@@ -28,14 +28,14 @@ def check_item_access(user, item: KeepItem, required_role: str = 'VIEW') -> bool
     if not user or not user.is_authenticated:
         return False
 
-    # 1. Owner always has full access (unless soft-deleted in normal views, handled separately)
-    if item.owner_id == user.id or item.created_by_id == user.id:
-        return True
-
-    # 2. Strict Organization Boundary Check
+    # 1. Strict Organization Boundary Check (Mandatory First)
     user_org = get_user_organization(user)
     if item.organization_id and user_org and item.organization_id != user_org.id:
         return False
+
+    # 2. Owner has full access within the active organization
+    if item.owner_id == user.id or item.created_by_id == user.id:
+        return True
 
     is_admin = getattr(user, 'role', 'MEMBER') == 'ADMIN'
 

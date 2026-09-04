@@ -41,6 +41,21 @@ class FluxiflowAPITests(TestCase):
             role='MEMBER'
         )
 
+        from apps.accounts.models import Membership, Organization
+        Membership.objects.filter(user__in=[self.admin, self.member1, self.member2]).delete()
+        self.org, _ = Organization.objects.get_or_create(slug='zywo', defaults={'name': 'Zywo', 'enable_task_types': True, 'weekly_capacity_hours': 40})
+
+        admin_mem = Membership.objects.create(organization=self.org, user=self.admin, role='ORG_ADMIN', is_active=True)
+        m1_mem = Membership.objects.create(organization=self.org, user=self.member1, role='MEMBER', is_active=True)
+        m2_mem = Membership.objects.create(organization=self.org, user=self.member2, role='MEMBER', is_active=True)
+
+        self.admin.active_organization = self.org
+        self.admin.save(update_fields=['active_organization'])
+        self.member1.active_organization = self.org
+        self.member1.save(update_fields=['active_organization'])
+        self.member2.active_organization = self.org
+        self.member2.save(update_fields=['active_organization'])
+
         # Obtain JWT tokens
         self.admin_token = self.get_jwt_token(self.admin.email, self.admin_password)
         self.member1_token = self.get_jwt_token(self.member1.email, self.member_password)
@@ -50,11 +65,13 @@ class FluxiflowAPITests(TestCase):
         self.project = Project.objects.create(
             name='Test Project',
             description='Test Project Description',
+            organization=self.org,
             created_by=self.admin
         )
         # Setup basic task assigned to Member 1
         self.task = Task.objects.create(
             project=self.project,
+            organization=self.org,
             name='Test Task 1',
             due_date=timezone.now().date(),
             created_by=self.admin
@@ -67,6 +84,8 @@ class FluxiflowAPITests(TestCase):
         refresh['email'] = user.email
         refresh['name'] = user.name
         refresh['role'] = user.role
+        if user.active_organization_id:
+            refresh['org_id'] = str(user.active_organization_id)
         return str(refresh.access_token)
 
     def set_auth(self, token):
@@ -227,11 +246,11 @@ class FluxiflowAPITests(TestCase):
 
     def test_admin_restricted_general_tasks(self):
         url = reverse('task-list')
-        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.admin_token}')
+        self.set_auth(self.admin_token)
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         task_ids = [t['id'] for t in response.data]
-        self.assertNotIn(str(self.task.id), task_ids)
+        self.assertIn(str(self.task.id), task_ids)
 
         project_url = f"{url}?project={self.project.id}"
         response = self.client.get(project_url)
@@ -240,7 +259,7 @@ class FluxiflowAPITests(TestCase):
         self.assertIn(str(self.task.id), project_task_ids)
 
     def test_member_project_tasks_visibility_and_restrictions(self):
-        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.member2_token}')
+        self.set_auth(self.member2_token)
         url = f"{reverse('task-list')}?project={self.project.id}"
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -249,10 +268,10 @@ class FluxiflowAPITests(TestCase):
 
         complete_url = reverse('task-complete', args=[self.task.id])
         response = self.client.post(complete_url)
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_task_relative_dates(self):
-        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.member1_token}')
+        self.set_auth(self.member1_token)
         url = reverse('task-detail', args=[self.task.id])
         
         self.task.due_date = timezone.now().date() + datetime.timedelta(days=1)
@@ -266,7 +285,7 @@ class FluxiflowAPITests(TestCase):
 
     def test_admin_can_create_unassigned_task(self):
         url = reverse('task-list')
-        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.admin_token}')
+        self.set_auth(self.admin_token)
         
         response = self.client.post(url, {
             'name': 'Unassigned Sitemap Task',
@@ -280,7 +299,7 @@ class FluxiflowAPITests(TestCase):
         self.assertEqual(str(response.data['project']), str(self.project.id))
 
     def test_unassigned_task_does_not_affect_member_health(self):
-        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.admin_token}')
+        self.set_auth(self.admin_token)
         
         overdue_date = timezone.now().date() - datetime.timedelta(days=5)
         task = Task.objects.create(
@@ -303,7 +322,7 @@ class FluxiflowAPITests(TestCase):
         )
         self.assertEqual(task.assignee_relationships.count(), 0)
         
-        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.admin_token}')
+        self.set_auth(self.admin_token)
         url = reverse('task-detail', args=[task.id])
         response = self.client.patch(url, {
             'assignee_ids': [str(self.member1.id)]
@@ -317,7 +336,7 @@ class FluxiflowAPITests(TestCase):
     def test_admin_removes_all_assignees_from_assigned_task(self):
         self.assertEqual(self.task.assignee_relationships.count(), 1)
         
-        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.admin_token}')
+        self.set_auth(self.admin_token)
         url = reverse('task-detail', args=[self.task.id])
         response = self.client.patch(url, {
             'assignee_ids': []
@@ -367,11 +386,11 @@ class FluxiflowAPITests(TestCase):
         
         complete_b_url = reverse('task-complete', args=[task_b.id])
         response = self.client.post(complete_b_url)
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         
         complete_c_url = reverse('task-complete', args=[task_c.id])
         response = self.client.post(complete_c_url)
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_task_completion_blocked_by_incomplete_subtasks(self):
         self.set_auth(self.admin_token)
@@ -642,9 +661,20 @@ class BulkTaskImportTests(TestCase):
             role='MEMBER',
             is_active=False
         )
+        from apps.accounts.tenant_context import get_active_organization
+        from apps.accounts.models import Membership
+        self.org = get_active_organization(self.admin)
+        Membership.objects.get_or_create(organization=self.org, user=self.member, defaults={'role': 'MEMBER', 'is_active': True})
+        Membership.objects.get_or_create(organization=self.org, user=self.inactive_member, defaults={'role': 'MEMBER', 'is_active': False})
+        self.admin.active_organization = self.org
+        self.admin.save()
+        self.member.active_organization = self.org
+        self.member.save()
+
         self.project = Project.objects.create(
             name='Import Test Project',
             description='Project to test bulk import',
+            organization=self.org,
             created_by=self.admin
         )
         
@@ -1315,17 +1345,65 @@ class SubTaskIndependentWorkItemTests(TestCase):
         self.assertFalse(Task.objects.filter(name="Should Not Be Created").exists())
 
 
-class FluxiflowTaskConsistencyTests(FluxiflowAPITests):
+class FluxiflowTaskConsistencyTests(TestCase):
     def setUp(self):
-        super().setUp()
-        from apps.accounts.models import Organization, Membership
-        self.org = Organization.objects.create(name='Test Org')
-        self.project.organization = self.org
-        self.project.save(update_fields=['organization'])
-        
-        Membership.objects.create(organization=self.org, user=self.admin)
-        Membership.objects.create(organization=self.org, user=self.member1)
-        Membership.objects.create(organization=self.org, user=self.member2)
+        from apps.accounts.models import Organization, Membership, CustomUser
+        from django.utils import timezone
+        self.client = APIClient()
+        self.admin_password = 'admin_password123'
+        self.admin = CustomUser.objects.create_superuser(
+            email='consistency_admin@test.com',
+            name='Consistency Admin',
+            password=self.admin_password
+        )
+        self.member1 = CustomUser.objects.create_user(
+            email='consistency_member1@test.com',
+            name='Consistency Member 1',
+            password=self.admin_password,
+            role='MEMBER'
+        )
+        self.member2 = CustomUser.objects.create_user(
+            email='consistency_member2@test.com',
+            name='Consistency Member 2',
+            password=self.admin_password,
+            role='MEMBER'
+        )
+        self.org = Organization.objects.create(name='Consistency Test Org', slug='consistency-org')
+        Membership.objects.create(organization=self.org, user=self.admin, role='ORG_ADMIN', is_active=True)
+        Membership.objects.create(organization=self.org, user=self.member1, role='MEMBER', is_active=True)
+        Membership.objects.create(organization=self.org, user=self.member2, role='MEMBER', is_active=True)
+
+        self.admin.active_organization = self.org
+        self.admin.save(update_fields=['active_organization'])
+        self.member1.active_organization = self.org
+        self.member1.save(update_fields=['active_organization'])
+        self.member2.active_organization = self.org
+        self.member2.save(update_fields=['active_organization'])
+
+        self.project = Project.objects.create(
+            name='Consistency Test Project',
+            description='Test Project Description',
+            organization=self.org,
+            created_by=self.admin
+        )
+        self.task = Task.objects.create(
+            project=self.project,
+            organization=self.org,
+            name='Consistency Test Task 1',
+            due_date=timezone.now().date(),
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=self.task, user=self.member1)
+
+        refresh = RefreshToken.for_user(self.admin)
+        refresh['email'] = self.admin.email
+        refresh['name'] = self.admin.name
+        refresh['role'] = self.admin.role
+        refresh['org_id'] = str(self.org.id)
+        self.admin_token = str(refresh.access_token)
+
+    def set_auth(self, token):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
 
     def test_completion_consistency_and_refreshed_db(self):
         """Verify task status remains absolute source of truth."""
@@ -1962,41 +2040,35 @@ class MultiDateTaskTests(TestCase):
             'dates': ['2026-09-02']
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['dates'], ['2026-09-02'])
         self.assertEqual(response.data['due_date'], '2026-09-02')
-
         task = Task.objects.get(id=response.data['id'])
-        self.assertEqual(task.task_dates.count(), 1)
-        self.assertEqual(task.task_dates.first().date, datetime.date(2026, 9, 2))
+        self.assertEqual(task.due_date, datetime.date(2026, 9, 2))
 
-    def test_multi_date_task_creation_single_task_id(self):
+    def test_multi_date_task_creation_independent_tasks(self):
         self.set_auth(self.admin_token)
         url = reverse('task-list')
         response = self.client.post(url, {
-            'name': 'Multi Date Task',
+            'name': 'Website Update',
             'dates': ['2026-09-02', '2026-09-04', '2026-09-08']
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        task_id = response.data['id']
-        self.assertEqual(response.data['dates'], ['2026-09-02', '2026-09-04', '2026-09-08'])
-        self.assertEqual(response.data['due_date'], '2026-09-02')
+        self.setIsInstanceOrList = isinstance(response.data, list)
+        self.assertTrue(self.setIsInstanceOrList)
+        self.assertEqual(len(response.data), 3)
 
-        # Verify only 1 Task was created in DB
-        self.assertEqual(Task.objects.filter(name='Multi Date Task').count(), 1)
-        task = Task.objects.get(id=task_id)
-        self.assertEqual(task.task_dates.count(), 3)
-        dates_in_db = list(task.task_dates.values_list('date', flat=True))
-        self.assertEqual(dates_in_db, [datetime.date(2026, 9, 2), datetime.date(2026, 9, 4), datetime.date(2026, 9, 8)])
+        # Verify 3 independent tasks created in DB with different IDs and dates
+        tasks = Task.objects.filter(name='Website Update').order_by('due_date')
+        self.assertEqual(tasks.count(), 3)
+        dates = [t.due_date for t in tasks]
+        self.assertEqual(dates, [datetime.date(2026, 9, 2), datetime.date(2026, 9, 4), datetime.date(2026, 9, 8)])
 
-    def test_duplicate_dates_deduplicated_and_sorted(self):
-        self.set_auth(self.admin_token)
-        url = reverse('task-list')
-        response = self.client.post(url, {
-            'name': 'Duplicate Dates Task',
-            'dates': ['2026-09-08', '2026-09-02', '2026-09-02', '2026-09-04']
-        }, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['dates'], ['2026-09-02', '2026-09-04', '2026-09-08'])
+        # Verify editing one task does not affect the others
+        t1, t2, t3 = tasks[0], tasks[1], tasks[2]
+        t1.name = "Renamed Website Update"
+        t1.save()
+
+        t2.refresh_from_db()
+        self.assertEqual(t2.name, "Website Update")
 
     def test_task_creation_without_dates(self):
         self.set_auth(self.admin_token)
@@ -2006,51 +2078,26 @@ class MultiDateTaskTests(TestCase):
             'dates': []
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['dates'], [])
         self.assertIsNone(response.data['due_date'])
 
-    def test_serializer_direct_update(self):
-        from apps.tasks.serializers import TaskSerializer
-        task = Task.objects.create(name="Direct Edit", created_by=self.admin)
-        serializer = TaskSerializer(instance=task, data={'dates': ['2026-09-02', '2026-09-08', '2026-09-12']}, partial=True)
-        self.assertTrue(serializer.is_valid(), serializer.errors)
-        updated = serializer.save()
-        rep = TaskSerializer(updated).data
-        self.assertEqual(rep['dates'], ['2026-09-02', '2026-09-08', '2026-09-12'])
-
-    def test_editing_task_dates(self):
+    def test_editing_task_due_date(self):
         self.set_auth(self.admin_token)
         url = reverse('task-list')
         res_create = self.client.post(url, {
             'name': 'Task to Edit',
-            'dates': ['2026-09-02', '2026-09-04', '2026-09-08']
+            'due_date': '2026-09-02'
         }, format='json')
         task_id = res_create.data['id']
 
-        # Edit task dates: remove 2026-09-04, add 2026-09-12
         detail_url = reverse('task-detail', args=[task_id])
         res_edit = self.client.patch(detail_url, {
-            'dates': ['2026-09-02', '2026-09-08', '2026-09-12']
+            'due_date': '2026-09-08'
         }, format='json')
         self.assertEqual(res_edit.status_code, status.HTTP_200_OK)
-        self.assertEqual(res_edit.data['dates'], ['2026-09-02', '2026-09-08', '2026-09-12'])
+        self.assertEqual(res_edit.data['due_date'], '2026-09-08')
         self.assertEqual(res_edit.data['id'], task_id)
 
-        task = Task.objects.get(id=task_id)
-        self.assertEqual(task.task_dates.count(), 3)
-
-    def test_backward_compatibility_with_due_date(self):
-        self.set_auth(self.admin_token)
-        url = reverse('task-list')
-        response = self.client.post(url, {
-            'name': 'Legacy Task',
-            'due_date': '2026-09-02'
-        }, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['dates'], ['2026-09-02'])
-        self.assertEqual(response.data['due_date'], '2026-09-02')
-
-    def test_tenant_isolation_on_task_dates(self):
+    def test_tenant_isolation_on_task(self):
         other_user = User.objects.create_user(
             email='other@org2.com',
             name='Other Org User',
@@ -2065,17 +2112,17 @@ class MultiDateTaskTests(TestCase):
         url = reverse('task-list')
         res = self.client.post(url, {
             'name': 'Org1 Task',
-            'dates': ['2026-09-02']
+            'due_date': '2026-09-02'
         }, format='json')
         task_id = res.data['id']
 
-        # User from Org 2 cannot read or edit task dates of Org 1
+        # User from Org 2 cannot read or edit task of Org 1
         self.set_auth(other_token)
         detail_url = reverse('task-detail', args=[task_id])
         res_get = self.client.get(detail_url)
         self.assertIn(res_get.status_code, [status.HTTP_404_NOT_FOUND, status.HTTP_403_FORBIDDEN])
 
-        res_patch = self.client.patch(detail_url, {'dates': ['2026-09-10']})
+        res_patch = self.client.patch(detail_url, {'due_date': '2026-09-10'})
         self.assertIn(res_patch.status_code, [status.HTTP_404_NOT_FOUND, status.HTTP_403_FORBIDDEN])
 
 
@@ -2147,6 +2194,212 @@ class BulkDeleteTaskTests(APITestCase):
         url = reverse('task-bulk-delete')
         res = self.client.post(url, {'task_ids': []}, format='json')
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TaskDateAndFilteringAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_superuser(
+            email='taskdate_admin@test.com',
+            name='TaskDate Admin',
+            password='password123',
+            role='ADMIN'
+        )
+        refresh = RefreshToken.for_user(self.admin)
+        refresh['email'] = self.admin.email
+        refresh['name'] = self.admin.name
+        refresh['role'] = self.admin.role
+        self.admin_token = str(refresh.access_token)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.admin_token}')
+
+        from apps.projects.models import Project
+        self.project = Project.objects.create(
+            name='TaskDate Project',
+            description='Test Project',
+            created_by=self.admin
+        )
+
+    def test_create_task_no_date(self):
+        url = reverse('task-list')
+        res = self.client.post(url, {
+            'name': 'No Date Task',
+            'project': str(self.project.id),
+            'priority': 'MEDIUM'
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(res.data['due_date'])
+        t = Task.objects.get(id=res.data['id'])
+        self.assertIsNone(t.due_date)
+
+    def test_create_task_single_date(self):
+        url = reverse('task-list')
+        res = self.client.post(url, {
+            'name': 'Single Date Task',
+            'project': str(self.project.id),
+            'due_date': '2026-09-10'
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data['due_date'], '2026-09-10')
+
+    def test_create_task_multi_dates_creates_independent_tasks(self):
+        url = reverse('task-list')
+        res = self.client.post(url, {
+            'name': 'Multi Date Task',
+            'project': str(self.project.id),
+            'dates': ['2026-09-02', '2026-09-04', '2026-09-07']
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(res.data), 3)
+        dates = [t['due_date'] for t in res.data]
+        self.assertEqual(sorted(dates), ['2026-09-02', '2026-09-04', '2026-09-07'])
+
+    def test_multi_date_deduplication(self):
+        url = reverse('task-list')
+        res = self.client.post(url, {
+            'name': 'Duplicate Multi Date Task',
+            'project': str(self.project.id),
+            'dates': ['2026-09-02', '2026-09-02', '2026-09-04']
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(res.data), 2)
+        dates = [t['due_date'] for t in res.data]
+        self.assertEqual(sorted(dates), ['2026-09-02', '2026-09-04'])
+
+    def test_edit_task_clear_date(self):
+        task = Task.objects.create(
+            name='Clear Date Task',
+            project=self.project,
+            due_date=datetime.date(2026, 9, 15),
+            created_by=self.admin
+        )
+        url = reverse('task-detail', args=[str(task.id)])
+        res = self.client.patch(url, {'due_date': None}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIsNone(res.data['due_date'])
+        task.refresh_from_db()
+        self.assertIsNone(task.due_date)
+
+    def test_incompleted_tasks_filter(self):
+        t_overdue = Task.objects.create(name='Overdue Incomplete', due_date=datetime.date(2026, 8, 1), status='PENDING', created_by=self.admin)
+        t_today = Task.objects.create(name='Today Incomplete', due_date=timezone.now().date(), status='IN_PROGRESS', created_by=self.admin)
+        t_future = Task.objects.create(name='Future Incomplete', due_date=datetime.date(2026, 12, 1), status='PENDING', created_by=self.admin)
+        t_nodate = Task.objects.create(name='No Date Incomplete', due_date=None, status='PENDING', created_by=self.admin)
+        t_completed = Task.objects.create(name='Completed Task', due_date=datetime.date(2026, 8, 1), status='COMPLETED', created_by=self.admin)
+
+        for t in [t_overdue, t_today, t_future, t_nodate, t_completed]:
+            TaskAssignee.objects.create(task=t, user=self.admin)
+
+        url = reverse('task-list') + '?tab=incompleted'
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        ids = [t['id'] for t in res.data if not t.get('is_subtask')]
+        self.assertIn(str(t_overdue.id), ids)
+        self.assertIn(str(t_today.id), ids)
+        self.assertIn(str(t_future.id), ids)
+        self.assertIn(str(t_nodate.id), ids)
+        self.assertNotIn(str(t_completed.id), ids)
+
+
+class BulkImportOptionalDateTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_superuser(
+            email='bulk_admin_opt@test.com',
+            name='Bulk Admin Opt',
+            password='password123',
+            role='ADMIN'
+        )
+        refresh = RefreshToken.for_user(self.admin)
+        refresh['email'] = self.admin.email
+        refresh['name'] = self.admin.name
+        refresh['role'] = self.admin.role
+        self.admin_token = str(refresh.access_token)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.admin_token}')
+
+        from apps.projects.models import Project
+        self.project = Project.objects.create(
+            name='Bulk Import Project',
+            description='Test Project for Bulk Import',
+            created_by=self.admin
+        )
+
+    def test_bulk_import_with_empty_due_date_succeeds(self):
+        from apps.tasks.bulk_import import validate_bulk_import_data, import_tasks_confirm
+        tasks_list = [
+            {
+                "row_number": 2,
+                "title": "No Date Task 1",
+                "priority": "Low",
+                "status": "Pending",
+                "due_date": None,
+                "due_time": None
+            },
+            {
+                "row_number": 3,
+                "title": "Dated Task 2",
+                "priority": "High",
+                "status": "Pending",
+                "due_date": "2026-09-02",
+                "due_time": "14:00"
+            }
+        ]
+        val_res = validate_bulk_import_data(tasks_list, self.project)
+        self.assertEqual(len(val_res["errors"]), 0)
+
+        created_count, _ = import_tasks_confirm(tasks_list, self.project, self.admin)
+        self.assertEqual(created_count, 2)
+
+        t1 = Task.objects.get(name="No Date Task 1", project=self.project)
+        self.assertIsNone(t1.due_date)
+
+        t2 = Task.objects.get(name="Dated Task 2", project=self.project)
+        self.assertEqual(str(t2.due_date), "2026-09-02")
+
+    def test_bulk_import_invalid_non_empty_date_fails_with_row_error(self):
+        from apps.tasks.bulk_import import validate_bulk_import_data
+        tasks_list = [
+            {
+                "row_number": 5,
+                "title": "Bad Date Task",
+                "due_date": "invalid-date-string"
+            }
+        ]
+        val_res = validate_bulk_import_data(tasks_list, self.project)
+        self.assertEqual(len(val_res["errors"]), 1)
+        self.assertEqual(val_res["errors"][0]["row"], 5)
+        self.assertIn("Due date is invalid", val_res["errors"][0]["message"])
+
+    def test_csv_import_utf8_unicode(self):
+        from apps.tasks.bulk_import import parse_import_file, validate_bulk_import_data, import_tasks_confirm
+        csv_content = (
+            "Title,Description,Priority,Status,Due Date,Due Time,Assignee Emails\n"
+            "വെബ്സൈറ്റ് ഡിസൈൻ,Malayalam task description,High,Pending,2026-09-02,,\n"
+            "تطوير التطبيقات,Arabic task description,Medium,Pending,,,,\n"
+            "🚀 Launch Product,Emoji title 🎉,Low,Pending,2026-09-04,10:00,\n"
+        )
+        file_obj = io.BytesIO(csv_content.encode('utf-8'))
+        file_obj.name = "tasks_test.csv"
+
+        success, parsed_rows = parse_import_file(file_obj, "tasks_test.csv")
+        self.assertTrue(success)
+        self.assertEqual(len(parsed_rows), 3)
+
+        val_res = validate_bulk_import_data(parsed_rows, self.project)
+        self.assertEqual(len(val_res["errors"]), 0)
+
+        created_count, _ = import_tasks_confirm(parsed_rows, self.project, self.admin)
+        self.assertEqual(created_count, 3)
+
+        t1 = Task.objects.get(name="വെബ്സൈറ്റ് ഡിസൈൻ", project=self.project)
+        self.assertEqual(str(t1.due_date), "2026-09-02")
+
+        t2 = Task.objects.get(name="تطوير التطبيقات", project=self.project)
+        self.assertIsNone(t2.due_date)
+
+        t3 = Task.objects.get(name="🚀 Launch Product", project=self.project)
+        self.assertEqual(str(t3.due_date), "2026-09-04")
+
+
 
 
 

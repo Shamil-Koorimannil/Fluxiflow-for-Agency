@@ -76,45 +76,17 @@ class Task(models.Model):
             models.Index(fields=['created_by']),
         ]
 
-    @property
-    def dates(self):
-        from apps.tasks.models import TaskDate
-        dates_list = list(TaskDate.objects.filter(task=self).order_by('date').values_list('date', flat=True))
-        if dates_list:
-            return dates_list
-        if self.due_date:
-            return [self.due_date]
-        return []
-
-    @dates.setter
-    def dates(self, value):
-        pass
+    def save(self, *args, **kwargs):
+        if not self.organization_id:
+            if self.project and self.project.organization_id:
+                self.organization = self.project.organization
+            elif self.created_by:
+                from apps.accounts.tenant_context import get_active_organization
+                self.organization = get_active_organization(self.created_by)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name
-
-
-class TaskDate(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='task_dates')
-    date = models.DateField()
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    objects = models.Manager()
-
-    class Meta:
-        ordering = ['date']
-        unique_together = ('task', 'date')
-        constraints = [
-            models.UniqueConstraint(fields=['task', 'date'], name='unique_task_date')
-        ]
-        indexes = [
-            models.Index(fields=['task']),
-            models.Index(fields=['date']),
-        ]
-
-    def __str__(self):
-        return f"{self.task.name} - {self.date}"
 
 
 class TaskTimeLog(models.Model):

@@ -4,7 +4,6 @@ import { api } from '../../services/api';
 import type { Task } from '../../types';
 import { DatePicker } from '../../components/common/DatePicker';
 import { useOrganization } from '../../context/OrganizationContext';
-import { getTaskDates } from '../../utils/taskClassifier';
 
 interface TaskDatePickerProps {
   task: Task;
@@ -16,8 +15,8 @@ export const TaskDatePicker: React.FC<TaskDatePickerProps> = ({ task, disabled =
   const { isAdmin } = useOrganization();
 
   const updateDatesMutation = useMutation({
-    mutationFn: async (newDates: string[]) => {
-      const payload: any = { dates: newDates, due_date: newDates[0] || null };
+    mutationFn: async (newDate: string | null) => {
+      const payload: any = { due_date: newDate };
       if (task.due_time) {
         payload.due_time = task.due_time;
       }
@@ -40,35 +39,15 @@ export const TaskDatePicker: React.FC<TaskDatePickerProps> = ({ task, disabled =
     },
   });
 
-  const dates = getTaskDates(task);
-
-  return (
-    <TaskDatePickerInternal
-      task={task}
-      disabled={disabled || !isAdmin}
-      values={dates}
-      onChange={(newDates) => {
-        updateDatesMutation.mutate(newDates);
-      }}
-    />
-  );
-};
-
-interface TaskDatePickerInternalProps {
-  task: Task;
-  disabled: boolean;
-  values: string[];
-  onChange: (vals: string[]) => void;
-}
-
-const TaskDatePickerInternal: React.FC<TaskDatePickerInternalProps> = ({ disabled, values, onChange }) => {
   return (
     <div onClick={(e) => e.stopPropagation()} className="inline-block">
       <DatePicker
-        multiSelect={true}
-        values={values}
-        onMultiChange={onChange}
-        disabled={disabled}
+        multiSelect={false}
+        value={task.due_date || ''}
+        onChange={(val) => {
+          updateDatesMutation.mutate(val || null);
+        }}
+        disabled={disabled || !isAdmin}
         variant="inline"
         placeholder="No due date"
       />

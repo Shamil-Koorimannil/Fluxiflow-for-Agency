@@ -6,7 +6,7 @@ from .models import Project
 from .serializers import ProjectSerializer
 from apps.core.permissions import IsAdminOrReadOnlyMember
 from apps.activity.models import ActivityLog
-from apps.tasks.bulk_import import generate_bulk_template, parse_excel_file, validate_bulk_import_data, import_tasks_confirm, BulkImportValidationError
+from apps.tasks.bulk_import import generate_bulk_template, parse_excel_file, parse_import_file, validate_bulk_import_data, import_tasks_confirm, BulkImportValidationError
 
 class ProjectViewSet(viewsets.ModelViewSet):
     serializer_class = ProjectSerializer
@@ -18,12 +18,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
             return Project.objects.none()
 
         from apps.accounts.tenant_context import get_active_organization
-        from django.db.models import Q
-        active_org = get_active_organization(user)
+        active_org = get_active_organization(user, request=self.request)
         if active_org:
-            qs = Project.objects.filter(
-                Q(organization=active_org) | Q(organization__isnull=True)
-            ).order_by('-created_at')
+            qs = Project.objects.filter(organization=active_org).order_by('-created_at')
         else:
             qs = Project.objects.none()
 
@@ -165,7 +162,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['GET'], url_path='tasks/bulk-template')
     def bulk_template(self, request, pk=None):
-        if request.user.role != 'ADMIN':
+        from apps.accounts.tenant_context import is_admin_or_org_admin
+        if not is_admin_or_org_admin(request.user, request=request):
             return Response({"detail": "Only Admins can download the bulk import template."}, status=status.HTTP_403_FORBIDDEN)
         
         project = self.get_object()
@@ -180,23 +178,25 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['POST'], url_path='tasks/bulk-import/validate')
     def bulk_import_validate(self, request, pk=None):
-        if request.user.role != 'ADMIN':
+        from apps.accounts.tenant_context import is_admin_or_org_admin
+        if not is_admin_or_org_admin(request.user, request=request):
             return Response({"detail": "Only Admins can validate bulk import."}, status=status.HTTP_403_FORBIDDEN)
             
         project = self.get_object()
         file_obj = request.FILES.get('file')
         if not file_obj:
-            return Response({"detail": "No file uploaded. Please upload an Excel sheet."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "No file uploaded. Please upload an Excel or CSV file."}, status=status.HTTP_400_BAD_REQUEST)
             
         # File type validation
-        if not file_obj.name.endswith('.xlsx'):
-            return Response({"detail": "Unsupported file format. Please upload a valid .xlsx file."}, status=status.HTTP_400_BAD_REQUEST)
+        filename_lower = file_obj.name.lower()
+        if not (filename_lower.endswith('.xlsx') or filename_lower.endswith('.csv')):
+            return Response({"detail": "Unsupported file format. Please upload a valid .xlsx or .csv file."}, status=status.HTTP_400_BAD_REQUEST)
             
         # File size check: 5MB max
         if file_obj.size > 5 * 1024 * 1024:
             return Response({"detail": "File size exceeds the 5MB limit."}, status=status.HTTP_400_BAD_REQUEST)
             
-        success, result = parse_excel_file(file_obj)
+        success, result = parse_import_file(file_obj, file_obj.name)
         if not success:
             return Response({"detail": result}, status=status.HTTP_400_BAD_REQUEST)
             
@@ -219,7 +219,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['POST'], url_path='tasks/bulk-import/confirm')
     def bulk_import_confirm(self, request, pk=None):
-        if request.user.role != 'ADMIN':
+        from apps.accounts.tenant_context import is_admin_or_org_admin
+        if not is_admin_or_org_admin(request.user, request=request):
+            return Response({"detail": "Only Admins can confirm bulk import."}, status=status.HTTP_403_FORBIDDEN)
             return Response({"detail": "Only Admins can confirm bulk import."}, status=status.HTTP_403_FORBIDDEN)
             
         project = self.get_object()
@@ -234,7 +236,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         if errors:
             return Response({
                 "success": False,
-                "message": "Validation failed. Import payload contains errors.",
+                "message": "Some tasks could not be imported.",
                 "errors": errors
             }, status=status.HTTP_400_BAD_REQUEST)
             

@@ -467,6 +467,7 @@ export const Tasks: React.FC = () => {
 
       {/* CREATE / EDIT TASK MODAL */}
       <TaskFormModal
+        key={taskToEdit ? `edit-${taskToEdit.id}` : 'create-task-modal'}
         isOpen={isFormModalOpen}
         onClose={handleCloseFormModal}
         taskToEdit={taskToEdit}

@@ -4,7 +4,7 @@ import {
   Bold, Italic, Underline, Strikethrough, Heading1, Heading2, Heading3, List, ListOrdered,
   Quote, Code, AlignLeft, AlignCenter, AlignRight, Link as LinkIcon,
   Table as TableIcon, History, Share2, ArrowLeft, Check, AlertCircle, RefreshCw, Save,
-  Palette, Type
+  Palette, Type, StickyNote, CheckSquare
 } from 'lucide-react';
 import type { KeepItem } from '../../types';
 import { api } from '../../services/api';
@@ -82,6 +82,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   onBack,
   onItemUpdated
 }) => {
+  const isNote = item.item_type === 'NOTE';
   const [title, setTitle] = useState(item.name);
   const [content, setContent] = useState(item.document_content || '');
   const [version, setVersion] = useState(item.version);
@@ -235,6 +236,81 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     execCmd('insertHTML', tableHtml);
   };
 
+  // Interactive Checklist Insertion
+  const insertChecklist = () => {
+    const checklistHtml = `
+      <ul class="keep-checklist" style="list-style:none; padding-left:0; margin:12px 0;">
+        <li style="display:flex; align-items:center; gap:8px; margin:6px 0;">
+          <input type="checkbox" style="width:16px; height:16px; cursor:pointer;" />
+          <span>New checklist item</span>
+        </li>
+      </ul>
+      <p><br></p>
+    `;
+    execCmd('insertHTML', checklistHtml);
+  };
+
+  const handleEditorKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter') {
+      const sel = window.getSelection();
+      if (!sel || !sel.anchorNode) return;
+      let node: Node | null = sel.anchorNode;
+      let liNode: HTMLLIElement | null = null;
+      while (node && node !== editorRef.current) {
+        if (node.nodeName === 'LI') {
+          liNode = node as HTMLLIElement;
+          break;
+        }
+        node = node.parentNode;
+      }
+      if (liNode && liNode.parentElement?.classList.contains('keep-checklist')) {
+        e.preventDefault();
+        const newLi = document.createElement('li');
+        newLi.style.display = 'flex';
+        newLi.style.alignItems = 'center';
+        newLi.style.gap = '8px';
+        newLi.style.margin = '6px 0';
+        newLi.innerHTML = `<input type="checkbox" style="width:16px; height:16px; cursor:pointer;" /><span></span>`;
+        if (liNode.nextSibling) {
+          liNode.parentElement.insertBefore(newLi, liNode.nextSibling);
+        } else {
+          liNode.parentElement.appendChild(newLi);
+        }
+        const span = newLi.querySelector('span');
+        if (span) {
+          const range = document.createRange();
+          range.setStart(span, 0);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+        handleContentChange();
+      }
+    }
+  };
+
+  const handleEditorClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    handleSelectionChange();
+    const target = e.target as HTMLElement;
+    if (target && target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'checkbox') {
+      const cb = target as HTMLInputElement;
+      if (cb.checked) {
+        cb.setAttribute('checked', 'true');
+        if (cb.nextElementSibling) {
+          (cb.nextElementSibling as HTMLElement).style.textDecoration = 'line-through';
+          (cb.nextElementSibling as HTMLElement).style.opacity = '0.6';
+        }
+      } else {
+        cb.removeAttribute('checked');
+        if (cb.nextElementSibling) {
+          (cb.nextElementSibling as HTMLElement).style.textDecoration = 'none';
+          (cb.nextElementSibling as HTMLElement).style.opacity = '1';
+        }
+      }
+      handleContentChange();
+    }
+  };
+
   // Detect focus inside table for Contextual Table Controls
   const handleSelectionChange = () => {
     const sel = window.getSelection();
@@ -344,6 +420,10 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
+
+          {item.item_type === 'NOTE' && (
+            <StickyNote className="h-5 w-5 text-amber-500 flex-shrink-0" />
+          )}
 
           <input
             type="text"
@@ -501,38 +581,55 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
         <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-700 mx-1" />
 
+        {/* Interactive Checklist Button */}
         <button
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => execCmd('formatBlock', '<h1>')}
-          title="Heading 1"
-          className="p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold"
+          onClick={insertChecklist}
+          title="Insert Checklist"
+          className="p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1"
         >
-          <Heading1 className="h-4 w-4" />
+          <CheckSquare className="h-4 w-4" />
+          <span className="text-[11px] hidden sm:inline">Checklist</span>
         </button>
-        <button
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => execCmd('formatBlock', '<h2>')}
-          title="Heading 2"
-          className="p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold"
-        >
-          <Heading2 className="h-4 w-4" />
-        </button>
-        <button
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => execCmd('formatBlock', '<h3>')}
-          title="Heading 3"
-          className="p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold"
-        >
-          <Heading3 className="h-4 w-4" />
-        </button>
-        <button
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => execCmd('formatBlock', '<p>')}
-          title="Paragraph"
-          className="p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold px-2"
-        >
-          P
-        </button>
+
+        {!isNote && (
+          <>
+            <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-700 mx-1" />
+
+            <button
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => execCmd('formatBlock', '<h1>')}
+              title="Heading 1"
+              className="p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold"
+            >
+              <Heading1 className="h-4 w-4" />
+            </button>
+            <button
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => execCmd('formatBlock', '<h2>')}
+              title="Heading 2"
+              className="p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold"
+            >
+              <Heading2 className="h-4 w-4" />
+            </button>
+            <button
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => execCmd('formatBlock', '<h3>')}
+              title="Heading 3"
+              className="p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold"
+            >
+              <Heading3 className="h-4 w-4" />
+            </button>
+            <button
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => execCmd('formatBlock', '<p>')}
+              title="Paragraph"
+              className="p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold px-2"
+            >
+              P
+            </button>
+          </>
+        )}
 
         <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-700 mx-1" />
 
@@ -552,22 +649,27 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         >
           <ListOrdered className="h-4 w-4" />
         </button>
-        <button
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => execCmd('formatBlock', '<blockquote>')}
-          title="Quote"
-          className="p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300"
-        >
-          <Quote className="h-4 w-4" />
-        </button>
-        <button
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => execCmd('formatBlock', '<pre>')}
-          title="Code Block"
-          className="p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300"
-        >
-          <Code className="h-4 w-4" />
-        </button>
+
+        {!isNote && (
+          <>
+            <button
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => execCmd('formatBlock', '<blockquote>')}
+              title="Quote"
+              className="p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300"
+            >
+              <Quote className="h-4 w-4" />
+            </button>
+            <button
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => execCmd('formatBlock', '<pre>')}
+              title="Code Block"
+              className="p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300"
+            >
+              <Code className="h-4 w-4" />
+            </button>
+          </>
+        )}
 
         <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-700 mx-1" />
 
@@ -606,18 +708,21 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         >
           <LinkIcon className="h-4 w-4" />
         </button>
-        <button
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={insertTable}
-          title="Insert Cell Table"
-          className="p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300"
-        >
-          <TableIcon className="h-4 w-4" />
-        </button>
+
+        {!isNote && (
+          <button
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={insertTable}
+            title="Insert Cell Table"
+            className="p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300"
+          >
+            <TableIcon className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       {/* Contextual Table Control Bar (Visible when cursor is in Table) */}
-      {activeTable && (
+      {!isNote && activeTable && (
         <div className="flex items-center gap-2 px-6 py-1.5 bg-blue-50 dark:bg-blue-950/40 border-b border-blue-200 dark:border-blue-800 text-xs font-semibold text-blue-700 dark:text-blue-300 animate-in fade-in duration-100 overflow-x-auto">
           <span className="flex items-center gap-1 mr-2 text-zinc-500">
             <TableIcon className="h-3.5 w-3.5" /> Table Controls:
@@ -654,15 +759,20 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
       {/* Editor Main Content Area */}
       <div className="flex-1 overflow-y-auto p-6 md:p-12 flex justify-center bg-zinc-100/50 dark:bg-zinc-950">
-        <div className="w-full max-w-4xl min-h-[600px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xl rounded-2xl p-8 md:p-12 focus-within:ring-2 focus-within:ring-black dark:focus-within:ring-white transition-shadow">
+        <div className={`w-full ${
+          isNote
+            ? 'max-w-2xl min-h-[400px] bg-amber-50/70 dark:bg-zinc-900 border border-amber-200/80 dark:border-amber-950/40 shadow-xl rounded-2xl p-6 md:p-8'
+            : 'max-w-4xl min-h-[600px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xl rounded-2xl p-8 md:p-12'
+        } focus-within:ring-2 focus-within:ring-black dark:focus-within:ring-white transition-all`}>
           <div
             ref={editorRef}
             contentEditable
             onInput={handleContentChange}
             onKeyUp={handleSelectionChange}
-            onClick={handleSelectionChange}
-            className="prose dark:prose-invert max-w-none focus:outline-none min-h-[500px]"
-            style={{ minHeight: '500px' }}
+            onKeyDown={handleEditorKeyDown}
+            onClick={handleEditorClick}
+            className="prose dark:prose-invert max-w-none focus:outline-none min-h-[350px]"
+            style={{ minHeight: isNote ? '350px' : '500px' }}
           />
         </div>
       </div>

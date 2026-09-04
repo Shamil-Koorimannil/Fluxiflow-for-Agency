@@ -22,6 +22,12 @@ class Project(models.Model):
             models.Index(fields=['created_at']),
         ]
 
+    def save(self, *args, **kwargs):
+        if not self.organization_id and self.created_by:
+            from apps.accounts.tenant_context import get_active_organization
+            self.organization = get_active_organization(self.created_by)
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return self.name
 

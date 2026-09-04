@@ -10,9 +10,6 @@ export type TaskCategory =
   | 'completed';
 
 export function getTaskDates(task: Task): string[] {
-  if (task.dates && task.dates.length > 0) {
-    return task.dates;
-  }
   if (task.due_date) {
     return [task.due_date];
   }

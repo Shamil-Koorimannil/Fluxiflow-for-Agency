@@ -8,7 +8,7 @@ class IsAdmin(permissions.BasePermission):
         if not (request.user and request.user.is_authenticated):
             return False
         from apps.accounts.tenant_context import is_admin_or_org_admin
-        return is_admin_or_org_admin(request.user)
+        return is_admin_or_org_admin(request.user, request=request)
 
 class IsAdminOrReadOnlyMember(permissions.BasePermission):
     """
@@ -18,6 +18,6 @@ class IsAdminOrReadOnlyMember(permissions.BasePermission):
         if not (request.user and request.user.is_authenticated):
             return False
         from apps.accounts.tenant_context import is_admin_or_org_admin
-        if is_admin_or_org_admin(request.user):
+        if is_admin_or_org_admin(request.user, request=request):
             return True
         return request.method in permissions.SAFE_METHODS

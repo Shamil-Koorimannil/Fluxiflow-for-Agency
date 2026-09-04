@@ -292,7 +292,7 @@ export const ProjectDetail: React.FC = () => {
       onOpenDetail={(id) => setSelectedTaskId(id)}
       onEdit={(t) => {
         setTaskToEdit(t);
-        setIsTaskModalOpen(true);
+        setIsTaskModalOpen(false);
       }}
       onToggleComplete={(targetTask) => {
         if (targetTask.status === 'COMPLETED') {
@@ -561,25 +561,21 @@ export const ProjectDetail: React.FC = () => {
           onClose={() => setSelectedTaskId(null)}
           onEdit={(task) => {
             setSelectedTaskId(null);
+            setIsTaskModalOpen(false);
             setTaskToEdit(task);
           }}
         />
       )}
 
-      {/* EDIT MODAL OVERLAY */}
-      {taskToEdit && (
-        <TaskFormModal
-          isOpen={true}
-          onClose={() => setTaskToEdit(null)}
-          taskToEdit={taskToEdit}
-          defaultProjectId={project.id}
-        />
-      )}
-
-      {/* CREATE TASK MODAL OVERLAY */}
+      {/* CREATE / EDIT TASK MODAL OVERLAY */}
       <TaskFormModal
-        isOpen={isTaskModalOpen}
-        onClose={() => setIsTaskModalOpen(false)}
+        key={taskToEdit ? `edit-${taskToEdit.id}` : 'create-project-task'}
+        isOpen={isTaskModalOpen || !!taskToEdit}
+        onClose={() => {
+          setIsTaskModalOpen(false);
+          setTaskToEdit(null);
+        }}
+        taskToEdit={taskToEdit}
         projectId={project.id}
       />
 

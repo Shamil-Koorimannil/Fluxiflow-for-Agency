@@ -126,11 +126,12 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
     e.preventDefault();
     const file = e.dataTransfer.files?.[0];
     if (file) {
-      if (file.name.endsWith('.xlsx')) {
+      const filenameLower = file.name.toLowerCase();
+      if (filenameLower.endsWith('.xlsx') || filenameLower.endsWith('.csv')) {
         setErrorMsg(null);
         validateMutation.mutate(file);
       } else {
-        setErrorMsg('Only .xlsx Excel files are supported.');
+        setErrorMsg('Only .xlsx Excel and .csv files are supported.');
       }
     }
   };
@@ -228,14 +229,14 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
                   type="file"
                   ref={fileInputRef}
                   onChange={handleFileChange}
-                  accept=".xlsx"
+                  accept=".xlsx,.csv"
                   className="hidden"
                 />
                 {validateMutation.isPending ? (
                   <>
                     <Loader2 className="h-8 w-8 text-zinc-400 animate-spin" />
                     <p className="text-xs font-medium text-zinc-650 dark:text-zinc-350">
-                      Reading spreadsheet and running validation tests...
+                      Reading file and running validation tests...
                     </p>
                   </>
                 ) : (
@@ -246,7 +247,7 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
                         Drag and drop your spreadsheet here, or <span className="underline text-black dark:text-white">browse</span>
                       </p>
                       <p className="text-[10px] text-zinc-400 mt-1">
-                        Only official Fluxiflow .xlsx template sheets are supported. Max 5MB file size.
+                        Only official Fluxiflow .xlsx or .csv template files are supported. Max 5MB file size.
                       </p>
                     </div>
                   </>

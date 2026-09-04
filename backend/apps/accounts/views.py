@@ -33,7 +33,7 @@ def get_task_due_datetime(due_date, due_time):
         return make_aware(due_dt)
     return due_dt
 
-def calculate_user_health_metrics(user, start_date=None, end_date=None):
+def calculate_user_health_metrics(user, start_date=None, end_date=None, organization=None):
     now = timezone.now()
     today_date = now.date()
     
@@ -48,11 +48,12 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None):
     # pyrefly: ignore [missing-import]
     from apps.tasks.models import TaskAssignee, SubTaskAssignee
     
-    # Get all TaskAssignee records for this user
-    assignments = TaskAssignee.objects.filter(user=user).select_related('task')
-    
-    # Get all SubTaskAssignee records for this user
-    subtask_assignments = SubTaskAssignee.objects.filter(user=user).select_related('subtask', 'subtask__task')
+    if organization:
+        assignments = TaskAssignee.objects.filter(user=user, task__organization=organization).select_related('task')
+        subtask_assignments = SubTaskAssignee.objects.filter(user=user, subtask__task__organization=organization).select_related('subtask', 'subtask__task')
+    else:
+        assignments = TaskAssignee.objects.filter(user=user).select_related('task')
+        subtask_assignments = SubTaskAssignee.objects.filter(user=user).select_related('subtask', 'subtask__task')
     
     # 1. Current Workload penalties (disjoint definitions)
     overdue_pending_tasks = 0
@@ -440,7 +441,7 @@ class TeamListView(views.APIView):
         data = []
         
         for user in users:
-            metrics = calculate_user_health_metrics(user, start_date=start_date, end_date=end_date)
+            metrics = calculate_user_health_metrics(user, start_date=start_date, end_date=end_date, organization=active_org)
             user_data = UserSerializer(user, context={'request': request}).data
             
             # Map role based on active organization membership
@@ -791,13 +792,17 @@ class TeamWorkloadView(views.APIView):
             except Exception:
                 pass
 
-        metrics = calculate_user_health_metrics(user, start_date=start_date, end_date=end_date)
+        active_org = get_active_organization(request.user, request=request)
+        metrics = calculate_user_health_metrics(user, start_date=start_date, end_date=end_date, organization=active_org)
         today = timezone.now().date()
         yesterday = today - timedelta(days=1)
         tomorrow = today + timedelta(days=1)
 
-        # Query unique task IDs first to avoid duplicate results from joined tables
-        task_ids = Task.objects.filter(assignee_relationships__user=user).values_list('id', flat=True).distinct()
+        # Query unique task IDs first for active organization
+        if active_org:
+            task_ids = Task.objects.filter(organization=active_org, assignee_relationships__user=user).values_list('id', flat=True).distinct()
+        else:
+            task_ids = Task.objects.none()
         user_tasks = Task.objects.filter(id__in=task_ids).order_by('due_date', 'due_time')
 
         # Workload capacity calculations

@@ -23,28 +23,44 @@ class TaskViewSet(viewsets.ModelViewSet):
         
         from apps.accounts.tenant_context import get_active_organization, is_admin_or_org_admin
         from django.db.models import Q
-        active_org = get_active_organization(user)
+        active_org = get_active_organization(user, request=self.request)
         if not active_org:
             return Task.objects.none()
 
-        org_filter = Q(organization=active_org) | Q(organization__isnull=True)
         project_id = self.request.query_params.get('project')
+        status_param = self.request.query_params.get('status')
+        status_not_param = self.request.query_params.get('status_not')
+        tab_param = self.request.query_params.get('tab')
+        
+        base_qs = Task.objects.filter(organization=active_org)
         
         if self.action == 'list':
             if project_id:
-                queryset = Task.objects.filter(org_filter, project_id=project_id)
+                queryset = base_qs.filter(project_id=project_id)
             else:
-                queryset = Task.objects.filter(org_filter, assignee_relationships__user=user)
+                if is_admin_or_org_admin(user, request=self.request):
+                    queryset = base_qs
+                else:
+                    queryset = base_qs.filter(assignee_relationships__user=user)
         else:
-            if is_admin_or_org_admin(user):
-                queryset = Task.objects.filter(org_filter)
+            if is_admin_or_org_admin(user, request=self.request):
+                queryset = base_qs
             else:
-                queryset = Task.objects.filter(
-                    org_filter
-                ).filter(
-                    Q(assignee_relationships__user=user) | Q(created_by=user) | Q(project__isnull=False)
+                queryset = base_qs.filter(
+                    Q(assignee_relationships__user=user) | Q(created_by=user)
                 )
-                
+
+        if status_param:
+            queryset = queryset.filter(status=status_param)
+        if status_not_param:
+            queryset = queryset.exclude(status=status_not_param)
+        if tab_param == 'incompleted':
+            queryset = queryset.exclude(status='COMPLETED')
+        elif tab_param == 'no_due_date':
+            queryset = queryset.filter(due_date__isnull=True)
+        elif tab_param == 'completed':
+            queryset = queryset.filter(status='COMPLETED')
+
         return queryset.distinct().order_by('due_date', 'due_time', 'created_at')
 
     def list(self, request, *args, **kwargs):
@@ -157,7 +173,53 @@ class TaskViewSet(viewsets.ModelViewSet):
         if not self.check_modify_permission(request):
             return Response({"detail": "Only Admins can create tasks."}, status=status.HTTP_403_FORBIDDEN)
         
-        serializer = self.get_serializer(data=request.data)
+        dates = request.data.get('dates')
+        unique_dates = []
+        if isinstance(dates, list):
+            for d in dates:
+                if d and d not in unique_dates:
+                    unique_dates.append(d)
+
+        if len(unique_dates) > 1:
+            from django.db import transaction
+            created_tasks = []
+            with transaction.atomic():
+                for d in unique_dates:
+                    payload = request.data.copy()
+                    payload['due_date'] = d
+                    if 'dates' in payload:
+                        del payload['dates']
+                    serializer = self.get_serializer(data=payload)
+                    serializer.is_valid(raise_exception=True)
+                    task = serializer.save()
+                    created_tasks.append(task)
+                    
+                    ActivityLog.objects.create(
+                        user=request.user,
+                        action='TASK_CREATED',
+                        entity_type='Task',
+                        entity_id=task.id,
+                        description=f"{request.user.name} created task '{task.name}'."
+                    )
+                    assignees_names = ", ".join([rel.user.name for rel in task.assignee_relationships.all()])
+                    if assignees_names:
+                        ActivityLog.objects.create(
+                            user=request.user,
+                            action='TASK_ASSIGNED',
+                            entity_type='Task',
+                            entity_id=task.id,
+                            description=f"{request.user.name} assigned task '{task.name}' to {assignees_names}."
+                        )
+            serialized_tasks = self.get_serializer(created_tasks, many=True)
+            return Response(serialized_tasks.data, status=status.HTTP_201_CREATED)
+
+        payload = request.data.copy()
+        if len(unique_dates) == 1:
+            payload['due_date'] = unique_dates[0]
+        if 'dates' in payload:
+            del payload['dates']
+
+        serializer = self.get_serializer(data=payload)
         if serializer.is_valid():
             task = serializer.save()
             # Log activity for creation
@@ -991,10 +1053,17 @@ class TaskCommentViewSet(viewsets.ModelViewSet):
             except (Task.DoesNotExist, ValueError):
                 return TaskComment.objects.none()
 
+        from apps.accounts.tenant_context import get_active_organization
+        active_org = get_active_organization(user, request=self.request)
+        if not active_org:
+            return TaskComment.objects.none()
+
         if user.role == 'ADMIN':
-            return TaskComment.objects.all().select_related('author', 'task')
+            return TaskComment.objects.filter(task__organization=active_org).select_related('author', 'task')
         from django.db.models import Q
         return TaskComment.objects.filter(
+            task__organization=active_org
+        ).filter(
             Q(author=user) | Q(task__created_by=user) | Q(task__assignee_relationships__user=user) | Q(task__project__isnull=False)
         ).distinct().select_related('author', 'task')
 
@@ -1075,10 +1144,17 @@ class TaskAttachmentViewSet(viewsets.ModelViewSet):
             except (Task.DoesNotExist, ValueError):
                 return TaskAttachment.objects.none()
 
+        from apps.accounts.tenant_context import get_active_organization
+        active_org = get_active_organization(user, request=self.request)
+        if not active_org:
+            return TaskAttachment.objects.none()
+
         if user.role == 'ADMIN':
-            return TaskAttachment.objects.all().select_related('uploaded_by', 'task')
+            return TaskAttachment.objects.filter(task__organization=active_org).select_related('uploaded_by', 'task')
         from django.db.models import Q
         return TaskAttachment.objects.filter(
+            task__organization=active_org
+        ).filter(
             Q(uploaded_by=user) | Q(task__created_by=user) | Q(task__assignee_relationships__user=user) | Q(task__project__isnull=False)
         ).distinct().select_related('uploaded_by', 'task')
 

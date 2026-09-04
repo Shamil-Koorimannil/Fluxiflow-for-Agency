@@ -110,7 +110,7 @@ def generate_bulk_template(project):
         ("Description", "Optional. Detailed task description."),
         ("Priority", "Optional. Allowed values: Low, Medium, High. (Default: Medium)."),
         ("Status", "Optional. Allowed values: Pending, Completed. (Default: Pending)."),
-        ("Due Date", "Required. Format: YYYY-MM-DD (e.g. 2026-08-12)."),
+        ("Due Date", "Optional. Format: YYYY-MM-DD (e.g. 2026-08-12). Leave blank if no due date."),
         ("Due Time", "Optional. Format: HH:MM (24-hour, e.g. 14:30 or 09:00)."),
         ("Assignee Emails", "Optional. Comma-separated list of team member emails (e.g. muhammed@example.com, saleel@demo.com). Members must be active in the system.")
     ]
@@ -233,6 +233,83 @@ def parse_excel_row_value_to_time(val):
     except ValueError:
         return str(val).strip()
 
+def parse_csv_file(file_obj):
+    import csv
+    import uuid
+    try:
+        content = file_obj.read()
+        if isinstance(content, bytes):
+            try:
+                text = content.decode('utf-8-sig')
+            except UnicodeDecodeError:
+                text = content.decode('latin-1')
+        else:
+            text = content
+
+        f = io.StringIO(text)
+        reader = csv.reader(f)
+        header_row = next(reader, None)
+        if not header_row:
+            return False, "The CSV file is empty."
+
+        expected_headers = ["Title", "Description", "Priority", "Status", "Due Date", "Due Time", "Assignee Emails"]
+        col_mapping = {}
+        for h in expected_headers:
+            matched_idx = None
+            for idx, val in enumerate(header_row):
+                if val and str(val).strip().lower() == h.lower():
+                    matched_idx = idx
+                    break
+            col_mapping[h] = matched_idx
+
+        if col_mapping["Title"] is None:
+            return False, "The CSV file must contain a 'Title' column."
+
+        parsed_rows = []
+        row_idx = 2
+        for row in reader:
+            if not row or all(str(cell).strip() == "" for cell in row):
+                row_idx += 1
+                continue
+
+            def get_csv_val(h_name):
+                c_idx = col_mapping.get(h_name)
+                if c_idx is None or c_idx >= len(row):
+                    return None
+                v = str(row[c_idx]).strip()
+                return v if v != "" else None
+
+            title = get_csv_val("Title")
+            description = get_csv_val("Description")
+            priority = get_csv_val("Priority")
+            status = get_csv_val("Status")
+            due_date_raw = get_csv_val("Due Date")
+            due_time_raw = get_csv_val("Due Time")
+            assignee_emails_str = get_csv_val("Assignee Emails")
+
+            due_date = parse_excel_row_value_to_date(due_date_raw)
+            due_time = parse_excel_row_value_to_time(due_time_raw)
+
+            import_key = f"task_{row_idx}_{uuid.uuid4().hex[:6]}"
+
+            parsed_rows.append({
+                "row_number": row_idx,
+                "import_key": import_key,
+                "title": title,
+                "description": description,
+                "priority": priority,
+                "status": status,
+                "due_date": due_date,
+                "due_time": due_time,
+                "assignee_emails_str": assignee_emails_str,
+                "parent_key": None,
+            })
+            row_idx += 1
+
+        return True, parsed_rows
+    except Exception as e:
+        return False, f"Failed to parse CSV file: {str(e)}"
+
 def parse_excel_file(file_obj):
     import uuid
     try:
@@ -305,6 +382,11 @@ def parse_excel_file(file_obj):
         })
         
     return True, parsed_rows
+
+def parse_import_file(file_obj, filename):
+    if filename and filename.lower().endswith('.csv'):
+        return parse_csv_file(file_obj)
+    return parse_excel_file(file_obj)
 
 def normalize_priority(value):
     if not value:
@@ -409,17 +491,11 @@ def validate_bulk_import_data(tasks_list, project):
                 })
         item["status"] = normalized_status
 
-        # Due date validation
-        if not due_date or str(due_date).strip() == "":
-            errors.append({
-                "row": row_idx,
-                "field": "Due Date",
-                "value": "",
-                "message": f"Row {row_idx}: Due date is invalid. Please select a valid date."
-            })
-        else:
+        # Due date validation (Optional field)
+        if due_date is not None and str(due_date).strip() != "":
             try:
                 datetime.datetime.strptime(str(due_date).strip(), "%Y-%m-%d")
+                item["due_date"] = str(due_date).strip()
             except ValueError:
                 errors.append({
                     "row": row_idx,
@@ -427,11 +503,14 @@ def validate_bulk_import_data(tasks_list, project):
                     "value": str(due_date),
                     "message": f"Row {row_idx}: Due date is invalid. Please select a valid date."
                 })
-                
-        # Due time validation
-        if due_time and str(due_time).strip() != "":
+        else:
+            item["due_date"] = None
+
+        # Due time validation (Optional field)
+        if due_time is not None and str(due_time).strip() != "":
             try:
                 datetime.datetime.strptime(str(due_time).strip(), "%H:%M")
+                item["due_time"] = str(due_time).strip()
             except ValueError:
                 errors.append({
                     "row": row_idx,
@@ -439,11 +518,13 @@ def validate_bulk_import_data(tasks_list, project):
                     "value": str(due_time),
                     "message": f"Row {row_idx}: Due time is invalid. Please use a valid time."
                 })
-                
+        else:
+            item["due_time"] = None
+
         # Duplicate checks
-        if title and due_date:
+        if title:
             title_val = str(title).strip().lower()
-            due_date_val = str(due_date).strip()
+            due_date_val = str(item.get("due_date")).strip() if item.get("due_date") else ""
             task_key = (title_val, due_date_val)
             if task_key in existing_task_keys or task_key in seen_row_keys:
                 errors.append({
@@ -519,7 +600,7 @@ def import_tasks_confirm(tasks_list, project, request_user, request=None):
             serializer = TaskSerializer(data=serializer_data, context={'request': request})
             try:
                 serializer.is_valid(raise_exception=True)
-                task = serializer.save()
+                task = serializer.save(created_by=request_user)
                 
                 # If project organization exists, save it on task
                 if project.organization:
