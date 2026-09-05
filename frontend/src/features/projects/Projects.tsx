@@ -3,11 +3,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../services/api';
 import type { Project } from '../../types';
-import { Folder, Plus, ArrowUpDown, Check, Calendar, Filter, MoreVertical, ExternalLink, Copy, Download, Trash2 } from 'lucide-react';
-import { Button, Menu, MenuItem } from '@mui/material';
+import { Folder, Plus, ArrowUpDown, Calendar, MoreVertical, ExternalLink, Copy, Download, Trash2 } from 'lucide-react';
+import { Menu, MenuItem } from '@mui/material';
 import { formatDateOnly } from '../../utils/time';
 import { ProjectMonthPickerModal } from './ProjectMonthPickerModal';
 import { ProjectFormModal } from './ProjectFormModal';
+import { CustomDropdown } from '../../components/common/CustomDropdown';
 
 import { useOrganization } from '../../context/OrganizationContext';
 
@@ -26,14 +27,12 @@ export const Projects: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('newest');
   const [activeTab, setActiveTab] = useState<'active' | 'completed'>('active');
-  const [sortAnchorEl, setSortAnchorEl] = useState<null | HTMLElement>(null);
 
   // Project Date Filtering State
   const [dateFilter, setDateFilter] = useState<'all' | 'this_month' | 'this_year' | 'custom'>('all');
   const [customYear, setCustomYear] = useState<number>(new Date().getFullYear());
   const [customMonth, setCustomMonth] = useState<number | null>(new Date().getMonth());
   const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
-  const [dateFilterAnchorEl, setDateFilterAnchorEl] = useState<null | HTMLElement>(null);
 
   const { isAdmin } = useOrganization();
 
@@ -130,21 +129,6 @@ export const Projects: React.FC = () => {
         return 0;
     }
   });
-
-  const getSortLabel = () => {
-    switch (sortBy) {
-      case 'project_date_desc': return 'Project Date — Newest First';
-      case 'project_date_asc': return 'Project Date — Oldest First';
-      case 'newest': return 'Newest created';
-      case 'oldest': return 'Oldest created';
-      case 'name_asc': return 'Name A-Z';
-      case 'name_desc': return 'Name Z-A';
-      case 'progress_desc': return 'Progress: High to Low';
-      case 'progress_asc': return 'Progress: Low to High';
-      case 'recently_updated': return 'Recently updated';
-      default: return 'Newest created';
-    }
-  };
 
   const getDateFilterLabel = () => {
     if (dateFilter === 'all') return 'All Dates';
@@ -305,224 +289,42 @@ export const Projects: React.FC = () => {
             className="flex-1 sm:w-64 px-3 py-1.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white transition-colors"
           />
 
-          {/* Date Filter Trigger */}
-          <Button
-            onClick={(e) => setDateFilterAnchorEl(e.currentTarget)}
-            variant="outlined"
-            startIcon={<Filter size={14} />}
-            endIcon={<span>▾</span>}
-            sx={{
-              textTransform: 'none',
-              fontWeight: 600,
-              borderRadius: '8px',
-              borderColor: 'divider',
-              color: 'text.primary',
-              height: '36px',
-              fontSize: '12px',
-              px: 1.5,
-              whiteSpace: 'nowrap',
-              '&:hover': { borderColor: 'text.primary', bgcolor: 'action.hover' }
-            }}
-          >
-            Date: {getDateFilterLabel()}
-          </Button>
-
-          {/* Date Filter Menu */}
-          <Menu
-            anchorEl={dateFilterAnchorEl}
-            open={Boolean(dateFilterAnchorEl)}
-            onClose={() => setDateFilterAnchorEl(null)}
-            slotProps={{
-              paper: {
-                elevation: 1,
-                sx: {
-                  border: '1px solid #e4e4e7',
-                  borderRadius: '8px',
-                  minWidth: 180,
-                  '& .MuiMenuItem-root': {
-                    fontSize: '13px',
-                    fontWeight: 500,
-                    py: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 1.5,
-                    '&:hover': { bgcolor: '#f4f4f5' },
-                  },
-                },
-              },
-            }}
-          >
-            <MenuItem
-              onClick={() => {
-                setDateFilter('all');
-                setDateFilterAnchorEl(null);
-              }}
-            >
-              <span>All Dates</span>
-              {dateFilter === 'all' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                setDateFilter('this_month');
-                setDateFilterAnchorEl(null);
-              }}
-            >
-              <span>This Month</span>
-              {dateFilter === 'this_month' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                setDateFilter('this_year');
-                setDateFilterAnchorEl(null);
-              }}
-            >
-              <span>This Year</span>
-              {dateFilter === 'this_year' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                setDateFilterAnchorEl(null);
+          <CustomDropdown
+            value={dateFilter}
+            buttonText={`Date: ${getDateFilterLabel()}`}
+            icon={<Calendar size={15} />}
+            onChange={(val) => {
+              if (val === 'custom') {
                 setIsMonthPickerOpen(true);
-              }}
-            >
-              <span className="flex items-center gap-1.5">
-                <Calendar size={14} className="text-zinc-500" /> Select Month / Year...
-              </span>
-              {dateFilter === 'custom' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-          </Menu>
-          
-          {/* Polished Sort Trigger */}
-          <Button
-            onClick={(e) => setSortAnchorEl(e.currentTarget)}
-            variant="outlined"
-            startIcon={<ArrowUpDown size={15} />}
-            endIcon={<span>▾</span>}
-            sx={{
-              textTransform: 'none',
-              fontWeight: 600,
-              borderRadius: '8px',
-              borderColor: 'divider',
-              color: 'text.primary',
-              height: '36px',
-              fontSize: '12px',
-              px: 1.5,
-              whiteSpace: 'nowrap',
-              '&:hover': { borderColor: 'text.primary', bgcolor: 'action.hover' }
+              } else {
+                setDateFilter(val as any);
+              }
             }}
-          >
-            Sort: {getSortLabel()}
-          </Button>
+            options={[
+              { value: 'all', label: 'All Dates' },
+              { value: 'this_month', label: 'This Month' },
+              { value: 'this_year', label: 'This Year' },
+              { value: 'custom', label: 'Select Month / Year...', icon: <Calendar size={14} /> },
+            ]}
+          />
 
-          {/* Dropdown Menu for options */}
-          <Menu
-            anchorEl={sortAnchorEl}
-            open={Boolean(sortAnchorEl)}
-            onClose={() => setSortAnchorEl(null)}
-            slotProps={{
-              paper: {
-                elevation: 1,
-                sx: {
-                  border: '1px solid #e4e4e7',
-                  borderRadius: '8px',
-                  minWidth: 190,
-                  '& .MuiMenuItem-root': {
-                    fontSize: '13px',
-                    fontWeight: 500,
-                    py: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 1.5,
-                    '&:hover': { bgcolor: '#f4f4f5' },
-                  },
-                },
-              },
-            }}
-          >
-            <MenuItem
-              onClick={() => {
-                setSortBy('project_date_desc');
-                setSortAnchorEl(null);
-              }}
-            >
-              <span>Project Date — Newest First</span>
-              {sortBy === 'project_date_desc' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                setSortBy('project_date_asc');
-                setSortAnchorEl(null);
-              }}
-            >
-              <span>Project Date — Oldest First</span>
-              {sortBy === 'project_date_asc' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                setSortBy('newest');
-                setSortAnchorEl(null);
-              }}
-            >
-              <span>Newest created</span>
-              {sortBy === 'newest' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                setSortBy('oldest');
-                setSortAnchorEl(null);
-              }}
-            >
-              <span>Oldest first</span>
-              {sortBy === 'oldest' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                setSortBy('name_asc');
-                setSortAnchorEl(null);
-              }}
-            >
-              <span>Name A-Z</span>
-              {sortBy === 'name_asc' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                setSortBy('name_desc');
-                setSortAnchorEl(null);
-              }}
-            >
-              <span>Name Z-A</span>
-              {sortBy === 'name_desc' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                setSortBy('progress_desc');
-                setSortAnchorEl(null);
-              }}
-            >
-              <span>Progress: High to Low</span>
-              {sortBy === 'progress_desc' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                setSortBy('progress_asc');
-                setSortAnchorEl(null);
-              }}
-            >
-              <span>Progress: Low to High</span>
-              {sortBy === 'progress_asc' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                setSortBy('recently_updated');
-                setSortAnchorEl(null);
-              }}
-            >
-              <span>Recently updated</span>
-              {sortBy === 'recently_updated' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-          </Menu>
+          <CustomDropdown
+            value={sortBy}
+            onChange={(val) => setSortBy(val as any)}
+            icon={<ArrowUpDown size={15} />}
+            valuePrefix="Sort: "
+            options={[
+              { value: 'project_date_desc', label: 'Project Date — Newest First' },
+              { value: 'project_date_asc', label: 'Project Date — Oldest First' },
+              { value: 'newest', label: 'Newest created' },
+              { value: 'oldest', label: 'Oldest first' },
+              { value: 'name_asc', label: 'Name A-Z' },
+              { value: 'name_desc', label: 'Name Z-A' },
+              { value: 'progress_desc', label: 'Progress: High to Low' },
+              { value: 'progress_asc', label: 'Progress: Low to High' },
+              { value: 'recently_updated', label: 'Recently updated' },
+            ]}
+          />
         </div>
       </div>
 

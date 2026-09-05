@@ -212,8 +212,8 @@ class FluxiflowAPITests(TestCase):
         response = self.client.get(url_act)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-        # Workload details
-        url_wl = reverse('team_workload', args=[self.member1.id])
+        # Workload details for ANOTHER member
+        url_wl = reverse('team_workload', args=[self.member2.id])
         response = self.client.get(url_wl)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -587,7 +587,8 @@ class FluxiflowHealthAPITests(TestCase):
         
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {member_token}')
         response = self.client.get(reverse('team_list'))
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
 
     def test_late_submission_reopen_history_preservation(self):
         from apps.tasks.helpers import get_task_due_datetime

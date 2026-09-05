@@ -5,6 +5,8 @@ import { api } from '../../services/api';
 import type { Project, User } from '../../types';
 import { X } from 'lucide-react';
 
+import { CustomDropdown } from '../../components/common/CustomDropdown';
+
 interface PasteTasksModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -131,21 +133,20 @@ export const PasteTasksModal: React.FC<PasteTasksModalProps> = ({
         <form onSubmit={handlePaste} className="space-y-4">
           {/* Destination Project Selector */}
           <div className="space-y-1">
-            <label className="text-[10px] font-bold text-zinc-400 dark:text-zinc-550 uppercase tracking-widest block">
-              Destination Project
-            </label>
-            <select
+            <CustomDropdown
+              label="Destination Project"
+              fullWidth
               value={selectedProjectId}
-              onChange={(e) => setSelectedProjectId(e.target.value)}
-              className="w-full px-3 py-2 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-white text-black dark:text-white"
-            >
-              <option value="">No Project (Organization level)</option>
-              {projects?.map((proj) => (
-                <option key={proj.id} value={proj.id}>
-                  {proj.name}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => setSelectedProjectId(val)}
+              placeholder="No Project (Organization level)"
+              options={[
+                { value: '', label: 'No Project (Organization level)' },
+                ...(projects?.map((proj) => ({
+                  value: proj.id,
+                  label: proj.name,
+                })) || []),
+              ]}
+            />
           </div>
 
           {/* Assignees Selector Checkboxes */}

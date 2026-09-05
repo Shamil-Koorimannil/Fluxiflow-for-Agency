@@ -5,7 +5,7 @@ export type TaskCategory =
   | 'today'
   | 'tomorrow'
   | 'upcoming'
-  | 'overdue'
+  | 'pending'
   | 'no_due_date'
   | 'completed';
 
@@ -38,6 +38,6 @@ export function classifyTask(task: Task): TaskCategory {
   const hasFutureDate = dates.some((d) => d > today);
   if (hasFutureDate) return 'upcoming';
 
-  // If all assigned dates have passed and task is incomplete, it is overdue
-  return 'overdue';
+  // If assigned dates have passed and task is incomplete, it is pending
+  return 'pending';
 }

@@ -4,13 +4,12 @@ import type { Client } from '../../types';
 import { api } from '../../services/api';
 import { ClientCard } from './ClientCard';
 import { ClientFormModal } from './ClientFormModal';
-import { CustomDropdown } from '../../components/common/CustomDropdown';
 
 export const Clients: React.FC = () => {
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [statusFilter, setStatusFilter] = useState<string>('ACTIVE');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
@@ -24,7 +23,7 @@ export const Clients: React.FC = () => {
       if (searchQuery.trim()) {
         params.append('q', searchQuery.trim());
       }
-      if (statusFilter !== 'ALL') {
+      if (statusFilter) {
         params.append('status', statusFilter);
       }
 
@@ -88,16 +87,29 @@ export const Clients: React.FC = () => {
           />
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <CustomDropdown
-            value={statusFilter}
-            onChange={(val) => setStatusFilter(val)}
-            options={[
-              { value: 'ALL', label: 'All Statuses' },
-              { value: 'ACTIVE', label: 'Active' },
-              { value: 'INACTIVE', label: 'Inactive' },
-            ]}
-          />
+        <div className="flex items-center gap-1.5 overflow-x-auto select-none no-scrollbar w-full sm:w-auto">
+          <button
+            type="button"
+            onClick={() => setStatusFilter('ACTIVE')}
+            className={`rounded-full px-4 py-1.5 text-xs font-semibold tracking-wide transition-all ${
+              statusFilter === 'ACTIVE'
+                ? 'bg-black text-white dark:bg-white dark:text-black'
+                : 'bg-zinc-100 text-black border border-zinc-200/50 hover:bg-zinc-200 dark:bg-black dark:text-white dark:border-zinc-800 dark:hover:bg-white/10'
+            }`}
+          >
+            Active
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatusFilter('INACTIVE')}
+            className={`rounded-full px-4 py-1.5 text-xs font-semibold tracking-wide transition-all ${
+              statusFilter === 'INACTIVE'
+                ? 'bg-black text-white dark:bg-white dark:text-black'
+                : 'bg-zinc-100 text-black border border-zinc-200/50 hover:bg-zinc-200 dark:bg-black dark:text-white dark:border-zinc-800 dark:hover:bg-white/10'
+            }`}
+          >
+            Deactivated
+          </button>
         </div>
       </div>
 

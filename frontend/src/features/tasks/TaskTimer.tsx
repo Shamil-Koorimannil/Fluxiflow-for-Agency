@@ -10,6 +10,11 @@ interface TaskTimerProps {
 }
 
 export const TaskTimer: React.FC<TaskTimerProps> = ({ task, onTimerChange, compact = false }) => {
+  // Tasks without a Task Type must NOT display timer functionality
+  if (!task.task_type && !task.task_type_detail) {
+    return null;
+  }
+
   const [loading, setLoading] = useState(false);
   const [now, setNow] = useState(Date.now());
 

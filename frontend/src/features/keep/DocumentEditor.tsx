@@ -422,7 +422,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
           </button>
 
           {item.item_type === 'NOTE' && (
-            <StickyNote className="h-5 w-5 text-amber-500 flex-shrink-0" />
+            <StickyNote className="h-5 w-5 text-black dark:text-white flex-shrink-0" />
           )}
 
           <input

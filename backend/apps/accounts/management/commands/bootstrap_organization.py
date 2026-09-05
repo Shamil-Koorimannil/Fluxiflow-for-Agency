@@ -47,7 +47,9 @@ class Command(BaseCommand):
                     if not dry_run:
                         org.save(update_fields=['name', 'slug'])
 
-            org_name = 'Zywo'
+            # 1b. Run Zywo initial ORG_ADMIN setup
+            from django.core.management import call_command
+            call_command('setup_zywo_admins', dry_run=dry_run)
 
             # 2. Process users & memberships
             all_users = User.objects.all()

@@ -1,4 +1,5 @@
 import React from 'react';
+import { CustomDropdown } from './CustomDropdown';
 
 interface TimePickerProps {
   value: string; // "HH:MM" or ""
@@ -28,8 +29,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, disable
     }
   }
 
-  const handleHourChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const hr = e.target.value;
+  const handleHourChange = (hr: string) => {
     if (!hr) {
       onChange('');
       return;
@@ -38,8 +38,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, disable
     onChange(to24h(hr, min, selectedAmPm));
   };
 
-  const handleMinuteChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const min = e.target.value;
+  const handleMinuteChange = (min: string) => {
     if (!min) {
       onChange('');
       return;
@@ -48,8 +47,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, disable
     onChange(to24h(hr, min, selectedAmPm));
   };
 
-  const handleAmPmChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const ampm = e.target.value;
+  const handleAmPmChange = (ampm: string) => {
     const hr = selectedHour || '12';
     const min = selectedMinute || '00';
     onChange(to24h(hr, min, ampm));
@@ -68,52 +66,47 @@ export const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, disable
   const hoursList = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'));
   const minutesList = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
 
-  const selectClassName = "px-2.5 py-1.5 bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs text-black dark:text-white focus:outline-none focus:border-black dark:focus:border-white focus:ring-1 focus:ring-black dark:focus:ring-white disabled:opacity-50 transition-all cursor-pointer";
-
   return (
     <div className="flex items-center gap-1">
       {/* Hour select */}
-      <select
+      <CustomDropdown
+        size="sm"
+        disabled={disabled}
         value={selectedHour}
         onChange={handleHourChange}
-        disabled={disabled}
-        className={selectClassName}
-      >
-        <option value="">--</option>
-        {hoursList.map((hr) => (
-          <option key={hr} value={hr} className="bg-white dark:bg-black">
-            {hr}
-          </option>
-        ))}
-      </select>
+        placeholder="--"
+        options={[
+          { value: '', label: '--' },
+          ...hoursList.map((hr) => ({ value: hr, label: hr })),
+        ]}
+      />
 
       <span className="text-zinc-400 dark:text-zinc-600 font-bold select-none">:</span>
 
       {/* Minute select */}
-      <select
+      <CustomDropdown
+        size="sm"
+        disabled={disabled}
         value={selectedMinute}
         onChange={handleMinuteChange}
-        disabled={disabled}
-        className={selectClassName}
-      >
-        <option value="">--</option>
-        {minutesList.map((min) => (
-          <option key={min} value={min} className="bg-white dark:bg-black">
-            {min}
-          </option>
-        ))}
-      </select>
+        placeholder="--"
+        options={[
+          { value: '', label: '--' },
+          ...minutesList.map((min) => ({ value: min, label: min })),
+        ]}
+      />
 
       {/* AM/PM select */}
-      <select
+      <CustomDropdown
+        size="sm"
+        disabled={disabled}
         value={selectedAmPm}
         onChange={handleAmPmChange}
-        disabled={disabled}
-        className={selectClassName}
-      >
-        <option value="AM" className="bg-white dark:bg-black">AM</option>
-        <option value="PM" className="bg-white dark:bg-black">PM</option>
-      </select>
+        options={[
+          { value: 'AM', label: 'AM' },
+          { value: 'PM', label: 'PM' },
+        ]}
+      />
 
       {/* Clear/Reset shortcut helper if values are entered */}
       {(selectedHour || selectedMinute) && (
@@ -130,3 +123,4 @@ export const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, disable
     </div>
   );
 };
+

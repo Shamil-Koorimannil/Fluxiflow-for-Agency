@@ -20,17 +20,17 @@ class ClientManagementTestSuite(TestCase):
         self.admin1 = User.objects.create_user(
             email='admin1@acme.com', password='Password123!', name='Admin One', role='ADMIN'
         )
-        self.admin1.memberships.create(organization=self.org1)
+        self.admin1.memberships.create(organization=self.org1, role='ADMIN')
 
         self.member1 = User.objects.create_user(
             email='member1@acme.com', password='Password123!', name='Member One', role='MEMBER'
         )
-        self.member1.memberships.create(organization=self.org1)
+        self.member1.memberships.create(organization=self.org1, role='MEMBER')
 
         self.admin2 = User.objects.create_user(
             email='admin2@stark.com', password='Password123!', name='Admin Two', role='ADMIN'
         )
-        self.admin2.memberships.create(organization=self.org2)
+        self.admin2.memberships.create(organization=self.org2, role='ADMIN')
 
         self.client_admin1 = APIClient()
         self.client_admin1.force_authenticate(user=self.admin1)

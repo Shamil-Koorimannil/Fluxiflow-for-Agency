@@ -19,6 +19,7 @@ from apps.tasks.models import Task, TaskAssignee
 from apps.tasks.serializers import TaskSerializer
 # pyrefly: ignore [missing-import]
 from apps.core.permissions import IsAdmin
+from .tenant_context import get_active_membership, get_active_organization, get_active_role, is_org_admin, is_admin_or_org_admin
 import datetime
 from django.utils.timezone import make_aware
 
@@ -36,11 +37,16 @@ def get_task_due_datetime(due_date, due_time):
 def calculate_user_health_metrics(user, start_date=None, end_date=None, organization=None):
     now = timezone.now()
     today_date = now.date()
+    tomorrow_date = today_date + timedelta(days=1)
+    
+    # Standard 30-day rolling health window for health score calculation
+    rolling_30_start = now - timedelta(days=30)
+    rolling_30_end = now
     
     if start_date is None:
-        start_date = now - timedelta(days=30)
+        start_date = rolling_30_start
     if end_date is None:
-        end_date = now
+        end_date = rolling_30_end
         
     start_date_val = start_date
     end_date_val = end_date
@@ -55,49 +61,49 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None, organiza
         assignments = TaskAssignee.objects.filter(user=user).select_related('task')
         subtask_assignments = SubTaskAssignee.objects.filter(user=user).select_related('subtask', 'subtask__task')
     
-    # 1. Current Workload penalties (disjoint definitions)
-    overdue_pending_tasks = 0
-    today_pending_tasks = 0
-    
-    # Filter pending assignments to all currently active tasks
-    pending_assignments = [
-        a for a in assignments 
-        if a.task.status != 'COMPLETED' and a.task.due_date
-    ]
-    pending_subtask_assignments = [
-        sa for sa in subtask_assignments 
-        if sa.subtask.status != 'COMPLETED' and sa.subtask.due_date
-    ]
-    
-    from apps.tasks.helpers import calculate_submission_status, calculate_assignee_submission_status
-    for a in pending_assignments:
-        sub_status, _ = calculate_submission_status(a)
-        if sub_status == "OVERDUE":
-            overdue_pending_tasks += 1
-        elif a.task.due_date == today_date:
-            today_pending_tasks += 1
- 
-    for sa in pending_subtask_assignments:
-        sub_status, _ = calculate_assignee_submission_status(sa, sa.subtask.due_date, sa.subtask.due_time)
-        if sub_status == "OVERDUE":
-            overdue_pending_tasks += 1
-        elif sa.subtask.due_date == today_date:
-            today_pending_tasks += 1
- 
-    # 2. Historical Performance: Completed tasks/subtasks in the date range
+    # 1. Operational Task Counts (Current state - independent of historical reporting period)
+    pending_tasks_count = 0  # status != COMPLETED and due_date < today
+    today_tasks_count = 0    # due_date == today (both completed & incomplete)
+    today_incomplete_count = 0
+    tomorrow_tasks_count = 0 # due_date == tomorrow (both completed & incomplete)
+
+    for a in assignments:
+        t = a.task
+        if t.status != 'COMPLETED' and t.due_date and t.due_date < today_date:
+            pending_tasks_count += 1
+        if t.due_date == today_date:
+            today_tasks_count += 1
+            if t.status != 'COMPLETED':
+                today_incomplete_count += 1
+        if t.due_date == tomorrow_date:
+            tomorrow_tasks_count += 1
+
+    for sa in subtask_assignments:
+        st = sa.subtask
+        if st.status != 'COMPLETED' and st.due_date and st.due_date < today_date:
+            pending_tasks_count += 1
+        if st.due_date == today_date:
+            today_tasks_count += 1
+            if st.status != 'COMPLETED':
+                today_incomplete_count += 1
+        if st.due_date == tomorrow_date:
+            tomorrow_tasks_count += 1
+
+    # 2. Historical Performance: Completed tasks/subtasks in 30-day health window
     completed_assignments_30 = [
         a for a in assignments 
-        if a.task.status == 'COMPLETED' and a.task.completed_at and start_date_val <= a.task.completed_at <= end_date_val
+        if a.task.status == 'COMPLETED' and a.task.completed_at and rolling_30_start <= a.task.completed_at <= rolling_30_end
     ]
     completed_subtask_assignments_30 = [
         sa for sa in subtask_assignments
-        if sa.subtask.status == 'COMPLETED' and sa.subtask.completed_at and start_date_val <= sa.subtask.completed_at <= end_date_val
+        if sa.subtask.status == 'COMPLETED' and sa.subtask.completed_at and rolling_30_start <= sa.subtask.completed_at <= rolling_30_end
     ]
     
     total_completed_tasks = len(completed_assignments_30) + len(completed_subtask_assignments_30)
     on_time_completed_tasks = 0
     late_completed_tasks_in_last_30_days = 0
     
+    from apps.tasks.helpers import calculate_submission_status, calculate_assignee_submission_status
     for a in completed_assignments_30:
         sub_status, _ = calculate_submission_status(a)
         if sub_status == "LATE":
@@ -115,19 +121,19 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None, organiza
     if total_completed_tasks > 0:
         on_time_completion_rate = on_time_completed_tasks / total_completed_tasks
     else:
-        # Default to 1.0 unless they have a critical number of overdue tasks (threshold of 7)
-        if overdue_pending_tasks >= 7:
+        # Default to 1.0 unless they have a critical number of pending tasks (threshold of 7)
+        if pending_tasks_count >= 7:
             on_time_completion_rate = 0.0
         else:
             on_time_completion_rate = 1.0
         
     historical_score = 70.0 * on_time_completion_rate
     
-    overdue_pending_penalty = overdue_pending_tasks * 10
-    today_pending_penalty = today_pending_tasks * 3
+    pending_penalty = pending_tasks_count * 10
+    today_pending_penalty = today_incomplete_count * 3
     late_completion_penalty = late_completed_tasks_in_last_30_days * 2
     
-    current_workload_score = 100 - overdue_pending_penalty - today_pending_penalty - late_completion_penalty
+    current_workload_score = 100 - pending_penalty - today_pending_penalty - late_completion_penalty
     current_workload_score = max(0, current_workload_score)
     
     health_score = historical_score + (30.0 * (current_workload_score / 100.0))
@@ -145,28 +151,77 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None, organiza
     else:
         health_status = 'critical'
         
-    # Recalculate completed_this_week & completed_this_month for the selected period
+    # Filter completed tasks for requested period (start_date_val to end_date_val)
+    completed_assignments_period = [
+        a for a in assignments 
+        if a.task.status == 'COMPLETED' and a.task.completed_at and start_date_val <= a.task.completed_at <= end_date_val
+    ]
+    completed_subtask_assignments_period = [
+        sa for sa in subtask_assignments
+        if sa.subtask.status == 'COMPLETED' and sa.subtask.completed_at and start_date_val <= sa.subtask.completed_at <= end_date_val
+    ]
+
     start_of_week = end_date_val - timedelta(days=7)
     completed_this_week = 0
-    completed_this_month = total_completed_tasks
+    completed_this_month = len(completed_assignments_period) + len(completed_subtask_assignments_period)
     
-    for a in completed_assignments_30:
-        if a.completed_at and a.completed_at >= start_of_week:
+    for a in completed_assignments_period:
+        if a.task.completed_at and a.task.completed_at >= start_of_week:
             completed_this_week += 1
-    for sa in completed_subtask_assignments_30:
-        if sa.completed_at and sa.completed_at >= start_of_week:
+    for sa in completed_subtask_assignments_period:
+        if sa.subtask.completed_at and sa.subtask.completed_at >= start_of_week:
             completed_this_week += 1
+
+    # Workload & Capacity metrics
+    capacity_hours = 40.0
+    total_allocated_seconds = 0
+    completed_allocated_seconds = 0
+
+    for a in assignments:
+        t = a.task
+        task_seconds = t.allocated_seconds or (t.task_type.allocated_seconds if t.task_type else 3600)
+        if t.status != 'COMPLETED':
+            total_allocated_seconds += task_seconds
+        else:
+            completed_allocated_seconds += task_seconds
+
+    for sa in subtask_assignments:
+        st = sa.subtask
+        st_seconds = getattr(st, 'allocated_seconds', None) or 1800
+        if st.status != 'COMPLETED':
+            total_allocated_seconds += st_seconds
+        else:
+            completed_allocated_seconds += st_seconds
+
+    total_allocated_hours = round(total_allocated_seconds / 3600.0, 1)
+    completed_allocated_hours = round(completed_allocated_seconds / 3600.0, 1)
+    workload_percentage = min(150, round((total_allocated_hours / capacity_hours) * 100))
+
+    if workload_percentage < 70:
+        workload_status = 'Underloaded'
+    elif workload_percentage <= 100:
+        workload_status = 'Balanced'
+    elif workload_percentage <= 120:
+        workload_status = 'High'
+    else:
+        workload_status = 'Overloaded'
                 
     return {
         "health_score": health_score,
         "health_status": health_status,
-        "pending_tasks": len(pending_assignments) + len(pending_subtask_assignments),
-        "today_tasks": today_pending_tasks,
-        "overdue_tasks": overdue_pending_tasks,
+        "pending_tasks": pending_tasks_count,
+        "today_tasks": today_tasks_count,
+        "tomorrow_tasks": tomorrow_tasks_count,
+        "overdue_tasks": pending_tasks_count,
         "completed_this_week": completed_this_week,
         "completed_this_month": completed_this_month,
         "on_time_completion_rate": round(on_time_completion_rate, 2),
-        "late_completions": late_completed_tasks_in_last_30_days
+        "late_completions": late_completed_tasks_in_last_30_days,
+        "total_allocated_hours": total_allocated_hours,
+        "completed_allocated_hours": completed_allocated_hours,
+        "capacity_hours": capacity_hours,
+        "workload_percentage": workload_percentage,
+        "workload_status": workload_status,
     }
 
 
@@ -319,6 +374,8 @@ class MeView(views.APIView):
                 active_org_data = {
                     "id": str(active_mem.organization.id),
                     "name": active_mem.organization.name,
+                    "display_name": active_mem.organization.display_name,
+                    "effective_name": active_mem.organization.effective_name,
                     "slug": active_mem.organization.slug,
                     "role": active_mem.role,
                     "logo_url": request.build_absolute_uri(active_mem.organization.logo.url) if active_mem.organization.logo else None
@@ -334,6 +391,8 @@ class MeView(views.APIView):
                 orgs_list.append({
                     "id": str(m.organization.id),
                     "name": m.organization.name,
+                    "display_name": m.organization.display_name,
+                    "effective_name": m.organization.effective_name,
                     "slug": m.organization.slug,
                     "role": m.role,
                     "logo_url": request.build_absolute_uri(m.organization.logo.url) if m.organization.logo else None
@@ -342,8 +401,16 @@ class MeView(views.APIView):
             import logging
             logging.getLogger(__name__).warning("MeView membership exception: %s", str(e))
 
+        active_org = get_active_organization(request.user, request=request)
+        metrics = calculate_user_health_metrics(request.user, organization=active_org)
+
         return Response({
             **user_data,
+            "health_score": metrics["health_score"],
+            "health_status": metrics["health_status"],
+            "pending_tasks": metrics["pending_tasks"],
+            "today_tasks": metrics["today_tasks"],
+            "tomorrow_tasks": metrics["tomorrow_tasks"],
             "active_organization": active_org_data,
             "organizations": orgs_list
         })
@@ -404,7 +471,7 @@ class ProfileView(views.APIView):
 # --- Admin-only Team Workload and CRUD endpoints ---
 
 class TeamListView(views.APIView):
-    permission_classes = [permissions.IsAuthenticated, IsAdmin]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         import django.utils.dateparse
@@ -429,17 +496,25 @@ class TeamListView(views.APIView):
             except Exception:
                 pass
 
-        active_org = get_active_organization(request.user)
+        active_org = get_active_organization(request.user, request=request)
         if not active_org:
             return Response([], status=status.HTTP_200_OK)
 
-        memberships_map = {
-            m.user_id: m.role for m in Membership.objects.filter(organization=active_org, is_active=True)
-        }
-        member_ids = list(memberships_map.keys())
-        users = User.objects.filter(id__in=member_ids).order_by('name').prefetch_related('task_assignments__task')
-        data = []
+        active_role = get_active_role(request.user, request=request)
+        if not active_role:
+            return Response({"detail": "Active organization membership required."}, status=status.HTTP_403_FORBIDDEN)
+
+        if active_role == 'MEMBER':
+            memberships_map = {request.user.id: 'MEMBER'}
+            users = User.objects.filter(id=request.user.id).order_by('name').prefetch_related('task_assignments__task')
+        else:
+            memberships_map = {
+                m.user_id: m.role for m in Membership.objects.filter(organization=active_org, is_active=True)
+            }
+            member_ids = list(memberships_map.keys())
+            users = User.objects.filter(id__in=member_ids).order_by('name').prefetch_related('task_assignments__task')
         
+        data = []
         for user in users:
             metrics = calculate_user_health_metrics(user, start_date=start_date, end_date=end_date, organization=active_org)
             user_data = UserSerializer(user, context={'request': request}).data
@@ -451,11 +526,17 @@ class TeamListView(views.APIView):
             user_data['health_status'] = metrics['health_status']
             user_data['pending_tasks'] = metrics['pending_tasks']
             user_data['today_tasks'] = metrics['today_tasks']
+            user_data['tomorrow_tasks'] = metrics['tomorrow_tasks']
             user_data['overdue_tasks'] = metrics['overdue_tasks']
             user_data['completed_this_week'] = metrics['completed_this_week']
             user_data['completed_this_month'] = metrics['completed_this_month']
             user_data['on_time_completion_rate'] = metrics['on_time_completion_rate']
             user_data['late_completions'] = metrics['late_completions']
+            user_data['total_allocated_hours'] = metrics['total_allocated_hours']
+            user_data['completed_allocated_hours'] = metrics['completed_allocated_hours']
+            user_data['capacity_hours'] = metrics['capacity_hours']
+            user_data['workload_percentage'] = metrics['workload_percentage']
+            user_data['workload_status'] = metrics['workload_status']
             
             # Backwards compatibility fields
             user_data['pending_tasks_count'] = metrics['pending_tasks']
@@ -467,6 +548,10 @@ class TeamListView(views.APIView):
         return Response(data)
 
     def post(self, request):
+        active_role = get_active_role(request.user, request=request)
+        if active_role not in ('ORG_ADMIN', 'ADMIN'):
+            return Response({"detail": "Only organization administrators can add or invite team members."}, status=status.HTTP_403_FORBIDDEN)
+
         email = request.data.get('email', '').strip().lower()
         name = request.data.get('name', '').strip()
         role = request.data.get('role', 'MEMBER')
@@ -474,7 +559,7 @@ class TeamListView(views.APIView):
         if not email or not name:
             return Response({"detail": "Name and email are required fields."}, status=status.HTTP_400_BAD_REQUEST)
 
-        active_org = get_active_organization(request.user)
+        active_org = get_active_organization(request.user, request=request)
         if not active_org:
             return Response({"detail": "No active organization found."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -578,9 +663,21 @@ class TeamListView(views.APIView):
 
 
 class TeamDetailView(views.APIView):
-    permission_classes = [permissions.IsAuthenticated, IsAdmin]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, pk=None):
+        active_org = get_active_organization(request.user, request=request)
+        active_role = get_active_role(request.user, request=request)
+        if not active_org or not active_role:
+            return Response({"detail": "Active organization membership required."}, status=status.HTTP_403_FORBIDDEN)
+
+        if active_role == 'MEMBER':
+            if str(pk) != str(request.user.id):
+                return Response({"detail": "You do not have permission to view another member's details."}, status=status.HTTP_403_FORBIDDEN)
+        else:
+            if not Membership.objects.filter(organization=active_org, user_id=pk, is_active=True).exists():
+                return Response({"detail": "User not found in active organization."}, status=status.HTTP_404_NOT_FOUND)
+
         try:
             user = User.objects.get(id=pk)
         except User.DoesNotExist:
@@ -590,6 +687,14 @@ class TeamDetailView(views.APIView):
         return Response(serializer.data)
 
     def patch(self, request, pk=None):
+        active_org = get_active_organization(request.user, request=request)
+        active_role = get_active_role(request.user, request=request)
+        if active_role not in ('ORG_ADMIN', 'ADMIN'):
+            return Response({"detail": "Only organization administrators can modify member details."}, status=status.HTTP_403_FORBIDDEN)
+
+        if not Membership.objects.filter(organization=active_org, user_id=pk, is_active=True).exists():
+            return Response({"detail": "User not found in active organization."}, status=status.HTTP_404_NOT_FOUND)
+
         try:
             user: CustomUser = User.objects.get(id=pk)  # type: ignore
         except User.DoesNotExist:
@@ -605,9 +710,25 @@ class TeamDetailView(views.APIView):
         with transaction.atomic():
             if name:
                 user.name = name
+                user.save()
+
             if role:
-                user.role = role
-            user.save()
+                if active_role != 'ORG_ADMIN':
+                    return Response({"detail": "Only ORG_ADMIN can change organization roles."}, status=status.HTTP_403_FORBIDDEN)
+                if role not in ('MEMBER', 'ADMIN', 'ORG_ADMIN'):
+                    return Response({"detail": "Invalid target role."}, status=status.HTTP_400_BAD_REQUEST)
+
+                target_mem = Membership.objects.filter(organization=active_org, user_id=pk).first()
+                if not target_mem:
+                    return Response({"detail": "User membership not found in active organization."}, status=status.HTTP_404_NOT_FOUND)
+
+                if target_mem.role == 'ORG_ADMIN' and role != 'ORG_ADMIN':
+                    admin_count = Membership.objects.filter(organization=active_org, role='ORG_ADMIN', is_active=True).count()
+                    if admin_count <= 1:
+                        return Response({"detail": "Cannot demote the final ORG_ADMIN of the organization."}, status=status.HTTP_400_BAD_REQUEST)
+
+                target_mem.role = role
+                target_mem.save()
 
             # Profile picture patch
             profile, created = Profile.objects.get_or_create(user=user)
@@ -628,9 +749,17 @@ class TeamDetailView(views.APIView):
 
 
 class TeamDeactivateView(views.APIView):
-    permission_classes = [permissions.IsAuthenticated, IsAdmin]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, pk=None):
+        active_org = get_active_organization(request.user, request=request)
+        active_role = get_active_role(request.user, request=request)
+        if active_role not in ('ORG_ADMIN', 'ADMIN'):
+            return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
+
+        if not Membership.objects.filter(organization=active_org, user_id=pk, is_active=True).exists():
+            return Response({"detail": "User not found in active organization."}, status=status.HTTP_404_NOT_FOUND)
+
         try:
             user: CustomUser = User.objects.get(id=pk)  # type: ignore
         except User.DoesNotExist:
@@ -670,9 +799,17 @@ class TeamDeactivateView(views.APIView):
 
 
 class TeamReactivateView(views.APIView):
-    permission_classes = [permissions.IsAuthenticated, IsAdmin]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, pk=None):
+        active_org = get_active_organization(request.user, request=request)
+        active_role = get_active_role(request.user, request=request)
+        if active_role not in ('ORG_ADMIN', 'ADMIN'):
+            return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
+
+        if not Membership.objects.filter(organization=active_org, user_id=pk).exists():
+            return Response({"detail": "User not found in active organization."}, status=status.HTTP_404_NOT_FOUND)
+
         try:
             user: CustomUser = User.objects.get(id=pk)  # type: ignore
         except User.DoesNotExist:
@@ -706,9 +843,17 @@ class TeamReactivateView(views.APIView):
 
 
 class TeamResendInvitationView(views.APIView):
-    permission_classes = [permissions.IsAuthenticated, IsAdmin]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, pk=None):
+        active_org = get_active_organization(request.user, request=request)
+        active_role = get_active_role(request.user, request=request)
+        if active_role not in ('ORG_ADMIN', 'ADMIN'):
+            return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
+
+        if not Membership.objects.filter(organization=active_org, user_id=pk).exists():
+            return Response({"detail": "User not found in active organization."}, status=status.HTTP_404_NOT_FOUND)
+
         try:
             user: CustomUser = User.objects.get(id=pk)  # type: ignore
         except User.DoesNotExist:
@@ -723,7 +868,7 @@ class TeamResendInvitationView(views.APIView):
             invite.expires_at = timezone.now() + timedelta(days=7)
             invite.save()
         except Invitation.DoesNotExist:
-            org = Organization.objects.first()
+            org = active_org or Organization.objects.first()
             invite = Invitation.objects.create(
                 organization=org,
                 email=user.email,
@@ -760,11 +905,22 @@ class TeamResendInvitationView(views.APIView):
         return Response({"detail": "Invitation resent successfully."}, status=status.HTTP_200_OK)
 
 
-
 class TeamWorkloadView(views.APIView):
-    permission_classes = [permissions.IsAuthenticated, IsAdmin]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, pk=None):
+        active_org = get_active_organization(request.user, request=request)
+        active_role = get_active_role(request.user, request=request)
+        if not active_org or not active_role:
+            return Response({"detail": "Active organization membership required."}, status=status.HTTP_403_FORBIDDEN)
+
+        if active_role == 'MEMBER':
+            if str(pk) != str(request.user.id):
+                return Response({"detail": "You do not have permission to view another member's health or workload information."}, status=status.HTTP_403_FORBIDDEN)
+        else:
+            if not Membership.objects.filter(organization=active_org, user_id=pk, is_active=True).exists():
+                return Response({"detail": "User not found in active organization."}, status=status.HTTP_404_NOT_FOUND)
+
         try:
             user: CustomUser = User.objects.get(id=pk)  # type: ignore
         except User.DoesNotExist:
@@ -792,7 +948,6 @@ class TeamWorkloadView(views.APIView):
             except Exception:
                 pass
 
-        active_org = get_active_organization(request.user, request=request)
         metrics = calculate_user_health_metrics(user, start_date=start_date, end_date=end_date, organization=active_org)
         today = timezone.now().date()
         yesterday = today - timedelta(days=1)
@@ -806,7 +961,7 @@ class TeamWorkloadView(views.APIView):
         user_tasks = Task.objects.filter(id__in=task_ids).order_by('due_date', 'due_time')
 
         # Workload capacity calculations
-        membership = user.memberships.first()
+        membership = user.memberships.filter(organization=active_org).first() or user.memberships.first()
         org = membership.organization if membership else Organization.objects.first()
         capacity_hours = org.weekly_capacity_hours if org else 40
         capacity_seconds = capacity_hours * 3600
@@ -844,11 +999,11 @@ class TeamWorkloadView(views.APIView):
 
         # Segment tasks based on canonical task status
         completed_tasks = user_tasks.filter(status='COMPLETED').order_by('-completed_at')
-        incomplete_tasks = user_tasks.filter(status='PENDING')
+        incomplete_tasks = user_tasks.exclude(status='COMPLETED')
 
-        today_tasks = incomplete_tasks.filter(due_date=today)
-        tomorrow_tasks = incomplete_tasks.filter(due_date=tomorrow)
-        overdue_tasks = incomplete_tasks.filter(due_date__lt=today)
+        pending_tasks = incomplete_tasks.filter(due_date__lt=today)
+        today_tasks = user_tasks.filter(due_date=today)
+        tomorrow_tasks = user_tasks.filter(due_date=tomorrow)
         upcoming_tasks = incomplete_tasks.filter(due_date__gt=tomorrow)
         no_due_date_tasks = incomplete_tasks.filter(due_date__isnull=True)
 
@@ -885,33 +1040,50 @@ class TeamWorkloadView(views.APIView):
                 "is_active": user.is_active,
                 "deactivated_at": user.deactivated_at.isoformat() if user.deactivated_at else None,  # type: ignore
                 "avatar_url": request.build_absolute_uri(user.profile.avatar.url) if (getattr(user, 'profile', None) and user.profile.avatar) else None,
+                "pending_tasks": metrics["pending_tasks"],
+                "today_tasks": metrics["today_tasks"],
+                "tomorrow_tasks": metrics["tomorrow_tasks"],
                 "total_pending": metrics["pending_tasks"],
                 "due_today": metrics["today_tasks"],
+                "due_tomorrow": metrics["tomorrow_tasks"],
                 "completed_this_week": metrics["completed_this_week"],
                 "completed_this_month": metrics["completed_this_month"],
                 "health_score": metrics["health_score"],
                 "health_status": metrics["health_status"],
-                "overdue_tasks": metrics["overdue_tasks"],
+                "overdue_tasks": metrics["pending_tasks"],
                 "on_time_completion_rate": metrics["on_time_completion_rate"],
                 "late_completions": metrics["late_completions"]
             },
             "workload_stats": workload_stats,
             "workload": {
+                "pending": TaskSerializer(pending_tasks, many=True, context=context).data,
                 "today": TaskSerializer(today_tasks, many=True, context=context).data,
                 "tomorrow": TaskSerializer(tomorrow_tasks, many=True, context=context).data,
-                "overdue": TaskSerializer(overdue_tasks, many=True, context=context).data,
                 "upcoming": TaskSerializer(upcoming_tasks, many=True, context=context).data,
                 "no_due_date": TaskSerializer(no_due_date_tasks, many=True, context=context).data,
                 "completed": TaskSerializer(completed_tasks, many=True, context=context).data,
+                "overdue": TaskSerializer(pending_tasks, many=True, context=context).data,
             },
             "tasks": TaskSerializer(user_tasks, many=True, context=context).data
         })
 
 
 class TeamTasksView(views.APIView):
-    permission_classes = [permissions.IsAuthenticated, IsAdmin]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, pk=None):
+        active_org = get_active_organization(request.user, request=request)
+        active_role = get_active_role(request.user, request=request)
+        if not active_org or not active_role:
+            return Response({"detail": "Active organization membership required."}, status=status.HTTP_403_FORBIDDEN)
+
+        if active_role == 'MEMBER':
+            if str(pk) != str(request.user.id):
+                return Response({"detail": "You do not have permission to view another member's tasks."}, status=status.HTTP_403_FORBIDDEN)
+        else:
+            if not Membership.objects.filter(organization=active_org, user_id=pk, is_active=True).exists():
+                return Response({"detail": "User not found in active organization."}, status=status.HTTP_404_NOT_FOUND)
+
         try:
             user = User.objects.get(id=pk)
         except User.DoesNotExist:
@@ -942,14 +1114,15 @@ class TeamTasksView(views.APIView):
         now = timezone.now()
         today_date = now.date()
 
-        # Query using the canonical assignment relationship
-        queryset = Task.objects.filter(assignee_relationships__user=user).distinct()
+        # Query using the canonical assignment relationship scoped to active org
+        queryset = Task.objects.filter(organization=active_org, assignee_relationships__user=user).distinct()
         
         queryset = queryset.order_by('due_date', 'due_time', 'created_at')
             
         context = {'request': request, 'target_user': user}
         serializer = TaskSerializer(queryset, many=True, context=context)
         return Response(serializer.data)
+
 
 
 class RequestEmailChangeOTPView(views.APIView):
@@ -1294,14 +1467,22 @@ class OrganizationViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='members')
     def list_members(self, request):
-        active_org = get_active_organization(request.user)
+        active_org = get_active_organization(request.user, request=request)
         if not active_org:
             return Response({"detail": "No active organization context found."}, status=status.HTTP_400_BAD_REQUEST)
 
-        memberships = Membership.objects.filter(
-            organization=active_org,
-            is_active=True
-        ).select_related('user', 'user__profile')
+        active_role = get_active_role(request.user, request=request)
+        if active_role == 'MEMBER':
+            memberships = Membership.objects.filter(
+                organization=active_org,
+                user=request.user,
+                is_active=True
+            ).select_related('user', 'user__profile')
+        else:
+            memberships = Membership.objects.filter(
+                organization=active_org,
+                is_active=True
+            ).select_related('user', 'user__profile')
         serializer = MembershipSerializer(memberships, many=True, context={'request': request})
         return Response(serializer.data)
 

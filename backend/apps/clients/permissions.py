@@ -1,25 +1,24 @@
 from rest_framework import permissions
+from apps.accounts.tenant_context import is_admin_or_org_admin, get_active_organization
 
 class IsAdminUserRole(permissions.BasePermission):
     """
-    V1 Permission policy: Admin users have full access to Clients and Brand Assets.
-    Members are restricted in V1.
-    Centralized capability check for easy future enablement.
+    Permission policy: Admin and OrgAdmin users have full access to Clients and Brand Assets in active organization.
+    Members are restricted.
     """
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
             return False
-        # V1 Admin-only access restriction
-        return getattr(request.user, 'role', None) == 'ADMIN'
+        return is_admin_or_org_admin(request.user, request=request)
 
     def has_object_permission(self, request, view, obj):
         if not request.user or not request.user.is_authenticated:
             return False
-        if getattr(request.user, 'role', None) != 'ADMIN':
+        if not is_admin_or_org_admin(request.user, request=request):
             return False
         
-        # Enforce organization boundary
-        user_org = request.user.memberships.first().organization if request.user.memberships.exists() else None
-        if not user_org:
+        active_org = get_active_organization(request.user, request=request)
+        if not active_org:
             return False
-        return getattr(obj, 'organization_id', None) == user_org.id
+        return getattr(obj, 'organization_id', None) == active_org.id
+

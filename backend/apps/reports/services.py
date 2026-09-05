@@ -343,37 +343,33 @@ class ReportGenerator:
         border_double = Side(border_style="double", color="333333")
         grid_border = Border(left=border_thin, right=border_thin, top=border_thin, bottom=border_thin)
 
-        # Title block (merged up to G for 7 columns)
-        ws1.merge_cells("A1:G1")
-        ws1["A1"] = f"Fluxiflow Daily Work Report ({data['start_date']} to {data['end_date']})"
+        # Title block
+        ws1.merge_cells("A1:C1")
+        ws1["A1"] = f"Fluxiflow Client Deliverables Report ({data['start_date']} to {data['end_date']})"
         ws1["A1"].font = title_font
         ws1["A1"].fill = fill_title
         ws1["A1"].alignment = align_center
         ws1.row_dimensions[1].height = 40
 
         # Overall summary cards row
-        ws1["A3"] = "Total Members"
-        ws1["B3"] = "Total Completed"
-        ws1["C3"] = "Total On-Time"
-        ws1["D3"] = "Total Late"
-        ws1["E3"] = "Total Pending"
-        ws1["F3"] = "Total Overdue"
-        ws1["G3"] = "On-Time Completion %"
+        ws1["A3"] = "Total Deliverables"
+        ws1["B3"] = "Completed Tasks"
+        ws1["C3"] = "Pending Tasks"
         
-        for col in ["A", "B", "C", "D", "E", "F", "G"]:
+        for col in ["A", "B", "C"]:
             ws1[f"{col}3"].font = bold_font
             ws1[f"{col}3"].alignment = align_center
             ws1[f"{col}3"].fill = fill_accent
             
-        ws1["A4"] = data["summary"]["total_members"]
-        ws1["B4"] = data["summary"]["completed"]
-        ws1["C4"] = data["summary"]["on_time"]
-        ws1["D4"] = data["summary"]["late"]
-        ws1["E4"] = data["summary"]["pending"]
-        ws1["F4"] = data["summary"]["overdue"]
-        ws1["G4"] = f"{data['summary']['on_time_rate']}%"
+        total_deliverables = len(data["tasks"])
+        completed_cnt = sum(1 for t in data["tasks"] if t["status"] == "COMPLETED")
+        pending_cnt = total_deliverables - completed_cnt
+
+        ws1["A4"] = total_deliverables
+        ws1["B4"] = completed_cnt
+        ws1["C4"] = pending_cnt
         
-        for col in ["A", "B", "C", "D", "E", "F", "G"]:
+        for col in ["A", "B", "C"]:
             ws1[f"{col}4"].font = regular_font
             ws1[f"{col}4"].alignment = align_center
             ws1[f"{col}4"].border = grid_border
@@ -381,82 +377,41 @@ class ReportGenerator:
         ws1.row_dimensions[3].height = 20
         ws1.row_dimensions[4].height = 25
 
-        # Table Header
-        ws1["A7"] = "Member"
-        ws1["B7"] = "Completed"
-        ws1["C7"] = "On Time"
-        ws1["D7"] = "Late"
-        ws1["E7"] = "Pending"
-        ws1["F7"] = "Overdue"
-        ws1["G7"] = "On-Time Rate"
-        
-        for col in ["A", "B", "C", "D", "E", "F", "G"]:
-            ws1[f"{col}7"].font = header_font
-            ws1[f"{col}7"].fill = fill_header
-            ws1[f"{col}7"].alignment = align_center
-        
-        ws1.row_dimensions[7].height = 25
-
-        # Member list rows
-        row_idx = 8
-        for m in data["member_reports"]:
-            ws1.cell(row=row_idx, column=1, value=m["name"]).alignment = align_left
-            ws1.cell(row=row_idx, column=2, value=m["completed"]).alignment = align_center
-            ws1.cell(row=row_idx, column=3, value=m["on_time"]).alignment = align_center
-            ws1.cell(row=row_idx, column=4, value=m["late"]).alignment = align_center
-            ws1.cell(row=row_idx, column=5, value=m["pending"]).alignment = align_center
-            ws1.cell(row=row_idx, column=6, value=m["overdue"]).alignment = align_center
-            ws1.cell(row=row_idx, column=7, value=f"{m['on_time_rate']}%").alignment = align_center
-            
-            for col in range(1, 8):
-                cell = ws1.cell(row=row_idx, column=col)
-                cell.font = regular_font
-                cell.border = grid_border
-            ws1.row_dimensions[row_idx].height = 20
-            row_idx += 1
-
-        # Sheet 2: Task Details
-        ws2 = wb.create_sheet(title="Task Details")
-        assert ws2 is not None
-        
-        # Header block
-        headers = ["Date", "Member", "Project", "Task", "Subtask", "Status", "Due Date", "Due Time", "Completed At", "Submission Status", "Late By", "Priority"]
+        # Deliverables Sheet Header & Data
+        headers = ["Date", "Client", "Project", "Task", "Subtask", "Status", "Due Date", "Due Time", "Completed At", "Priority"]
         for col_idx, h_text in enumerate(headers, 1):
-            cell = ws2.cell(row=1, column=col_idx, value=h_text)
+            cell = ws1.cell(row=7, column=col_idx, value=h_text)
             cell.font = header_font
             cell.fill = fill_header
             cell.alignment = align_center
-        ws2.row_dimensions[1].height = 25
+        ws1.row_dimensions[7].height = 25
 
         # Data rows
-        detail_row = 2
+        detail_row = 8
         for t in data["tasks"]:
-            ws2.cell(row=detail_row, column=1, value=t["date"]).alignment = align_center
-            ws2.cell(row=detail_row, column=2, value=t["member_name"]).alignment = align_left
-            ws2.cell(row=detail_row, column=3, value=t["project_name"]).alignment = align_left
-            ws2.cell(row=detail_row, column=4, value=t["task_name"]).alignment = align_left
-            ws2.cell(row=detail_row, column=5, value=t["subtask_name"]).alignment = align_left
-            ws2.cell(row=detail_row, column=6, value=t["status"]).alignment = align_center
-            ws2.cell(row=detail_row, column=7, value=t["due_date"]).alignment = align_center
-            ws2.cell(row=detail_row, column=8, value=t["due_time"] or "-").alignment = align_center
-            ws2.cell(row=detail_row, column=9, value=t["completed_at"] or "-").alignment = align_center
-            ws2.cell(row=detail_row, column=10, value=t["on_time"]).alignment = align_center
-            ws2.cell(row=detail_row, column=11, value=t["late_by"]).alignment = align_center
-            ws2.cell(row=detail_row, column=12, value=t["priority"]).alignment = align_center
+            ws1.cell(row=detail_row, column=1, value=t["date"]).alignment = align_center
+            ws1.cell(row=detail_row, column=2, value=t.get("client_name") or "-").alignment = align_left
+            ws1.cell(row=detail_row, column=3, value=t["project_name"]).alignment = align_left
+            ws1.cell(row=detail_row, column=4, value=t["task_name"]).alignment = align_left
+            ws1.cell(row=detail_row, column=5, value=t["subtask_name"]).alignment = align_left
+            ws1.cell(row=detail_row, column=6, value=t["status"]).alignment = align_center
+            ws1.cell(row=detail_row, column=7, value=t["due_date"]).alignment = align_center
+            ws1.cell(row=detail_row, column=8, value=t["due_time"] or "-").alignment = align_center
+            ws1.cell(row=detail_row, column=9, value=t["completed_at"] or "-").alignment = align_center
+            ws1.cell(row=detail_row, column=10, value=t["priority"]).alignment = align_center
             
-            for col in range(1, 13):
-                cell = ws2.cell(row=detail_row, column=col)
+            for col in range(1, 11):
+                cell = ws1.cell(row=detail_row, column=col)
                 cell.font = regular_font
                 cell.border = grid_border
-            ws2.row_dimensions[detail_row].height = 20
+            ws1.row_dimensions[detail_row].height = 20
             detail_row += 1
 
-        # Auto-adjust column widths for readability
-        for ws in [ws1, ws2]:
-            for col in ws.columns:
-                max_len = max(len(str(cell.value or '')) for cell in col)
-                col_letter = get_column_letter(col[0].column)
-                ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+        # Auto-adjust column widths
+        for col in ws1.columns:
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            col_letter = get_column_letter(col[0].column)
+            ws1.column_dimensions[col_letter].width = max(max_len + 4, 12)
 
         output = BytesIO()
         wb.save(output)
@@ -474,13 +429,13 @@ class ReportGenerator:
         writer = csv.writer(output)
         
         # Headers
-        writer.writerow(["Date", "Member", "Project", "Task", "Subtask", "Status", "Due Date", "Due Time", "Completed At", "Submission Status", "Late By", "Priority"])
+        writer.writerow(["Date", "Client", "Project", "Task", "Subtask", "Status", "Due Date", "Due Time", "Completed At", "Priority"])
         
         # Data
         for t in data["tasks"]:
             writer.writerow([
                 t["date"],
-                t["member_name"],
+                t.get("client_name") or "",
                 t["project_name"],
                 t["task_name"],
                 t["subtask_name"],
@@ -488,8 +443,6 @@ class ReportGenerator:
                 t["due_date"],
                 t["due_time"] or "",
                 t["completed_at"] or "",
-                t["on_time"],
-                t["late_by"] if t["late_by"] != "-" else "",
                 t["priority"]
             ])
             
@@ -555,32 +508,28 @@ class ReportGenerator:
         story = []
         
         # Title block
-        story.append(Paragraph("Fluxiflow for Project Management", title_style))
-        story.append(Paragraph(f"Daily Work Report — {data['start_date']} to {data['end_date']}", subtitle_style))
+        story.append(Paragraph("Fluxiflow Deliverables Report", title_style))
+        story.append(Paragraph(f"Client & Project Progress Report — {data['start_date']} to {data['end_date']}", subtitle_style))
         
-        # Team Summary Box
-        story.append(Paragraph("Team Summary", section_heading))
+        total_deliverables = len(data["tasks"])
+        completed_cnt = sum(1 for t in data["tasks"] if t["status"] == "COMPLETED")
+        pending_cnt = total_deliverables - completed_cnt
+
+        # Summary Box
+        story.append(Paragraph("Deliverables Summary", section_heading))
         summary_table_data = [
             [
-                Paragraph("<b>Total Members</b>", body_style),
-                Paragraph("<b>Completed</b>", body_style),
-                Paragraph("<b>On Time</b>", body_style),
-                Paragraph("<b>Late</b>", body_style),
-                Paragraph("<b>Pending</b>", body_style),
-                Paragraph("<b>Overdue</b>", body_style),
-                Paragraph("<b>On-Time Rate</b>", body_style)
+                Paragraph("<b>Total Deliverables</b>", body_style),
+                Paragraph("<b>Completed Tasks</b>", body_style),
+                Paragraph("<b>Pending Tasks</b>", body_style)
             ],
             [
-                Paragraph(str(data["summary"]["total_members"]), body_style),
-                Paragraph(str(data["summary"]["completed"]), body_style),
-                Paragraph(str(data["summary"]["on_time"]), body_style),
-                Paragraph(str(data["summary"]["late"]), body_style),
-                Paragraph(str(data["summary"]["pending"]), body_style),
-                Paragraph(str(data["summary"]["overdue"]), body_style),
-                Paragraph(f"{data['summary']['on_time_rate']}%", bold_body)
+                Paragraph(str(total_deliverables), body_style),
+                Paragraph(str(completed_cnt), body_style),
+                Paragraph(str(pending_cnt), body_style)
             ]
         ]
-        summary_table = Table(summary_table_data, colWidths=[75, 75, 75, 75, 75, 75, 90])
+        summary_table = Table(summary_table_data, colWidths=[170, 170, 170])
         summary_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F2F2F2')),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
@@ -589,59 +538,19 @@ class ReportGenerator:
             ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
         ]))
         story.append(summary_table)
-        story.append(Spacer(1, 15))
-
-        # Member Breakdown Section
-        story.append(Paragraph("Member Reports Summary", section_heading))
-        member_table_data = [
-            [
-                Paragraph("<b>Member</b>", body_style),
-                Paragraph("<b>Completed</b>", body_style),
-                Paragraph("<b>On Time</b>", body_style),
-                Paragraph("<b>Late</b>", body_style),
-                Paragraph("<b>Pending</b>", body_style),
-                Paragraph("<b>Overdue</b>", body_style),
-                Paragraph("<b>On-Time Rate</b>", body_style)
-            ]
-        ]
-        for m in data["member_reports"]:
-            member_table_data.append([
-                Paragraph(m["name"], bold_body),
-                Paragraph(str(m["completed"]), body_style),
-                Paragraph(str(m["on_time"]), body_style),
-                Paragraph(str(m["late"]), body_style),
-                Paragraph(str(m["pending"]), body_style),
-                Paragraph(str(m["overdue"]), body_style),
-                Paragraph(f"{m['on_time_rate']}%", body_style)
-            ])
-            
-        member_table = Table(member_table_data, colWidths=[150, 65, 65, 65, 65, 65, 65])
-        member_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#333333')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CCCCCC')),
-            ('TOPPADDING', (0, 0), (-1, -1), 6),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-        ]))
-        for i in range(7):
-            member_table_data[0][i].style.textColor = colors.white
-            
-        story.append(member_table)
         story.append(Spacer(1, 20))
 
         # Task Details Section
-        story.append(Paragraph("Detailed Daily Task Log", section_heading))
+        story.append(Paragraph("Deliverables Log", section_heading))
         
         if len(data["tasks"]) == 0:
-            story.append(Paragraph("No matching tasks logged for this reporting period.", body_style))
+            story.append(Paragraph("No matching deliverables logged for this reporting period.", body_style))
         else:
             task_table_data = [
                 [
-                    Paragraph("<b>Date/Member</b>", body_style),
+                    Paragraph("<b>Date & Client</b>", body_style),
                     Paragraph("<b>Project & Task</b>", body_style),
-                    Paragraph("<b>Status / Late By</b>", body_style),
+                    Paragraph("<b>Status</b>", body_style),
                     Paragraph("<b>Due Date/Time</b>", body_style),
                     Paragraph("<b>Completed At</b>", body_style)
                 ]
@@ -651,23 +560,19 @@ class ReportGenerator:
                 if t['due_time']:
                     due_str += f", {t['due_time']}"
                 
-                # Format status column showing Late status details
                 if t["status"] == "COMPLETED":
-                    if t["on_time"] == "Late":
-                        status_html = f"<b>Completed</b><br/><font color='#ef4444'>Late ({t['late_by']})</font>"
-                    else:
-                        status_html = "<b>Completed</b><br/><font color='#10b981'>On Time</font>"
-                elif t["status"] == "OVERDUE":
-                    status_html = "<b><font color='#ef4444'>Overdue</font></b>"
+                    status_html = "<b><font color='#10b981'>Completed</font></b>"
                 else:
-                    status_html = "Pending"
+                    status_html = "<font color='#d97706'>Pending</font>"
                     
                 task_name_val = f"<b>{t['task_name']}</b>"
                 if t.get("subtask_name") and t["subtask_name"] != "-":
                     task_name_val = f"<b>{t['task_name']}</b><br/><font color='#666666'>Subtask: {t['subtask_name']}</font>"
 
+                client_str = f"<br/><font color='#666666'>{t.get('client_name') or ''}</font>" if t.get('client_name') else ""
+
                 task_table_data.append([
-                    Paragraph(f"<b>{t['member_name']}</b><br/><font color='#666666'>{t['date']}</font>", body_style),
+                    Paragraph(f"<b>{t['date']}</b>{client_str}", body_style),
                     Paragraph(f"{task_name_val}<br/><font color='#666666'>Project: {t['project_name']}</font>", body_style),
                     Paragraph(status_html, body_style),
                     Paragraph(due_str, body_style),

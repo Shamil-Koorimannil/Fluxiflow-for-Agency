@@ -26,7 +26,7 @@ class OTPAuthenticationTests(APITestCase):
         )
         ProfileClass = User._meta.get_field('profile').related_model
         ProfileClass.objects.create(user=self.admin)
-        Membership.objects.create(organization=self.org, user=self.admin)
+        Membership.objects.create(organization=self.org, user=self.admin, role='ADMIN')
 
         # Create active Member
         self.member = User.objects.create_user(
@@ -286,7 +286,7 @@ class TeamInvitationEmailTests(APITestCase):
             status='ACTIVE'
         )
         ProfileClass.objects.create(user=self.admin)
-        Membership.objects.create(organization=self.org, user=self.admin)
+        Membership.objects.create(organization=self.org, user=self.admin, role='ADMIN')
 
         mail.outbox.clear()
         OTPVerification.objects.all().delete()
@@ -513,7 +513,7 @@ class SecurityAuthenticationTests(APITestCase):
         )
         ProfileClass = User._meta.get_field('profile').related_model
         ProfileClass.objects.create(user=self.admin)
-        Membership.objects.create(organization=self.org, user=self.admin)
+        Membership.objects.create(organization=self.org, user=self.admin, role='ADMIN')
 
         # Member User (passwordless initially)
         self.member = User.objects.create_user(
@@ -859,7 +859,7 @@ class TeamHealthDateFilteringTests(APITestCase):
         ProfileClass = User._meta.get_field('profile').related_model
         ProfileClass.objects.create(user=self.admin)
         ProfileClass.objects.create(user=self.member)
-        Membership.objects.create(organization=self.org, user=self.admin)
+        Membership.objects.create(organization=self.org, user=self.admin, role='ADMIN')
         Membership.objects.create(organization=self.org, user=self.member)
         
         # We need task models
@@ -945,7 +945,7 @@ class TeamMemberTasksTests(APITestCase):
         )
         ProfileClass = User._meta.get_field('profile').related_model
         ProfileClass.objects.create(user=self.admin)
-        Membership.objects.create(organization=self.org, user=self.admin)
+        Membership.objects.create(organization=self.org, user=self.admin, role='ADMIN')
 
         # Create Member A
         self.member_a = User.objects.create_user(
@@ -1178,7 +1178,7 @@ class TaskCompletionAndSyncTests(APITestCase):
         )
         ProfileClass = User._meta.get_field('profile').related_model
         ProfileClass.objects.create(user=self.admin)
-        Membership.objects.create(organization=self.org, user=self.admin)
+        Membership.objects.create(organization=self.org, user=self.admin, role='ADMIN')
 
         # Create Member
         self.member = User.objects.create_user(
@@ -1436,7 +1436,7 @@ class TeamMemberDetailEndpointTestSuite(APITestCase):
             status='ACTIVE'
         )
         Profile.objects.create(user=self.admin)
-        Membership.objects.create(organization=self.org, user=self.admin)
+        Membership.objects.create(organization=self.org, user=self.admin, role='ADMIN')
 
         self.member_a = User.objects.create_user(
             email='member_a@example.com',

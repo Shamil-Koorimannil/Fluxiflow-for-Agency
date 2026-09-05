@@ -141,14 +141,14 @@ export const OrganizationSwitcher: React.FC = () => {
       >
         <div className="h-5 w-5 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-[10px] shrink-0">
           {activeOrganization?.logo_url ? (
-            <img src={activeOrganization.logo_url} alt={activeOrganization?.name || 'Workspace'} className="h-full w-full rounded-lg object-cover" />
+            <img src={activeOrganization.logo_url} alt={activeOrganization?.effective_name || activeOrganization?.name || 'Workspace'} className="h-full w-full rounded-lg object-cover" />
           ) : (
-            activeOrganization?.name.charAt(0).toUpperCase() || 'W'
+            (activeOrganization?.effective_name || activeOrganization?.display_name || activeOrganization?.name || 'W').charAt(0).toUpperCase()
           )}
         </div>
 
         <span className="truncate max-w-[120px] md:max-w-[160px]">
-          {activeOrganization?.name || 'Select Workspace'}
+          {activeOrganization?.effective_name || activeOrganization?.display_name || activeOrganization?.name || 'Select Workspace'}
         </span>
 
         <ChevronDown className={`h-3.5 w-3.5 text-zinc-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
@@ -161,7 +161,7 @@ export const OrganizationSwitcher: React.FC = () => {
             <p className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">Current Workspace</p>
             <div className="flex items-center justify-between mt-1">
               <span className="font-bold text-sm text-zinc-900 dark:text-zinc-100 truncate">
-                {activeOrganization?.name}
+                {activeOrganization?.effective_name || activeOrganization?.display_name || activeOrganization?.name}
               </span>
               {getRoleBadge(activeRole || undefined)}
             </div>
@@ -171,6 +171,7 @@ export const OrganizationSwitcher: React.FC = () => {
             <p className="px-3 py-1 text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">Workspaces ({organizations.length})</p>
             {organizations.map((org) => {
               const isSelected = org.id === activeOrganization?.id;
+              const orgName = org.effective_name || org.display_name || org.name;
               return (
                 <button
                   key={org.id}
@@ -183,9 +184,9 @@ export const OrganizationSwitcher: React.FC = () => {
                 >
                   <div className="flex items-center gap-2 truncate">
                     <div className="h-5 w-5 rounded-md bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-[10px] font-bold text-zinc-600 dark:text-zinc-400 shrink-0">
-                      {org.name.charAt(0).toUpperCase()}
+                      {orgName.charAt(0).toUpperCase()}
                     </div>
-                    <span className="truncate">{org.name}</span>
+                    <span className="truncate">{orgName}</span>
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0">

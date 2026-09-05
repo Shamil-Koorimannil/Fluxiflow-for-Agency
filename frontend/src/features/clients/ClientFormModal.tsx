@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom';
 import { X, Briefcase, AlertCircle, RefreshCw } from 'lucide-react';
 import type { Client, ClientStatus } from '../../types';
 import { api } from '../../services/api';
+import { CustomDropdown } from '../../components/common/CustomDropdown';
 
 interface ClientFormModalProps {
   isOpen: boolean;
@@ -168,17 +169,16 @@ export const ClientFormModal: React.FC<ClientFormModalProps> = ({
               />
             </div>
             <div>
-              <label className="block font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                Status
-              </label>
-              <select
+              <CustomDropdown
+                label="Status"
+                fullWidth
                 value={status}
-                onChange={(e) => setStatus(e.target.value as ClientStatus)}
-                className="w-full px-3.5 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs outline-none focus:border-black dark:focus:border-white transition-colors"
-              >
-                <option value="ACTIVE">Active</option>
-                <option value="INACTIVE">Inactive</option>
-              </select>
+                onChange={(val) => setStatus(val as ClientStatus)}
+                options={[
+                  { value: 'ACTIVE', label: 'Active' },
+                  { value: 'INACTIVE', label: 'Inactive' },
+                ]}
+              />
             </div>
           </div>
 

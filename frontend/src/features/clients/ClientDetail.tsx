@@ -2,10 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
   ArrowLeft, Edit, Plus, Folder, FileText, Download, Trash2, Mail, Phone, Globe, MapPin,
-  RefreshCw, AlertCircle, Upload, Link2, ExternalLink, Unlink, ArrowUpDown, Check, Calendar,
+  RefreshCw, AlertCircle, Upload, Link2, ExternalLink, Unlink, ArrowUpDown, Calendar,
   Filter, MoreVertical, ChevronRight, FolderPlus, Edit2, MoveRight, Eye
 } from 'lucide-react';
-import { Button, Menu, MenuItem } from '@mui/material';
+import { Menu, MenuItem } from '@mui/material';
 import type { Client, Project, ClientBrandAsset, ClientBrandAssetFolder } from '../../types';
 import { api } from '../../services/api';
 import { formatDateOnly } from '../../utils/time';
@@ -17,6 +17,7 @@ import { ProjectMonthPickerModal } from '../projects/ProjectMonthPickerModal';
 import { CreateFolderModal } from './CreateFolderModal';
 import { RenameModal } from './RenameModal';
 import { MoveAssetModal } from './MoveAssetModal';
+import { CustomDropdown } from '../../components/common/CustomDropdown';
 
 interface ClientDetailProps {
   viewMode?: 'full' | 'projects-only' | 'brand-assets-only';
@@ -70,10 +71,6 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
     { type: 'folder'; item: ClientBrandAssetFolder } | { type: 'asset'; item: ClientBrandAsset } | null
   >(null);
   const [moveAssetTarget, setMoveAssetTarget] = useState<ClientBrandAsset | null>(null);
-
-  // MUI Menu anchors
-  const [sortAnchorEl, setSortAnchorEl] = useState<null | HTMLElement>(null);
-  const [dateFilterAnchorEl, setDateFilterAnchorEl] = useState<null | HTMLElement>(null);
 
   // Context Menus
   const [folderMenuState, setFolderMenuState] = useState<{ anchorEl: HTMLElement | null; folder: ClientBrandAssetFolder | null }>({ anchorEl: null, folder: null });
@@ -174,16 +171,6 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
     }
   });
 
-  const getSortLabel = () => {
-    switch (projectSortBy) {
-      case 'project_date_desc': return 'Project Date — Newest First';
-      case 'project_date_asc': return 'Project Date — Oldest First';
-      case 'newest': return 'Newest Created';
-      case 'oldest': return 'Oldest Created';
-      default: return 'Newest Created';
-    }
-  };
-
   const getDateFilterLabel = () => {
     if (projectDateFilter === 'all') return 'All Dates';
     if (projectCustomMonth !== null) {
@@ -229,17 +216,6 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
     }
   };
 
-  const handleDeleteClient = async () => {
-    if (!client) return;
-    if (!confirm(`Are you sure you want to delete client "${client.name}"?`)) return;
-
-    try {
-      await api.delete(`/clients/${client.id}/`);
-      navigate('/app/clients');
-    } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to delete client.');
-    }
-  };
 
   const handleRemoveProject = async (project: Project, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -388,158 +364,35 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
         {/* Date Filter & Sort Controls */}
         <div className="flex flex-wrap items-center gap-3">
           {/* Date Filter Trigger */}
-          <Button
-            onClick={(e) => setDateFilterAnchorEl(e.currentTarget)}
-            variant="outlined"
-            startIcon={<Filter size={14} />}
-            endIcon={<span>▾</span>}
-            sx={{
-              textTransform: 'none',
-              fontWeight: 600,
-              borderRadius: '8px',
-              borderColor: 'divider',
-              color: 'text.primary',
-              height: '36px',
-              fontSize: '12px',
-              px: 1.5,
-              whiteSpace: 'nowrap',
-              '&:hover': { borderColor: 'text.primary', bgcolor: 'action.hover' }
-            }}
-          >
-            Date: {getDateFilterLabel()}
-          </Button>
-
-          <Menu
-            anchorEl={dateFilterAnchorEl}
-            open={Boolean(dateFilterAnchorEl)}
-            onClose={() => setDateFilterAnchorEl(null)}
-            slotProps={{
-              paper: {
-                elevation: 1,
-                sx: {
-                  border: '1px solid #e4e4e7',
-                  borderRadius: '8px',
-                  minWidth: 180,
-                  '& .MuiMenuItem-root': {
-                    fontSize: '13px',
-                    fontWeight: 500,
-                    py: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 1.5,
-                    '&:hover': { bgcolor: '#f4f4f5' },
-                  },
-                },
-              },
-            }}
-          >
-            <MenuItem
-              onClick={() => {
-                setProjectDateFilter('all');
-                setDateFilterAnchorEl(null);
-              }}
-            >
-              <span>All Dates</span>
-              {projectDateFilter === 'all' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                setDateFilterAnchorEl(null);
+          <CustomDropdown
+            value={projectDateFilter}
+            buttonText={`Date: ${getDateFilterLabel()}`}
+            icon={<Filter size={14} />}
+            onChange={(val) => {
+              if (val === 'custom') {
                 setIsMonthPickerOpen(true);
-              }}
-            >
-              <span className="flex items-center gap-1.5">
-                <Calendar size={14} className="text-zinc-500" /> Select Month / Year...
-              </span>
-              {projectDateFilter === 'custom' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-          </Menu>
-
-          {/* Sort Trigger */}
-          <Button
-            onClick={(e) => setSortAnchorEl(e.currentTarget)}
-            variant="outlined"
-            startIcon={<ArrowUpDown size={15} />}
-            endIcon={<span>▾</span>}
-            sx={{
-              textTransform: 'none',
-              fontWeight: 600,
-              borderRadius: '8px',
-              borderColor: 'divider',
-              color: 'text.primary',
-              height: '36px',
-              fontSize: '12px',
-              px: 1.5,
-              whiteSpace: 'nowrap',
-              '&:hover': { borderColor: 'text.primary', bgcolor: 'action.hover' }
+              } else {
+                setProjectDateFilter(val as any);
+              }
             }}
-          >
-            Sort: {getSortLabel()}
-          </Button>
+            options={[
+              { value: 'all', label: 'All Dates' },
+              { value: 'custom', label: 'Select Month / Year...', icon: <Calendar size={14} /> },
+            ]}
+          />
 
-          <Menu
-            anchorEl={sortAnchorEl}
-            open={Boolean(sortAnchorEl)}
-            onClose={() => setSortAnchorEl(null)}
-            slotProps={{
-              paper: {
-                elevation: 1,
-                sx: {
-                  border: '1px solid #e4e4e7',
-                  borderRadius: '8px',
-                  minWidth: 190,
-                  '& .MuiMenuItem-root': {
-                    fontSize: '13px',
-                    fontWeight: 500,
-                    py: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 1.5,
-                    '&:hover': { bgcolor: '#f4f4f5' },
-                  },
-                },
-              },
-            }}
-          >
-            <MenuItem
-              onClick={() => {
-                setProjectSortBy('newest');
-                setSortAnchorEl(null);
-              }}
-            >
-              <span>Newest Created</span>
-              {projectSortBy === 'newest' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                setProjectSortBy('oldest');
-                setSortAnchorEl(null);
-              }}
-            >
-              <span>Oldest Created</span>
-              {projectSortBy === 'oldest' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                setProjectSortBy('project_date_desc');
-                setSortAnchorEl(null);
-              }}
-            >
-              <span>Project Date — Newest First</span>
-              {projectSortBy === 'project_date_desc' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                setProjectSortBy('project_date_asc');
-                setSortAnchorEl(null);
-              }}
-            >
-              <span>Project Date — Oldest First</span>
-              {projectSortBy === 'project_date_asc' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-          </Menu>
+          <CustomDropdown
+            value={projectSortBy}
+            onChange={(val) => setProjectSortBy(val as any)}
+            icon={<ArrowUpDown size={15} />}
+            valuePrefix="Sort: "
+            options={[
+              { value: 'newest', label: 'Newest Created' },
+              { value: 'oldest', label: 'Oldest Created' },
+              { value: 'project_date_desc', label: 'Project Date — Newest First' },
+              { value: 'project_date_asc', label: 'Project Date — Oldest First' },
+            ]}
+          />
         </div>
       </div>
 
@@ -770,7 +623,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
                           <tr key={asset.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/40 transition-colors">
                             <td className="py-3 px-4 font-semibold">
                               <div className="flex items-center gap-2">
-                                <FileText className="h-4 w-4 text-purple-500 flex-shrink-0" />
+                                <FileText className="h-4 w-4 text-black dark:text-white flex-shrink-0" />
                                 <span className="truncate max-w-xs">{asset.name}</span>
                               </div>
                             </td>
@@ -1143,13 +996,6 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
             {client.status === 'ACTIVE' ? 'Archive Client' : 'Activate Client'}
           </button>
 
-          <button
-            onClick={handleDeleteClient}
-            className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl transition-colors"
-            title="Delete Client"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
         </div>
       </div>
 

@@ -8,7 +8,6 @@ import { classifyTask } from '../../utils/taskClassifier';
 import { PasteTasksModal } from '../tasks/PasteTasksModal';
 import { TaskCard } from '../tasks/TaskCard';
 import { useTaskDragSelect } from '../../hooks/useTaskDragSelect';
-import { SelectionToolbar } from '../../components/common/SelectionToolbar';
 import {
   Drawer,
   Box,
@@ -53,8 +52,8 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
-  // Filter state: 'all' | 'incompleted' | 'today' | 'tomorrow' | 'upcoming' | 'overdue' | 'no_due_date' | 'completed'
-  type FilterType = 'all' | 'incompleted' | 'today' | 'tomorrow' | 'upcoming' | 'overdue' | 'no_due_date' | 'completed';
+  // Filter state: 'all' | 'incompleted' | 'today' | 'tomorrow' | 'upcoming' | 'pending' | 'no_due_date' | 'completed'
+  type FilterType = 'all' | 'incompleted' | 'today' | 'tomorrow' | 'upcoming' | 'pending' | 'no_due_date' | 'completed';
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
 
   // Selected task to view detail panel
@@ -134,22 +133,6 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
     onOpenDetail: (taskId) => setSelectedTaskId(taskId),
   });
 
-  const bulkDeleteMutation = useMutation({
-    mutationFn: async (taskIds: string[]) => {
-      const response = await api.post('/tasks/bulk-delete/', { task_ids: taskIds });
-      return response.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
-      queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
-      queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
-      queryClient.invalidateQueries({ queryKey: ['team'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-      dragSelect.clearSelection();
-    },
-  });
 
   // Task Completion Mutation
   const completeTaskMutation = useMutation({
@@ -383,13 +366,12 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
               )}
 
               {/* Workload Stats Grid */}
-              <Box className="grid grid-cols-3 gap-3">
-                <Box className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 text-center">
+              <Box className="grid grid-cols-3 gap-3">                <Box className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 text-center">
                   <span className="block text-[9px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">
                     Pending
                   </span>
                   <span className="block text-xl font-bold tracking-tight mt-0.5">
-                    {summary.total_pending}
+                    {summary.pending_tasks ?? summary.total_pending ?? 0}
                   </span>
                 </Box>
                 <Box className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 text-center">
@@ -397,18 +379,18 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
                     Due Today
                   </span>
                   <span className="block text-xl font-bold tracking-tight mt-0.5">
-                    {summary.due_today}
+                    {summary.today_tasks ?? summary.due_today ?? 0}
                   </span>
                 </Box>
                 <Box className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 text-center">
                   <span className="block text-[9px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">
-                    Overdue
+                    Due Tomorrow
                   </span>
-                  <span className={`block text-xl font-bold tracking-tight mt-0.5 ${summary.overdue_tasks && summary.overdue_tasks > 0 ? 'text-red-650 dark:text-red-400' : ''}`}>
-                    {summary.overdue_tasks || 0}
+                  <span className="block text-xl font-bold tracking-tight mt-0.5">
+                    {summary.tomorrow_tasks ?? summary.due_tomorrow ?? 0}
                   </span>
                 </Box>
-                 <Box className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 text-center">
+                <Box className="bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 text-center">
                   <span className="block text-[9px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">
                     Completed (Wk)
                   </span>
@@ -491,7 +473,7 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
                 </Box>
                 {/* Filter Pills */}
                 <Box className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-                  {(['all', 'incompleted', 'today', 'tomorrow', 'upcoming', 'overdue', 'no_due_date', 'completed'] as const).map((filter) => (
+                  {(['all', 'incompleted', 'pending', 'today', 'tomorrow', 'upcoming', 'no_due_date', 'completed'] as const).map((filter) => (
                     <button
                       key={filter}
                       onClick={() => setActiveFilter(filter)}
@@ -503,7 +485,7 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
                     >
                       {filter === 'incompleted' ? 'Incompleted Tasks' :
                        filter === 'no_due_date' ? 'No Due Date' : 
-                       filter === 'overdue' ? 'Overdue' : 
+                       filter === 'pending' ? 'Pending' : 
                        filter === 'all' ? 'All' :
                        filter === 'today' ? 'Today' :
                        filter === 'tomorrow' ? 'Tomorrow' :
@@ -563,16 +545,6 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
         </Box>
       </Box>
 
-      {/* Floating Selection & Bulk Delete Toolbar */}
-      <SelectionToolbar
-        selectedCount={dragSelect.selectedTaskIds.length}
-        totalVisibleCount={processedTasks.length}
-        onClearSelection={dragSelect.clearSelection}
-        onSelectAll={() => dragSelect.selectAll()}
-        areAllSelected={processedTasks.length > 0 && processedTasks.every((t) => dragSelect.isSelected(t.id))}
-        onConfirmDelete={() => bulkDeleteMutation.mutateAsync(dragSelect.selectedTaskIds)}
-        isDeleting={bulkDeleteMutation.isPending}
-      />
 
       {/* Paste Tasks Modal */}
       <PasteTasksModal

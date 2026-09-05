@@ -118,7 +118,7 @@ def is_org_admin(user: CustomUser, request=None) -> bool:
 
 def is_admin_or_org_admin(user: CustomUser, request=None) -> bool:
     role = get_active_role(user, request=request)
-    return role in ('ORG_ADMIN', 'ADMIN') or getattr(user, 'role', None) == 'ADMIN'
+    return role in ('ORG_ADMIN', 'ADMIN')
 
 
 class IsTenantMember(permissions.BasePermission):
