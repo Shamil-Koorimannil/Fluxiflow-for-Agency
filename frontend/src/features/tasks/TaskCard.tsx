@@ -247,18 +247,19 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               allocatedSeconds={task.allocated_seconds}
             />
 
+            {/* Priority, Subtask & Overall Status Badges */}
             {task.priority && (
-              <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${getPriorityColor(task.priority)}`}>
+              <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider whitespace-nowrap ${getPriorityColor(task.priority)}`}>
                 {task.priority} Priority
               </span>
             )}
             {task.is_subtask && (
-              <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-250 dark:border-zinc-750">
+              <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider whitespace-nowrap bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-250 dark:border-zinc-750">
                 Subtask
               </span>
             )}
             {task.overall_status && (
-              <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${
+              <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider whitespace-nowrap ${
                 task.overall_status === 'COMPLETED'
                   ? 'bg-green-100 dark:bg-green-950/40 text-green-800 dark:text-green-300'
                   : task.overall_status === 'IN_PROGRESS'

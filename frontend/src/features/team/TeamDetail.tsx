@@ -273,22 +273,22 @@ export const TeamDetail: React.FC = () => {
           </div>
 
           {/* Member Stats Box */}
-          <div className="flex items-center gap-4 text-center p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800/80 rounded-2xl min-w-[240px]">
+          <div className="flex items-center gap-4 text-center p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800/80 rounded-2xl w-full sm:w-auto">
             <div className="flex-1">
               <span className="block text-xl font-bold text-zinc-900 dark:text-zinc-100">{tasks.length}</span>
-              <span className="text-[11px] text-zinc-400 font-medium">Total Tasks</span>
+              <span className="text-[11px] text-zinc-400 font-medium whitespace-nowrap">Total Tasks</span>
             </div>
             <div className="flex-1 border-l border-zinc-200 dark:border-zinc-800">
               <span className="block text-xl font-bold text-emerald-600 dark:text-emerald-400">
                 {completedTasks.length}
               </span>
-              <span className="text-[11px] text-zinc-400 font-medium">Completed</span>
+              <span className="text-[11px] text-zinc-400 font-medium whitespace-nowrap">Completed</span>
             </div>
             <div className="flex-1 border-l border-zinc-200 dark:border-zinc-800">
               <span className="block text-xl font-bold text-blue-600 dark:text-blue-400">
                 {incompleteTasks.length}
               </span>
-              <span className="text-[11px] text-zinc-400 font-medium">Incomplete</span>
+              <span className="text-[11px] text-zinc-400 font-medium whitespace-nowrap">Incomplete</span>
             </div>
           </div>
         </div>
@@ -298,10 +298,10 @@ export const TeamDetail: React.FC = () => {
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <Heart className="h-4 w-4 text-red-500 fill-red-500/20" />
-              <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+              <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider whitespace-nowrap">
                 Health
               </span>
-              <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase border tracking-wide ${getHealthColor(memberSummary.health_score, memberSummary.health_status)}`}>
+              <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase border tracking-wide whitespace-nowrap ${getHealthColor(memberSummary.health_score, memberSummary.health_status)}`}>
                 {memberSummary.health_status === 'no_data' ? 'no data' : (memberSummary.health_status?.replace('_', ' ') || 'healthy')}
               </span>
             </div>
@@ -328,12 +328,12 @@ export const TeamDetail: React.FC = () => {
 
       {/* View Switcher: Assigned Work vs Performance Report */}
       <div className="w-full mb-6 border-b border-zinc-200 dark:border-zinc-800">
-        <div className="flex items-center gap-2 overflow-x-auto pb-3 pt-1 no-scrollbar select-none min-h-[48px]">
+        <div className="flex items-center gap-2 overflow-x-auto pb-3 pt-1 no-scrollbar select-none min-h-[48px] max-w-full">
           <button
             type="button"
             onClick={() => setMainView('work')}
             aria-label="Assigned Work Tab"
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 w-auto cursor-pointer ${
               mainView === 'work'
                 ? 'bg-black dark:bg-white text-white dark:text-black shadow-sm font-bold'
                 : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800'
@@ -345,7 +345,7 @@ export const TeamDetail: React.FC = () => {
             type="button"
             onClick={() => setMainView('performance')}
             aria-label="Performance Report Tab"
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 w-auto cursor-pointer ${
               mainView === 'performance'
                 ? 'bg-black dark:bg-white text-white dark:text-black shadow-sm font-bold'
                 : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800'
@@ -371,8 +371,8 @@ export const TeamDetail: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Period:</span>
-                <span className="text-xs font-extrabold px-3 py-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100">
+                <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider whitespace-nowrap">Period:</span>
+                <span className="text-xs font-extrabold px-3 py-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 whitespace-nowrap">
                   Current Month
                 </span>
               </div>

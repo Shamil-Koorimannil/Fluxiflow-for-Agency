@@ -137,7 +137,7 @@ export const OrganizationSwitcher: React.FC = () => {
       <button
         onClick={() => setIsOpen(!isOpen)}
         disabled={isLoading}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-850 text-zinc-900 dark:text-zinc-100 transition-colors shadow-sm text-xs font-semibold"
+        className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-850 text-zinc-900 dark:text-zinc-100 transition-colors shadow-sm text-xs font-semibold whitespace-nowrap shrink-0"
       >
         <div className="h-5 w-5 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-[10px] shrink-0">
           {activeOrganization?.logo_url ? (
@@ -147,7 +147,7 @@ export const OrganizationSwitcher: React.FC = () => {
           )}
         </div>
 
-        <span className="truncate max-w-[120px] md:max-w-[160px]">
+        <span className="truncate whitespace-nowrap max-w-[100px] sm:max-w-[160px]">
           {activeOrganization?.effective_name || activeOrganization?.display_name || activeOrganization?.name || 'Select Workspace'}
         </span>
 
@@ -156,7 +156,7 @@ export const OrganizationSwitcher: React.FC = () => {
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xl z-50 p-2 space-y-1">
+        <div className="absolute right-0 mt-2 w-64 max-w-[calc(100vw-2rem)] rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xl z-50 p-2 space-y-1">
           <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800">
             <p className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">Current Workspace</p>
             <div className="flex items-center justify-between mt-1">

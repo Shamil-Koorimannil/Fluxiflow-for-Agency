@@ -127,9 +127,9 @@ export function CustomDropdown<T extends string | number = string>({
           error ? 'border-red-500 dark:border-red-500' : 'border-zinc-200 dark:border-zinc-800'
         } ${fullWidth ? 'w-full' : ''} ${sizeClasses[size]}`}
       >
-        <div className="flex items-center gap-2 truncate">
+        <div className="flex items-center gap-2 truncate min-w-0">
           {icon && <span className="text-zinc-500 dark:text-zinc-400 shrink-0">{icon}</span>}
-          <span className="truncate">{displayText}</span>
+          <span className="truncate whitespace-nowrap">{displayText}</span>
         </div>
         <ChevronDown
           className={`h-4 w-4 text-zinc-400 shrink-0 transition-transform duration-200 ${
@@ -141,7 +141,7 @@ export function CustomDropdown<T extends string | number = string>({
       {/* Dropdown Menu Popup */}
       {isOpen && (
         <div
-          className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} top-full mt-1.5 min-w-[180px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 overflow-hidden max-h-60 overflow-y-auto`}
+          className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} top-full mt-1.5 min-w-[180px] max-w-[calc(100vw-2rem)] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 overflow-hidden max-h-60 overflow-y-auto`}
           style={minWidth ? { minWidth } : undefined}
         >
           {options.length === 0 ? (

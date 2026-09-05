@@ -211,7 +211,7 @@ export const Reports: React.FC = () => {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6 max-w-full overflow-x-hidden">
+    <div className="max-w-7xl mx-auto space-y-6 w-full min-w-0">
       {/* HEADER SECTION */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -224,10 +224,10 @@ export const Reports: React.FC = () => {
         {/* REPORT TYPE & MODE TABS */}
         <div className="flex flex-wrap items-center gap-3">
           {/* Main Category Tabs: Client Reports vs Project Reports */}
-          <div className="flex bg-zinc-100 dark:bg-zinc-900 p-1 rounded-xl no-scrollbar overflow-x-auto">
+          <div className="flex items-center bg-zinc-100 dark:bg-zinc-900 p-1 rounded-xl no-scrollbar overflow-x-auto max-w-full">
             <button
               onClick={() => setReportType('client')}
-              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 w-auto ${
                 reportType === 'client'
                   ? 'bg-white dark:bg-black text-black dark:text-white shadow-sm'
                   : 'text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white'
@@ -238,7 +238,7 @@ export const Reports: React.FC = () => {
             </button>
             <button
               onClick={() => setReportType('project')}
-              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 w-auto ${
                 reportType === 'project'
                   ? 'bg-white dark:bg-black text-black dark:text-white shadow-sm'
                   : 'text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white'
@@ -250,10 +250,10 @@ export const Reports: React.FC = () => {
           </div>
 
           {/* Single Day vs Date Range Selector */}
-          <div className="flex bg-zinc-100 dark:bg-zinc-900 p-1 rounded-xl no-scrollbar overflow-x-auto">
+          <div className="flex items-center bg-zinc-100 dark:bg-zinc-900 p-1 rounded-xl no-scrollbar overflow-x-auto max-w-full">
             <button
               onClick={() => setMode('single')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 w-auto ${
                 mode === 'single'
                   ? 'bg-white dark:bg-black text-black dark:text-white shadow-sm'
                   : 'text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white'
@@ -263,7 +263,7 @@ export const Reports: React.FC = () => {
             </button>
             <button
               onClick={() => setMode('range')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 w-auto ${
                 mode === 'range'
                   ? 'bg-white dark:bg-black text-black dark:text-white shadow-sm'
                   : 'text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white'

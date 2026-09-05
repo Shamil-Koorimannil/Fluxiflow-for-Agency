@@ -87,11 +87,11 @@ export const Clients: React.FC = () => {
           />
         </div>
 
-        <div className="flex items-center gap-1.5 overflow-x-auto select-none no-scrollbar w-full sm:w-auto">
+        <div className="flex items-center gap-1.5 overflow-x-auto select-none no-scrollbar w-full sm:w-auto max-w-full">
           <button
             type="button"
             onClick={() => setStatusFilter('ACTIVE')}
-            className={`rounded-full px-4 py-1.5 text-xs font-semibold tracking-wide transition-all ${
+            className={`rounded-full px-4 py-1.5 text-xs font-semibold tracking-wide transition-all whitespace-nowrap shrink-0 w-auto ${
               statusFilter === 'ACTIVE'
                 ? 'bg-black text-white dark:bg-white dark:text-black'
                 : 'bg-zinc-100 text-black border border-zinc-200/50 hover:bg-zinc-200 dark:bg-black dark:text-white dark:border-zinc-800 dark:hover:bg-white/10'
@@ -102,7 +102,7 @@ export const Clients: React.FC = () => {
           <button
             type="button"
             onClick={() => setStatusFilter('INACTIVE')}
-            className={`rounded-full px-4 py-1.5 text-xs font-semibold tracking-wide transition-all ${
+            className={`rounded-full px-4 py-1.5 text-xs font-semibold tracking-wide transition-all whitespace-nowrap shrink-0 w-auto ${
               statusFilter === 'INACTIVE'
                 ? 'bg-black text-white dark:bg-white dark:text-black'
                 : 'bg-zinc-100 text-black border border-zinc-200/50 hover:bg-zinc-200 dark:bg-black dark:text-white dark:border-zinc-800 dark:hover:bg-white/10'

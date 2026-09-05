@@ -256,10 +256,10 @@ export const Projects: React.FC = () => {
       {/* Search, Sort, and Tabs Filter Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-zinc-100 dark:border-zinc-900">
         {/* Tabs */}
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar max-w-full pb-1">
           <button
             onClick={() => setActiveTab('active')}
-            className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all border ${
+            className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all border whitespace-nowrap shrink-0 w-auto ${
               activeTab === 'active'
                 ? 'bg-black text-white border-black dark:bg-white dark:text-black dark:border-white shadow-sm'
                 : 'bg-transparent text-zinc-550 border-zinc-200 dark:border-zinc-800 hover:text-black dark:hover:text-white'
@@ -269,7 +269,7 @@ export const Projects: React.FC = () => {
           </button>
           <button
             onClick={() => setActiveTab('completed')}
-            className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all border ${
+            className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all border whitespace-nowrap shrink-0 w-auto ${
               activeTab === 'completed'
                 ? 'bg-black text-white border-black dark:bg-white dark:text-black dark:border-white shadow-sm'
                 : 'bg-transparent text-zinc-550 border-zinc-200 dark:border-zinc-800 hover:text-black dark:hover:text-white'

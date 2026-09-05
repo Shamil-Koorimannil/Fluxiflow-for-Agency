@@ -508,14 +508,14 @@ export const Tasks: React.FC = () => {
       </div>
 
       {/* FILTER PILLS BUTTONS */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 select-none no-scrollbar">
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 select-none no-scrollbar max-w-full">
         {filters.map((f) => {
           const isSelected = activeFilter === f.value;
           return (
             <button
               key={f.value}
               onClick={() => setActiveFilter(f.value)}
-              className={`rounded-full px-4 py-1.5 text-xs font-semibold tracking-wide transition-all whitespace-nowrap ${
+              className={`rounded-full px-4 py-1.5 text-xs font-semibold tracking-wide transition-all whitespace-nowrap shrink-0 w-auto ${
                 isSelected
                   ? 'bg-black text-white dark:bg-white dark:text-black'
                   : 'bg-zinc-100 text-black border border-zinc-200/50 hover:bg-zinc-200 dark:bg-black dark:text-white dark:border-zinc-800 dark:hover:bg-white/10'

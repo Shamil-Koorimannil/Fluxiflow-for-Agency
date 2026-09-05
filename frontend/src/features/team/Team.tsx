@@ -650,7 +650,7 @@ export const Team: React.FC = () => {
 
 
       {/* Active vs Deactivated Tab Selection */}
-      <Box sx={{ display: 'flex', gap: 1.5, borderBottom: '1px solid', borderColor: 'divider', pb: 2 }}>
+      <Box sx={{ display: 'flex', gap: 1.5, borderBottom: '1px solid', borderColor: 'divider', pb: 2, overflowX: 'auto', whiteSpace: 'nowrap', maxWidth: '100%', WebkitOverflowScrolling: 'touch' }}>
         <Button
           onClick={() => {
             setActiveTab('active');
@@ -663,6 +663,9 @@ export const Team: React.FC = () => {
             fontSize: '13px',
             px: 3,
             py: 0.5,
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+            width: 'auto',
             bgcolor: activeTab === 'active' ? 'text.primary' : 'transparent',
             color: activeTab === 'active' ? 'background.paper' : 'text.secondary',
             border: '1px solid',
@@ -687,6 +690,9 @@ export const Team: React.FC = () => {
             fontSize: '13px',
             px: 3,
             py: 0.5,
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+            width: 'auto',
             bgcolor: activeTab === 'deactivated' ? 'text.primary' : 'transparent',
             color: activeTab === 'deactivated' ? 'background.paper' : 'text.secondary',
             border: '1px solid',
@@ -719,8 +725,8 @@ export const Team: React.FC = () => {
           }}
           sx={{
             flex: 1,
-            minWidth: '240px',
-            maxWidth: '380px',
+            minWidth: { xs: '100%', sm: '240px' },
+            maxWidth: { xs: '100%', sm: '380px' },
             '& .MuiOutlinedInput-root': {
               borderRadius: '8px',
               bgcolor: 'background.paper',

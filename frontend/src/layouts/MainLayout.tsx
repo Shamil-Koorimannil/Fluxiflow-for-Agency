@@ -225,7 +225,7 @@ export const MainLayout: React.FC = () => {
       {/* MAIN CONTAINER */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header Bar */}
-        <header className="flex h-16 items-center justify-between px-6 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black shrink-0 z-10">
+        <header className="flex h-16 items-center justify-between px-4 sm:px-6 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black shrink-0 z-10">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setIsMobileDrawerOpen(true)}

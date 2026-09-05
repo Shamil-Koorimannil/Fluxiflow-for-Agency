@@ -338,10 +338,10 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
       {/* Status Tabs, Date Filter & Sorting Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-3 border-b border-zinc-100 dark:border-zinc-900">
         {/* Status Tabs (Ongoing vs Completed) */}
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar max-w-full pb-1">
           <button
             onClick={() => setProjectStatusTab('ongoing')}
-            className={`px-4 py-2 text-xs font-semibold rounded-xl transition-all border ${
+            className={`px-4 py-2 text-xs font-semibold rounded-xl transition-all border whitespace-nowrap shrink-0 w-auto ${
               projectStatusTab === 'ongoing'
                 ? 'bg-black text-white border-black dark:bg-white dark:text-black dark:border-white shadow-sm'
                 : 'bg-transparent text-zinc-550 border-zinc-200 dark:border-zinc-800 hover:text-black dark:hover:text-white'
@@ -351,7 +351,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
           </button>
           <button
             onClick={() => setProjectStatusTab('completed')}
-            className={`px-4 py-2 text-xs font-semibold rounded-xl transition-all border ${
+            className={`px-4 py-2 text-xs font-semibold rounded-xl transition-all border whitespace-nowrap shrink-0 w-auto ${
               projectStatusTab === 'completed'
                 ? 'bg-black text-white border-black dark:bg-white dark:text-black dark:border-white shadow-sm'
                 : 'bg-transparent text-zinc-550 border-zinc-200 dark:border-zinc-800 hover:text-black dark:hover:text-white'
@@ -1075,10 +1075,10 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
       </div>
 
       {/* Tabs Navigation */}
-      <div className="flex items-center gap-2 mb-6 border-b border-zinc-200 dark:border-zinc-800 pb-2">
+      <div className="flex items-center gap-2 mb-6 border-b border-zinc-200 dark:border-zinc-800 pb-2 overflow-x-auto no-scrollbar max-w-full">
         <button
           onClick={() => setSearchParams({ tab: 'projects' })}
-          className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-colors ${
+          className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-colors whitespace-nowrap shrink-0 w-auto ${
             activeTab === 'projects'
               ? 'bg-black dark:bg-white text-white dark:text-black shadow-sm'
               : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800'
@@ -1090,7 +1090,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
 
         <button
           onClick={() => setSearchParams({ tab: 'assets' })}
-          className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-colors ${
+          className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-colors whitespace-nowrap shrink-0 w-auto ${
             activeTab === 'assets'
               ? 'bg-black dark:bg-white text-white dark:text-black shadow-sm'
               : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800'
