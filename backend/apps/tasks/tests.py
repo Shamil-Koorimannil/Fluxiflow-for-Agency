@@ -250,7 +250,8 @@ class FluxiflowAPITests(TestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         task_ids = [t['id'] for t in response.data]
-        self.assertIn(str(self.task.id), task_ids)
+        # Main Tasks endpoint returns ONLY current user's tasks (self.task was assigned to member1)
+        self.assertNotIn(str(self.task.id), task_ids)
 
         project_url = f"{url}?project={self.project.id}"
         response = self.client.get(project_url)
@@ -2604,6 +2605,122 @@ class TaskTypePermissionsFeatureTests(TestCase):
         }, format='json')
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.assertIsNone(res.data.get('task_type'))
+
+
+class TaskDataScopingTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        from apps.accounts.models import Organization, Membership
+        from apps.projects.models import Project
+        from apps.tasks.models import Task, TaskAssignee
+
+        # Org 1
+        self.org1 = Organization.objects.create(name='Org 1', slug='org-1')
+        
+        # User A (Org Admin in Org 1)
+        self.user_a = User.objects.create_user(email='usera@scoping.com', name='User A', password='password123', role='ADMIN')
+        Membership.objects.create(organization=self.org1, user=self.user_a, role='ORG_ADMIN', is_active=True)
+        self.user_a.active_organization = self.org1
+        self.user_a.save()
+
+        # User B (Member in Org 1)
+        self.user_b = User.objects.create_user(email='userb@scoping.com', name='User B', password='password123', role='MEMBER')
+        Membership.objects.create(organization=self.org1, user=self.user_b, role='MEMBER', is_active=True)
+        self.user_b.active_organization = self.org1
+        self.user_b.save()
+
+        # Org 2 & Multi-org setup
+        self.org2 = Organization.objects.create(name='Org 2', slug='org-2')
+        Membership.objects.create(organization=self.org2, user=self.user_a, role='MEMBER', is_active=True)
+
+        # Project 1 in Org 1
+        self.project1 = Project.objects.create(name='Project 1', organization=self.org1, created_by=self.user_a)
+
+        # Task A (assigned to User A)
+        self.task_a = Task.objects.create(name='Task A', project=self.project1, organization=self.org1, created_by=self.user_a, due_date=timezone.now().date())
+        TaskAssignee.objects.create(task=self.task_a, user=self.user_a)
+
+        # Task B (assigned to User B)
+        self.task_b = Task.objects.create(name='Task B', project=self.project1, organization=self.org1, created_by=self.user_a, due_date=timezone.now().date())
+        TaskAssignee.objects.create(task=self.task_b, user=self.user_b)
+
+        # Task Org 2 (Org 2, assigned to User A)
+        self.task_org2 = Task.objects.create(name='Task Org 2', organization=self.org2, created_by=self.user_a, due_date=timezone.now().date())
+        TaskAssignee.objects.create(task=self.task_org2, user=self.user_a)
+
+    def get_token(self, user):
+        refresh = RefreshToken.for_user(user)
+        refresh['email'] = user.email
+        refresh['name'] = user.name
+        refresh['role'] = user.role
+        if user.active_organization_id:
+            refresh['org_id'] = str(user.active_organization_id)
+        return str(refresh.access_token)
+
+    def set_auth(self, token):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+    def test_main_tasks_endpoint_scoping_for_user_a_and_user_b(self):
+        # User A requests main Tasks endpoint: returns Task A, NOT Task B
+        self.set_auth(self.get_token(self.user_a))
+        res_a = self.client.get('/api/tasks/')
+        self.assertEqual(res_a.status_code, status.HTTP_200_OK)
+        task_ids_a = [t['id'] for t in res_a.data]
+        self.assertIn(str(self.task_a.id), task_ids_a)
+        self.assertNotIn(str(self.task_b.id), task_ids_a)
+
+        # User B requests main Tasks endpoint: returns Task B, NOT Task A
+        self.set_auth(self.get_token(self.user_b))
+        res_b = self.client.get('/api/tasks/')
+        self.assertEqual(res_b.status_code, status.HTTP_200_OK)
+        task_ids_b = [t['id'] for t in res_b.data]
+        self.assertIn(str(self.task_b.id), task_ids_b)
+        self.assertNotIn(str(self.task_a.id), task_ids_b)
+
+    def test_project_detail_endpoint_returns_all_project_tasks(self):
+        # Project tasks view returns both Task A and Task B for users with access
+        self.set_auth(self.get_token(self.user_a))
+        res_proj_a = self.client.get(f'/api/tasks/?project={self.project1.id}')
+        self.assertEqual(res_proj_a.status_code, status.HTTP_200_OK)
+        proj_task_ids = [t['id'] for t in res_proj_a.data]
+        self.assertIn(str(self.task_a.id), proj_task_ids)
+        self.assertIn(str(self.task_b.id), proj_task_ids)
+
+        self.set_auth(self.get_token(self.user_b))
+        res_proj_b = self.client.get(f'/api/tasks/?project={self.project1.id}')
+        self.assertEqual(res_proj_b.status_code, status.HTTP_200_OK)
+        proj_task_ids_b = [t['id'] for t in res_proj_b.data]
+        self.assertIn(str(self.task_a.id), proj_task_ids_b)
+        self.assertIn(str(self.task_b.id), proj_task_ids_b)
+
+    def test_cross_organization_tasks_isolation(self):
+        # User A in Org 1 does not see Task Org 2
+        self.set_auth(self.get_token(self.user_a))
+        res = self.client.get('/api/tasks/')
+        task_ids = [t['id'] for t in res.data]
+        self.assertNotIn(str(self.task_org2.id), task_ids)
+
+    def test_switching_active_organization_updates_tasks_list(self):
+        # Switch User A to Org 2
+        self.user_a.active_organization = self.org2
+        self.user_a.save()
+
+        self.set_auth(self.get_token(self.user_a))
+        res = self.client.get('/api/tasks/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        task_ids = [t['id'] for t in res.data]
+        self.assertIn(str(self.task_org2.id), task_ids)
+        self.assertNotIn(str(self.task_a.id), task_ids)
+        self.assertNotIn(str(self.task_b.id), task_ids)
+
+    def test_admin_my_tasks_scoping(self):
+        # User A is ORG_ADMIN, but main tasks page returns ONLY User A's assigned tasks
+        self.set_auth(self.get_token(self.user_a))
+        res = self.client.get('/api/tasks/')
+        task_ids = [t['id'] for t in res.data]
+        self.assertEqual(len(task_ids), 1)
+        self.assertEqual(task_ids[0], str(self.task_a.id))
+
 
 
 

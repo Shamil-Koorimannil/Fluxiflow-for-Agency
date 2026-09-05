@@ -38,10 +38,8 @@ class TaskViewSet(viewsets.ModelViewSet):
             if project_id:
                 queryset = base_qs.filter(project_id=project_id)
             else:
-                if is_admin_or_org_admin(user, request=self.request):
-                    queryset = base_qs
-                else:
-                    queryset = base_qs.filter(assignee_relationships__user=user)
+                # Main Tasks section: return ONLY tasks assigned to the authenticated user ("My Tasks")
+                queryset = base_qs.filter(assignee_relationships__user=user)
         else:
             if is_admin_or_org_admin(user, request=self.request):
                 queryset = base_qs
@@ -73,9 +71,9 @@ class TaskViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         data = list(serializer.data)
             
-        # Append subtasks if it's the general list (no project filter) and user is a MEMBER
+        # Append subtasks if it's the general list (no project filter)
         from apps.accounts.tenant_context import is_admin_or_org_admin
-        if not project_id and user.is_authenticated and not is_admin_or_org_admin(user, request=request):
+        if not project_id and user.is_authenticated:
             from apps.accounts.serializers import UserSerializer
             from apps.tasks.helpers import calculate_assignee_submission_status, calculate_submission_status
             
@@ -300,7 +298,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         if not active_org:
             return Response({"detail": "Active organization not found."}, status=status.HTTP_400_BAD_REQUEST)
 
-        org_filter = Q(organization=active_org) | Q(organization__isnull=True)
+        org_filter = Q(organization=active_org)
         tasks_qs = Task.objects.filter(org_filter, id__in=task_ids)
         found_ids = set(str(tid) for tid in tasks_qs.values_list('id', flat=True))
         
