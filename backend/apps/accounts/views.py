@@ -162,9 +162,31 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None, organiza
         if sa.subtask.status == 'COMPLETED' and sa.subtask.completed_at and start_date_val <= sa.subtask.completed_at <= end_date_val
     ]
 
+    period_completed_count = len(completed_assignments_period) + len(completed_subtask_assignments_period)
+    period_on_time_count = 0
+    period_late_count = 0
+
+    for a in completed_assignments_period:
+        sub_status, _ = calculate_submission_status(a)
+        if sub_status == "LATE":
+            period_late_count += 1
+        else:
+            period_on_time_count += 1
+
+    for sa in completed_subtask_assignments_period:
+        sub_status, _ = calculate_assignee_submission_status(sa, sa.subtask.due_date, sa.subtask.due_time)
+        if sub_status == "LATE":
+            period_late_count += 1
+        else:
+            period_on_time_count += 1
+
+    if period_completed_count > 0:
+        period_on_time_completion_rate = round(period_on_time_count / period_completed_count, 2)
+    else:
+        period_on_time_completion_rate = 1.0
+
     start_of_week = end_date_val - timedelta(days=7)
     completed_this_week = 0
-    completed_this_month = len(completed_assignments_period) + len(completed_subtask_assignments_period)
     
     for a in completed_assignments_period:
         if a.task.completed_at and a.task.completed_at >= start_of_week:
@@ -218,9 +240,9 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None, organiza
         "tomorrow_tasks": tomorrow_tasks_count,
         "overdue_tasks": pending_tasks_count,
         "completed_this_week": completed_this_week,
-        "completed_this_month": completed_this_month,
-        "on_time_completion_rate": round(on_time_completion_rate, 2),
-        "late_completions": late_completed_tasks_in_last_30_days,
+        "completed_this_month": period_completed_count,
+        "on_time_completion_rate": period_on_time_completion_rate,
+        "late_completions": period_late_count,
         "total_allocated_hours": total_allocated_hours,
         "completed_allocated_hours": completed_allocated_hours,
         "capacity_hours": capacity_hours,
@@ -939,27 +961,65 @@ class TeamWorkloadView(views.APIView):
         except User.DoesNotExist:
             return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
 
+        import calendar
         import django.utils.dateparse
+
         start_date_str = request.query_params.get('start_date')
         end_date_str = request.query_params.get('end_date')
-        
+        start_month_str = request.query_params.get('start_month')
+        start_year_str = request.query_params.get('start_year')
+        end_month_str = request.query_params.get('end_month')
+        end_year_str = request.query_params.get('end_year')
+
         start_date = None
         end_date = None
-        
-        if start_date_str:
+
+        if start_month_str and start_year_str:
             try:
-                start_date = django.utils.dateparse.parse_datetime(start_date_str)
-                if start_date and timezone.is_naive(start_date):
-                    start_date = timezone.make_aware(start_date)
-            except Exception:
-                pass
-        if end_date_str:
-            try:
-                end_date = django.utils.dateparse.parse_datetime(end_date_str)
-                if end_date and timezone.is_naive(end_date):
-                    end_date = timezone.make_aware(end_date)
-            except Exception:
-                pass
+                sm = int(start_month_str)
+                sy = int(start_year_str)
+                if not (1 <= sm <= 12 and 1900 <= sy <= 2100):
+                    return Response({"detail": "Invalid month or year values."}, status=status.HTTP_400_BAD_REQUEST)
+                
+                em = int(end_month_str) if end_month_str else sm
+                ey = int(end_year_str) if end_year_str else sy
+                if not (1 <= em <= 12 and 1900 <= ey <= 2100):
+                    return Response({"detail": "Invalid month or year values."}, status=status.HTTP_400_BAD_REQUEST)
+
+                if (sy, sm) > (ey, em):
+                    return Response({"detail": "Invalid month range: start period cannot be after end period."}, status=status.HTTP_400_BAD_REQUEST)
+
+                start_date = timezone.make_aware(datetime.datetime(sy, sm, 1, 0, 0, 0))
+                last_day = calendar.monthrange(ey, em)[1]
+                end_date = timezone.make_aware(datetime.datetime(ey, em, last_day, 23, 59, 59, 999999))
+            except ValueError:
+                return Response({"detail": "Invalid month or year values."}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            if start_date_str:
+                try:
+                    start_date = django.utils.dateparse.parse_datetime(start_date_str)
+                    if not start_date:
+                        d = django.utils.dateparse.parse_date(start_date_str)
+                        if d:
+                            start_date = datetime.datetime.combine(d, datetime.time.min)
+                    if start_date and timezone.is_naive(start_date):
+                        start_date = timezone.make_aware(start_date)
+                except Exception:
+                    pass
+            if end_date_str:
+                try:
+                    end_date = django.utils.dateparse.parse_datetime(end_date_str)
+                    if not end_date:
+                        d = django.utils.dateparse.parse_date(end_date_str)
+                        if d:
+                            end_date = datetime.datetime.combine(d, datetime.time.max)
+                    if end_date and timezone.is_naive(end_date):
+                        end_date = timezone.make_aware(end_date)
+                except Exception:
+                    pass
+
+        if start_date and end_date and start_date > end_date:
+            return Response({"detail": "Invalid date range: start date cannot be after end date."}, status=status.HTTP_400_BAD_REQUEST)
 
         metrics = calculate_user_health_metrics(user, start_date=start_date, end_date=end_date, organization=active_org)
         today = timezone.now().date()

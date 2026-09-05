@@ -2286,4 +2286,77 @@ class OrganizationCreationPolishTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
 
 
+class PerformanceReportPeriodTestSuite(APITestCase):
+    def setUp(self):
+        self.org = Organization.objects.create(name='Test Agency Org', slug='test-agency-org')
+        self.other_org = Organization.objects.create(name='Other Agency Org', slug='other-agency-org')
+
+        self.admin = User.objects.create_user(
+            email='perf_admin@example.com',
+            name='Perf Admin',
+            password='password123',
+            status='ACTIVE'
+        )
+        self.member = User.objects.create_user(
+            email='perf_member@example.com',
+            name='Perf Member',
+            password='password123',
+            status='ACTIVE'
+        )
+
+        Membership.objects.create(organization=self.org, user=self.admin, role='ORG_ADMIN', is_active=True)
+        Membership.objects.create(organization=self.org, user=self.member, role='MEMBER', is_active=True)
+
+        self.admin.active_organization = self.org
+        self.admin.save()
+        self.member.active_organization = self.org
+        self.member.save()
+
+        from rest_framework_simplejwt.tokens import RefreshToken
+        self.admin_token = str(RefreshToken.for_user(self.admin).access_token)
+        self.member_token = str(RefreshToken.for_user(self.member).access_token)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.admin_token}')
+
+    def test_single_month_filter(self):
+        """A. Single month selection (September 2026)."""
+        url = f'/api/team/{self.member.id}/workload/?start_month=9&start_year=2026&end_month=9&end_year=2026'
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn('summary', res.data)
+
+    def test_month_range_filter(self):
+        """D. Multi-month range selection (March 2026 -> August 2026)."""
+        url = f'/api/team/{self.member.id}/workload/?start_month=3&start_year=2026&end_month=8&end_year=2026'
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn('summary', res.data)
+
+    def test_same_start_end_month(self):
+        """C. Same start/end month (March 2026 -> March 2026)."""
+        url = f'/api/team/{self.member.id}/workload/?start_month=3&start_year=2026&end_month=3&end_year=2026'
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+    def test_year_boundary_range(self):
+        """E. Year boundary range (November 2025 -> February 2026)."""
+        url = f'/api/team/{self.member.id}/workload/?start_month=11&start_year=2025&end_month=2&end_year=2026'
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+    def test_invalid_month_range_rejected(self):
+        """F. Invalid range (October 2026 -> June 2026) returns 400 Bad Request."""
+        url = f'/api/team/{self.member.id}/workload/?start_month=10&start_year=2026&end_month=6&end_year=2026'
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('detail', res.data)
+
+    def test_member_scoping_permissions(self):
+        """H. Non-admin member cannot view another member's performance report."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.member_token}')
+        url = f'/api/team/{self.admin.id}/workload/'
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+
+
 

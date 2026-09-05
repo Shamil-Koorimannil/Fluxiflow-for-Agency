@@ -73,15 +73,96 @@ export const TeamDetail: React.FC = () => {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
 
+  // Period filter state
+  const MONTH_NAMES = useMemo(() => [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ], []);
+  const currentYearVal = new Date().getFullYear();
+  const currentMonthVal = new Date().getMonth() + 1;
+
+  const YEARS = useMemo(() => Array.from({ length: 10 }, (_, i) => currentYearVal - 5 + i), [currentYearVal]);
+
+  type PeriodType = 'CURRENT_MONTH' | 'SELECT_MONTH' | 'MONTH_RANGE' | 'LAST_3_MONTHS' | 'CUSTOM_RANGE' | 'CURRENT_YEAR' | 'ALL';
+
+  const [periodType, setPeriodType] = useState<PeriodType>('CURRENT_MONTH');
+  const [selectMonth, setSelectMonth] = useState<number>(currentMonthVal);
+  const [selectYear, setSelectYear] = useState<number>(currentYearVal);
+
+  const [startMonth, setStartMonth] = useState<number>(currentMonthVal);
+  const [startYear, setStartYear] = useState<number>(currentYearVal);
+  const [endMonth, setEndMonth] = useState<number>(currentMonthVal);
+  const [endYear, setEndYear] = useState<number>(currentYearVal);
+
+  const [customStartDate, setCustomStartDate] = useState<string>('');
+  const [customEndDate, setCustomEndDate] = useState<string>('');
+
+  const { periodQueryParams, periodLabel, validationError } = useMemo(() => {
+    let params: Record<string, any> = {};
+    let label = 'Current Month';
+    let err: string | null = null;
+
+    const now = new Date();
+
+    if (periodType === 'CURRENT_MONTH') {
+      const yr = now.getFullYear();
+      const mo = now.getMonth() + 1;
+      params = { start_month: mo, start_year: yr, end_month: mo, end_year: yr };
+      label = `${MONTH_NAMES[mo - 1]} ${yr}`;
+    } else if (periodType === 'SELECT_MONTH') {
+      params = { start_month: selectMonth, start_year: selectYear, end_month: selectMonth, end_year: selectYear };
+      label = `${MONTH_NAMES[selectMonth - 1]} ${selectYear}`;
+    } else if (periodType === 'MONTH_RANGE') {
+      if ((startYear > endYear) || (startYear === endYear && startMonth > endMonth)) {
+        err = 'Invalid month range: Start period cannot be after End period.';
+      } else {
+        params = { start_month: startMonth, start_year: startYear, end_month: endMonth, end_year: endYear };
+        if (startMonth === endMonth && startYear === endYear) {
+          label = `${MONTH_NAMES[startMonth - 1]} ${startYear}`;
+        } else {
+          label = `${MONTH_NAMES[startMonth - 1]} ${startYear} – ${MONTH_NAMES[endMonth - 1]} ${endYear}`;
+        }
+      }
+    } else if (periodType === 'LAST_3_MONTHS') {
+      const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      const start = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+      params = {
+        start_month: start.getMonth() + 1,
+        start_year: start.getFullYear(),
+        end_month: end.getMonth() + 1,
+        end_year: end.getFullYear(),
+      };
+      label = `Last 3 Months (${MONTH_NAMES[start.getMonth()]} ${start.getFullYear()} – ${MONTH_NAMES[end.getMonth()]} ${end.getFullYear()})`;
+    } else if (periodType === 'CUSTOM_RANGE') {
+      if (customStartDate && customEndDate && customStartDate > customEndDate) {
+        err = 'Invalid date range: Start date cannot be after End date.';
+      } else if (customStartDate || customEndDate) {
+        params = { start_date: customStartDate, end_date: customEndDate };
+        label = `Custom (${customStartDate || 'Start'} to ${customEndDate || 'End'})`;
+      } else {
+        label = 'Custom Range';
+      }
+    } else if (periodType === 'CURRENT_YEAR') {
+      const yr = now.getFullYear();
+      params = { start_month: 1, start_year: yr, end_month: 12, end_year: yr };
+      label = `Current Year (${yr})`;
+    } else if (periodType === 'ALL') {
+      params = {};
+      label = 'All Time';
+    }
+
+    return { periodQueryParams: params, periodLabel: label, validationError: err };
+  }, [periodType, selectMonth, selectYear, startMonth, startYear, endMonth, endYear, customStartDate, customEndDate, MONTH_NAMES]);
+
   // Fetch Member details and workload from backend endpoint
   const { data, isLoading, isError, error, refetch } = useQuery<TeamMemberDetailResponse>({
-    queryKey: ['team-member', id],
+    queryKey: ['team-member', id, periodQueryParams],
     queryFn: async () => {
       if (!id) throw new Error('Member ID is required.');
-      const response = await api.get(`/team/${id}/workload/`);
+      const response = await api.get(`/team/${id}/workload/`, { params: periodQueryParams });
       return response.data;
     },
-    enabled: Boolean(id),
+    enabled: Boolean(id) && !validationError,
   });
 
   const memberSummary = data?.summary;
@@ -367,23 +448,137 @@ export const TeamDetail: React.FC = () => {
         /* MEMBER PERFORMANCE REPORT VIEW */
         <div className="space-y-6">
           <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-100 dark:border-zinc-800 pb-4">
+            {/* Header + Period Filter Bar */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-zinc-100 dark:border-zinc-800 pb-4">
               <div>
                 <h3 className="text-base font-extrabold text-zinc-900 dark:text-zinc-100">
                   Performance Report — {memberSummary.name}
                 </h3>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                  Member-specific task completion, timeliness, and operational metrics.
+                  Reporting Period: <span className="font-bold text-purple-600 dark:text-purple-400">{periodLabel}</span>
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              {/* Period Selector Controls */}
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider whitespace-nowrap">Period:</span>
-                <span className="text-xs font-extrabold px-3 py-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 whitespace-nowrap">
-                  Current Month
-                </span>
+                
+                {/* Main Period Selector */}
+                <select
+                  value={periodType}
+                  onChange={(e) => setPeriodType(e.target.value as PeriodType)}
+                  className="px-3 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-semibold text-zinc-900 dark:text-zinc-100 shadow-sm focus:outline-none focus:border-purple-500 cursor-pointer"
+                >
+                  <option value="CURRENT_MONTH">Current Month</option>
+                  <option value="SELECT_MONTH">Select Month</option>
+                  <option value="MONTH_RANGE">Month Range</option>
+                  <option value="LAST_3_MONTHS">Last 3 Months</option>
+                  <option value="CUSTOM_RANGE">Custom Range</option>
+                  <option value="CURRENT_YEAR">Current Year</option>
+                  <option value="ALL">All Time</option>
+                </select>
+
+                {/* Sub-controls for SELECT_MONTH */}
+                {periodType === 'SELECT_MONTH' && (
+                  <div className="flex items-center gap-1.5">
+                    <select
+                      value={selectMonth}
+                      onChange={(e) => setSelectMonth(Number(e.target.value))}
+                      className="px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-semibold text-zinc-900 dark:text-zinc-100 shadow-sm focus:outline-none focus:border-purple-500 cursor-pointer"
+                    >
+                      {MONTH_NAMES.map((m, idx) => (
+                        <option key={m} value={idx + 1}>{m}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={selectYear}
+                      onChange={(e) => setSelectYear(Number(e.target.value))}
+                      className="px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-semibold text-zinc-900 dark:text-zinc-100 shadow-sm focus:outline-none focus:border-purple-500 cursor-pointer"
+                    >
+                      {YEARS.map((y) => (
+                        <option key={y} value={y}>{y}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Sub-controls for MONTH_RANGE */}
+                {periodType === 'MONTH_RANGE' && (
+                  <div className="flex flex-wrap items-center gap-2 bg-zinc-50 dark:bg-zinc-950 p-1.5 rounded-2xl border border-zinc-200 dark:border-zinc-800">
+                    <div className="flex items-center gap-1">
+                      <span className="text-[11px] font-bold text-zinc-400">From:</span>
+                      <select
+                        value={startMonth}
+                        onChange={(e) => setStartMonth(Number(e.target.value))}
+                        className="px-2 py-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-semibold text-zinc-900 dark:text-zinc-100 focus:outline-none cursor-pointer"
+                      >
+                        {MONTH_NAMES.map((m, idx) => (
+                          <option key={m} value={idx + 1}>{m}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={startYear}
+                        onChange={(e) => setStartYear(Number(e.target.value))}
+                        className="px-2 py-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-semibold text-zinc-900 dark:text-zinc-100 focus:outline-none cursor-pointer"
+                      >
+                        {YEARS.map((y) => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <span className="text-[11px] font-bold text-zinc-400">To:</span>
+                      <select
+                        value={endMonth}
+                        onChange={(e) => setEndMonth(Number(e.target.value))}
+                        className="px-2 py-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-semibold text-zinc-900 dark:text-zinc-100 focus:outline-none cursor-pointer"
+                      >
+                        {MONTH_NAMES.map((m, idx) => (
+                          <option key={m} value={idx + 1}>{m}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={endYear}
+                        onChange={(e) => setEndYear(Number(e.target.value))}
+                        className="px-2 py-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-semibold text-zinc-900 dark:text-zinc-100 focus:outline-none cursor-pointer"
+                      >
+                        {YEARS.map((y) => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* Sub-controls for CUSTOM_RANGE */}
+                {periodType === 'CUSTOM_RANGE' && (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="date"
+                      value={customStartDate}
+                      onChange={(e) => setCustomStartDate(e.target.value)}
+                      className="px-2 py-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-semibold text-zinc-900 dark:text-zinc-100 focus:outline-none"
+                    />
+                    <span className="text-xs text-zinc-400 font-bold">to</span>
+                    <input
+                      type="date"
+                      value={customEndDate}
+                      onChange={(e) => setCustomEndDate(e.target.value)}
+                      className="px-2 py-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-semibold text-zinc-900 dark:text-zinc-100 focus:outline-none"
+                    />
+                  </div>
+                )}
               </div>
             </div>
+
+            {/* Inline Validation Alert */}
+            {validationError && (
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 text-xs font-semibold rounded-xl flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0 text-amber-500" />
+                <span>{validationError}</span>
+              </div>
+            )}
 
             {/* Metric Cards Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -393,7 +588,7 @@ export const TeamDetail: React.FC = () => {
               </div>
               <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
                 <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">Completed</span>
-                <span className="block text-xl font-black text-emerald-500 mt-1">{completedTasks.length}</span>
+                <span className="block text-xl font-black text-emerald-500 mt-1">{memberSummary.completed_this_month ?? 0}</span>
               </div>
               <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
                 <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">Pending</span>
@@ -401,7 +596,9 @@ export const TeamDetail: React.FC = () => {
               </div>
               <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
                 <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">On-Time Rate</span>
-                <span className="block text-xl font-black text-green-500 mt-1">{memberSummary.on_time_completion_rate ?? 100}%</span>
+                <span className="block text-xl font-black text-green-500 mt-1">
+                  {memberSummary.on_time_completion_rate <= 1 ? Math.round((memberSummary.on_time_completion_rate ?? 1) * 100) : memberSummary.on_time_completion_rate}%
+                </span>
               </div>
               <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
                 <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">Late Completions</span>
