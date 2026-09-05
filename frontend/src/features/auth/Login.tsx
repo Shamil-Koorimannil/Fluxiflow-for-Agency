@@ -249,12 +249,8 @@ export const Login: React.FC = () => {
       }
 
       if (!tokenToUse) {
-        const inputEmail = prompt("Enter your Google Account email for testing:", email || "google_user@example.com");
-        if (!inputEmail || !inputEmail.trim()) {
-          setIsGoogleSubmitting(false);
-          return;
-        }
-        tokenToUse = `mock_google_token_${inputEmail.trim().toLowerCase()}`;
+        const targetEmail = email.trim() || 'google_user@example.com';
+        tokenToUse = `mock_google_token_${targetEmail.toLowerCase()}`;
       }
 
       await loginWithGoogle(tokenToUse, rememberMe);
