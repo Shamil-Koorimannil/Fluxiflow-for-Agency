@@ -10,10 +10,12 @@ import { useOrganization } from '../context/OrganizationContext';
 import { getRoleDisplayLabel } from '../utils/roleUtils';
 import { Drawer } from '@mui/material';
 import { useWebSockets } from '../hooks/useWebSockets';
+import { useConfirm } from '../context/ConfirmDialogContext';
 
 
 export const MainLayout: React.FC = () => {
   const { user, logout } = useAuth();
+  const { confirm } = useConfirm();
   const { activeOrganization, isLoading: isOrgLoading } = useOrganization();
   const navigate = useNavigate();
   useWebSockets(); // Initialize real-time updates for authenticated session
@@ -21,6 +23,16 @@ export const MainLayout: React.FC = () => {
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = React.useState(false);
 
   const handleLogout = async () => {
+    const confirmed = await confirm({
+      title: 'Sign Out',
+      message: 'Are you sure you want to sign out of your account?',
+      confirmText: 'Sign Out',
+      cancelText: 'Cancel',
+      variant: 'danger',
+    });
+
+    if (!confirmed) return;
+
     setIsExiting(true);
     setTimeout(async () => {
       try {
