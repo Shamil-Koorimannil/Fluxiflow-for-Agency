@@ -269,7 +269,7 @@ class FluxiflowAPITests(TestCase):
 
         complete_url = reverse('task-complete', args=[self.task.id])
         response = self.client.post(complete_url)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_task_relative_dates(self):
         self.set_auth(self.member1_token)
@@ -387,11 +387,11 @@ class FluxiflowAPITests(TestCase):
         
         complete_b_url = reverse('task-complete', args=[task_b.id])
         response = self.client.post(complete_b_url)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         
         complete_c_url = reverse('task-complete', args=[task_c.id])
         response = self.client.post(complete_c_url)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_task_completion_blocked_by_incomplete_subtasks(self):
         self.set_auth(self.admin_token)

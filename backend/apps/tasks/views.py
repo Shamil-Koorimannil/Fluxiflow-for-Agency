@@ -41,12 +41,7 @@ class TaskViewSet(viewsets.ModelViewSet):
                 # Main Tasks section: return ONLY tasks assigned to the authenticated user ("My Tasks")
                 queryset = base_qs.filter(assignee_relationships__user=user)
         else:
-            if is_admin_or_org_admin(user, request=self.request):
-                queryset = base_qs
-            else:
-                queryset = base_qs.filter(
-                    Q(assignee_relationships__user=user) | Q(created_by=user)
-                )
+            queryset = base_qs
 
         if status_param:
             queryset = queryset.filter(status=status_param)
