@@ -1795,12 +1795,16 @@ class TaskTypesAndWorkloadTestSuite(TestCase):
         self.admin = User.objects.create_user(
             email='admin_tt@test.com', password='Password123!', name='TT Admin', role='ADMIN'
         )
-        self.admin.memberships.create(organization=self.org)
+        self.admin.memberships.create(organization=self.org, role='ADMIN', is_active=True)
+        self.admin.active_organization = self.org
+        self.admin.save()
         
         self.member = User.objects.create_user(
             email='member_tt@test.com', password='Password123!', name='TT Member', role='MEMBER'
         )
-        self.member.memberships.create(organization=self.org)
+        self.member.memberships.create(organization=self.org, role='MEMBER', is_active=True)
+        self.member.active_organization = self.org
+        self.member.save()
 
         self.admin_client = APIClient()
         self.admin_client.force_authenticate(user=self.admin)
@@ -2399,6 +2403,208 @@ class BulkImportOptionalDateTests(TestCase):
 
         t3 = Task.objects.get(name="🚀 Launch Product", project=self.project)
         self.assertEqual(str(t3.due_date), "2026-09-04")
+
+
+class TaskTypePermissionsFeatureTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        from apps.accounts.models import Organization, Membership, CustomUser
+        from apps.tasks.models import TaskType, Task
+
+        # Create Organizations A and B
+        self.org_a = Organization.objects.create(name='Org A', slug='org-a', enable_task_types=True)
+        self.org_b = Organization.objects.create(name='Org B', slug='org-b', enable_task_types=True)
+
+        # Create Users:
+        # User 1: ORG_ADMIN in Org A
+        self.user_org_admin = CustomUser.objects.create_user(
+            email='orgadmin@orga.com', name='Org Admin A', password='password123'
+        )
+        Membership.objects.create(organization=self.org_a, user=self.user_org_admin, role='ORG_ADMIN', is_active=True)
+        self.user_org_admin.active_organization = self.org_a
+        self.user_org_admin.save()
+
+        # User 2: ADMIN (Manager) in Org A
+        self.user_admin = CustomUser.objects.create_user(
+            email='admin@orga.com', name='Admin A', password='password123'
+        )
+        Membership.objects.create(organization=self.org_a, user=self.user_admin, role='ADMIN', is_active=True)
+        self.user_admin.active_organization = self.org_a
+        self.user_admin.save()
+
+        # User 3: MEMBER in Org A
+        self.user_member = CustomUser.objects.create_user(
+            email='member@orga.com', name='Member A', password='password123'
+        )
+        Membership.objects.create(organization=self.org_a, user=self.user_member, role='MEMBER', is_active=True)
+        self.user_member.active_organization = self.org_a
+        self.user_member.save()
+
+        # User 4: Multi-org User (ADMIN in Org A, MEMBER in Org B)
+        self.user_multiorg = CustomUser.objects.create_user(
+            email='multi@orga.com', name='Multi User', password='password123'
+        )
+        Membership.objects.create(organization=self.org_a, user=self.user_multiorg, role='ADMIN', is_active=True)
+        Membership.objects.create(organization=self.org_b, user=self.user_multiorg, role='MEMBER', is_active=True)
+        self.user_multiorg.active_organization = self.org_a
+        self.user_multiorg.save()
+
+        # Obtain JWT tokens
+        self.token_org_admin = self.get_token(self.user_org_admin)
+        self.token_admin = self.get_token(self.user_admin)
+        self.token_member = self.get_token(self.user_member)
+        self.token_multiorg = self.get_token(self.user_multiorg)
+
+        # Existing TaskType in Org A and Org B
+        self.task_type_a = TaskType.objects.create(organization=self.org_a, name='Design A', allocated_seconds=3600)
+        self.task_type_b = TaskType.objects.create(organization=self.org_b, name='Design B', allocated_seconds=7200)
+
+    def get_token(self, user):
+        refresh = RefreshToken.for_user(user)
+        refresh['email'] = user.email
+        refresh['name'] = user.name
+        refresh['role'] = user.role
+        if user.active_organization_id:
+            refresh['org_id'] = str(user.active_organization_id)
+        return str(refresh.access_token)
+
+    def set_auth(self, token):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+    # A. ORG_ADMIN can enable Task Types
+    def test_org_admin_can_enable_task_types(self):
+        self.set_auth(self.token_org_admin)
+        res = self.client.post('/api/organization-settings/', {'enable_task_types': 'true'}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(res.data['enable_task_types'])
+
+    # B. ADMIN can enable Task Types
+    def test_admin_can_enable_task_types(self):
+        self.set_auth(self.token_admin)
+        res = self.client.post('/api/organization-settings/', {'enable_task_types': 'true'}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(res.data['enable_task_types'])
+
+    # C. MEMBER cannot enable Task Types
+    def test_member_cannot_enable_task_types(self):
+        self.set_auth(self.token_member)
+        res = self.client.post('/api/organization-settings/', {'enable_task_types': 'true'}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    # D. ORG_ADMIN can disable Task Types
+    def test_org_admin_can_disable_task_types(self):
+        self.set_auth(self.token_org_admin)
+        res = self.client.post('/api/organization-settings/', {'enable_task_types': 'false'}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertFalse(res.data['enable_task_types'])
+
+    # E. ADMIN can disable Task Types
+    def test_admin_can_disable_task_types(self):
+        self.set_auth(self.token_admin)
+        res = self.client.post('/api/organization-settings/', {'enable_task_types': 'false'}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertFalse(res.data['enable_task_types'])
+
+    # F. MEMBER cannot disable Task Types
+    def test_member_cannot_disable_task_types(self):
+        self.set_auth(self.token_member)
+        res = self.client.post('/api/organization-settings/', {'enable_task_types': 'false'}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    # G. ORG_ADMIN can create a Task Type
+    def test_org_admin_can_create_task_type(self):
+        self.set_auth(self.token_org_admin)
+        res = self.client.post('/api/task-types/', {'name': 'New Type OrgAdmin', 'allocated_seconds': 1800}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data['name'], 'New Type OrgAdmin')
+
+    # H. ADMIN can create a Task Type
+    def test_admin_can_create_task_type(self):
+        self.set_auth(self.token_admin)
+        res = self.client.post('/api/task-types/', {'name': 'New Type Admin', 'allocated_seconds': 1800}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data['name'], 'New Type Admin')
+
+    # I. MEMBER cannot create a Task Type
+    def test_member_cannot_create_task_type(self):
+        self.set_auth(self.token_member)
+        res = self.client.post('/api/task-types/', {'name': 'Member Attempt', 'allocated_seconds': 1800}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    # J. Task Type is assigned to the correct organization
+    def test_task_type_assigned_to_active_organization(self):
+        self.set_auth(self.token_admin)
+        res = self.client.post('/api/task-types/', {'name': 'Scoped Type', 'allocated_seconds': 1800}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        from apps.tasks.models import TaskType
+        created_tt = TaskType.objects.get(id=res.data['id'])
+        self.assertEqual(created_tt.organization, self.org_a)
+
+    # K. User cannot create a Task Type in another organization
+    def test_user_cannot_create_task_type_in_other_organization(self):
+        self.set_auth(self.token_admin)
+        res = self.client.post('/api/task-types/', {'name': 'Tampered Org', 'organization': str(self.org_b.id), 'allocated_seconds': 1800}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        from apps.tasks.models import TaskType
+        created_tt = TaskType.objects.get(id=res.data['id'])
+        self.assertEqual(created_tt.organization, self.org_a)
+
+    # L. User cannot access another organization's Task Types
+    def test_user_cannot_access_other_organization_task_types(self):
+        self.set_auth(self.token_admin)
+        res = self.client.get('/api/task-types/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        returned_ids = [item['id'] for item in res.data]
+        self.assertIn(str(self.task_type_a.id), returned_ids)
+        self.assertNotIn(str(self.task_type_b.id), returned_ids)
+
+    # M. User cannot modify another organization's Task Type
+    def test_user_cannot_modify_other_organization_task_type(self):
+        self.set_auth(self.token_admin)
+        res = self.client.patch(f'/api/task-types/{self.task_type_b.id}/', {'name': 'Hacked B'}, format='json')
+        self.assertIn(res.status_code, [status.HTTP_404_NOT_FOUND, status.HTTP_403_FORBIDDEN])
+
+    # N. User cannot delete another organization's Task Type
+    def test_user_cannot_delete_other_organization_task_type(self):
+        self.set_auth(self.token_admin)
+        res = self.client.delete(f'/api/task-types/{self.task_type_b.id}/')
+        self.assertIn(res.status_code, [status.HTTP_404_NOT_FOUND, status.HTTP_403_FORBIDDEN])
+
+    # O. A user who is ADMIN in Organisation A but MEMBER in Organisation B has management permission only in Organisation A
+    def test_multi_org_role_permissions(self):
+        self.user_multiorg.active_organization = self.org_a
+        self.user_multiorg.save()
+        token_a = self.get_token(self.user_multiorg)
+        self.set_auth(token_a)
+        res_a = self.client.post('/api/task-types/', {'name': 'Multi Org A Type', 'allocated_seconds': 1800}, format='json')
+        self.assertEqual(res_a.status_code, status.HTTP_201_CREATED)
+
+        self.user_multiorg.active_organization = self.org_b
+        self.user_multiorg.save()
+        token_b = self.get_token(self.user_multiorg)
+        self.set_auth(token_b)
+        res_b = self.client.post('/api/task-types/', {'name': 'Multi Org B Type', 'allocated_seconds': 1800}, format='json')
+        self.assertEqual(res_b.status_code, status.HTTP_403_FORBIDDEN)
+
+    # P. Existing Task creation with Task Types still works
+    def test_task_creation_with_task_type(self):
+        self.set_auth(self.token_admin)
+        res = self.client.post('/api/tasks/', {
+            'name': 'Typed Task',
+            'task_type': str(self.task_type_a.id)
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(str(res.data['task_type']), str(self.task_type_a.id))
+
+    # Q. Existing untyped task creation still works
+    def test_untyped_task_creation(self):
+        self.set_auth(self.token_admin)
+        res = self.client.post('/api/tasks/', {
+            'name': 'Untyped Task'
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(res.data.get('task_type'))
+
 
 
 

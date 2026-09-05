@@ -1262,32 +1262,44 @@ class TaskTypeViewSet(viewsets.ModelViewSet):
         if not user.is_authenticated:
             return TaskType.objects.none()
 
-        membership = user.memberships.first()
-        if not membership:
+        from apps.accounts.tenant_context import get_active_organization, is_admin_or_org_admin
+        active_org = get_active_organization(user, request=self.request)
+        if not active_org:
             return TaskType.objects.none()
 
-        qs = TaskType.objects.filter(organization=membership.organization)
-        if user.role != 'ADMIN':
+        qs = TaskType.objects.filter(organization=active_org)
+        if not is_admin_or_org_admin(user, request=self.request):
             qs = qs.filter(is_active=True)
         return qs
 
     def perform_create(self, serializer):
+        from apps.accounts.tenant_context import get_active_organization, is_admin_or_org_admin
         user = self.request.user
-        if user.role != 'ADMIN':
-            raise exceptions.PermissionDenied("Only Admins can create Task Types.")
-        membership = user.memberships.first()
-        if not membership:
-            raise exceptions.PermissionDenied("User has no organization membership.")
-        serializer.save(organization=membership.organization)
+        if not is_admin_or_org_admin(user, request=self.request):
+            raise exceptions.PermissionDenied("Only organization admins and managers can create task types.")
+        active_org = get_active_organization(user, request=self.request)
+        if not active_org:
+            raise exceptions.PermissionDenied("User has no active organization membership.")
+        serializer.save(organization=active_org)
 
     def perform_update(self, serializer):
-        if self.request.user.role != 'ADMIN':
-            raise exceptions.PermissionDenied("Only Admins can edit Task Types.")
+        from apps.accounts.tenant_context import get_active_organization, is_admin_or_org_admin
+        user = self.request.user
+        if not is_admin_or_org_admin(user, request=self.request):
+            raise exceptions.PermissionDenied("Only organization admins and managers can edit task types.")
+        active_org = get_active_organization(user, request=self.request)
+        if serializer.instance.organization != active_org:
+            raise exceptions.PermissionDenied("Cannot modify task type belonging to another organization.")
         serializer.save()
 
     def perform_destroy(self, instance):
-        if self.request.user.role != 'ADMIN':
-            raise exceptions.PermissionDenied("Only Admins can delete Task Types.")
+        from apps.accounts.tenant_context import get_active_organization, is_admin_or_org_admin
+        user = self.request.user
+        if not is_admin_or_org_admin(user, request=self.request):
+            raise exceptions.PermissionDenied("Only organization admins and managers can delete task types.")
+        active_org = get_active_organization(user, request=self.request)
+        if instance.organization != active_org:
+            raise exceptions.PermissionDenied("Cannot delete task type belonging to another organization.")
         instance.delete()
 
 
@@ -1310,13 +1322,13 @@ class OrganizationSettingsView(viewsets.ViewSet):
         })
 
     def create(self, request):
-        from apps.accounts.tenant_context import get_active_organization, get_active_role
+        from apps.accounts.tenant_context import get_active_organization, get_active_role, is_admin_or_org_admin
         org = get_active_organization(request.user, request=request)
         role = get_active_role(request.user, request=request)
         if not org:
             return Response({"detail": "User has no active organization membership."}, status=status.HTTP_400_BAD_REQUEST)
-        if role != 'ORG_ADMIN':
-            return Response({"detail": "Only Organization Admins can modify organization settings and branding."}, status=status.HTTP_403_FORBIDDEN)
+        if not is_admin_or_org_admin(request.user, request=request):
+            return Response({"detail": "Only organization admins and managers can modify organization settings."}, status=status.HTTP_403_FORBIDDEN)
 
         display_name = request.data.get('display_name')
         name = request.data.get('name')
@@ -1324,9 +1336,12 @@ class OrganizationSettingsView(viewsets.ViewSet):
         weekly_capacity_hours = request.data.get('weekly_capacity_hours')
         logo_file = request.FILES.get('logo')
 
-        if display_name is not None:
+        if role != 'ORG_ADMIN' and (display_name is not None or (name is not None and isinstance(name, str) and name.strip()) or logo_file):
+            return Response({"detail": "Only Organization Admins can modify organization name and branding."}, status=status.HTTP_403_FORBIDDEN)
+
+        if display_name is not None and role == 'ORG_ADMIN':
             org.display_name = display_name.strip() if isinstance(display_name, str) else display_name
-        if name is not None and isinstance(name, str) and name.strip():
+        if name is not None and isinstance(name, str) and name.strip() and role == 'ORG_ADMIN':
             org.name = name.strip()
         if enable_task_types is not None:
             org.enable_task_types = str(enable_task_types).lower() in ('true', '1')
@@ -1335,7 +1350,7 @@ class OrganizationSettingsView(viewsets.ViewSet):
                 org.weekly_capacity_hours = int(weekly_capacity_hours)
             except (ValueError, TypeError):
                 pass
-        if logo_file:
+        if logo_file and role == 'ORG_ADMIN':
             org.logo = logo_file
 
         org.save()
