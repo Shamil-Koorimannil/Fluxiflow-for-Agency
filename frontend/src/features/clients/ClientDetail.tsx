@@ -844,7 +844,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
   // FOCUSED MODE 1: Projects Only View (/app/clients/:id/projects)
   if (viewMode === 'projects-only') {
     return (
-      <div className="flex-1 flex flex-col h-full bg-zinc-50/50 dark:bg-zinc-950 overflow-y-auto p-6 md:p-10">
+      <div className="flex-1 flex flex-col h-full bg-zinc-50/50 dark:bg-zinc-950 overflow-y-auto p-4 sm:p-6 md:p-10">
         <div className="mb-6">
           <button
             onClick={() => navigate('/app/clients')}
@@ -854,7 +854,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
           </button>
         </div>
 
-        <div className="flex items-center justify-between gap-4 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
             <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">
               {client.name} — Projects
@@ -864,17 +864,17 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <button
               onClick={() => setIsProjectModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-colors shadow-sm"
+              className="flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-colors shadow-sm flex-1 sm:flex-none"
             >
               <Plus className="h-3.5 w-3.5" />
               <span>Add Project</span>
             </button>
             <button
               onClick={() => setIsAddExistingModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-semibold rounded-xl transition-colors shadow-sm"
+              className="flex items-center justify-center gap-1.5 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-semibold rounded-xl transition-colors shadow-sm flex-1 sm:flex-none"
             >
               <Link2 className="h-3.5 w-3.5" />
               <span>Add Existing Project</span>
@@ -920,7 +920,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
   // FOCUSED MODE 2: Brand Assets Only View (/app/clients/:id/brand-assets)
   if (viewMode === 'brand-assets-only') {
     return (
-      <div className="flex-1 flex flex-col h-full bg-zinc-50/50 dark:bg-zinc-950 overflow-y-auto p-6 md:p-10">
+      <div className="flex-1 flex flex-col h-full bg-zinc-50/50 dark:bg-zinc-950 overflow-y-auto p-4 sm:p-6 md:p-10">
         <div className="mb-6">
           <button
             onClick={() => navigate('/app/clients')}
@@ -930,7 +930,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
           </button>
         </div>
 
-        <div className="flex items-center justify-between gap-4 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
             <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">
               {client.name} — Brand Assets
@@ -942,7 +942,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
 
           <button
             onClick={() => setIsAssetUploadModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-xl transition-colors shadow-sm"
+            className="flex items-center justify-center gap-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-xl transition-colors shadow-sm w-full sm:w-auto"
           >
             <Upload className="h-3.5 w-3.5" />
             <span>Upload Brand Asset</span>
@@ -990,9 +990,9 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
 
   // FULL OVERVIEW MODE (/app/clients/:id)
   return (
-    <div className="flex-1 flex flex-col h-full bg-zinc-50/50 dark:bg-zinc-950 overflow-y-auto p-6 md:p-10">
+    <div className="flex-1 flex flex-col h-full bg-zinc-50/50 dark:bg-zinc-950 overflow-y-auto p-4 sm:p-6 md:p-10">
       {/* Back Button & Header Actions */}
-      <div className="flex items-center justify-between gap-4 mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <button
           onClick={() => navigate('/app/clients')}
           className="flex items-center gap-2 text-xs font-semibold text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
@@ -1000,7 +1000,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
           <ArrowLeft className="h-4 w-4" /> Back to Clients
         </button>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setIsEditModalOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-semibold rounded-xl transition-colors shadow-sm"
@@ -1019,7 +1019,6 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
           >
             {client.status === 'ACTIVE' ? 'Archive Client' : 'Activate Client'}
           </button>
-
         </div>
       </div>
 
@@ -1128,21 +1127,21 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
       {/* Tab 1: Projects Section */}
       {activeTab === 'projects' && (
         <div>
-          <div className="flex items-center justify-between gap-4 mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
             <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
               Client Projects
             </h2>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               <button
                 onClick={() => setIsProjectModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-colors shadow-sm"
+                className="flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-colors shadow-sm flex-1 sm:flex-none"
               >
                 <Plus className="h-3.5 w-3.5" />
                 <span>Add Project</span>
               </button>
               <button
                 onClick={() => setIsAddExistingModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-semibold rounded-xl transition-colors shadow-sm"
+                className="flex items-center justify-center gap-1.5 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-semibold rounded-xl transition-colors shadow-sm flex-1 sm:flex-none"
               >
                 <Link2 className="h-3.5 w-3.5" />
                 <span>Add Existing Project</span>

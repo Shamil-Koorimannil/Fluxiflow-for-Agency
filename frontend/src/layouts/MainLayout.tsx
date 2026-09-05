@@ -427,6 +427,21 @@ export const MainLayout: React.FC = () => {
               {isAdmin && (
                 <>
                   <NavLink
+                    to="/app/clients"
+                    onClick={() => setIsMobileDrawerOpen(false)}
+                    className={({ isActive }) =>
+                      `flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                        isActive
+                          ? 'bg-zinc-100 dark:bg-zinc-900 text-black dark:text-white font-semibold'
+                          : 'text-zinc-650 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900 hover:text-black dark:hover:text-white'
+                      }`
+                    }
+                  >
+                    <Briefcase className="h-4 w-4" />
+                    Clients
+                  </NavLink>
+
+                  <NavLink
                     to="/app/team"
                     onClick={() => setIsMobileDrawerOpen(false)}
                     className={({ isActive }) =>

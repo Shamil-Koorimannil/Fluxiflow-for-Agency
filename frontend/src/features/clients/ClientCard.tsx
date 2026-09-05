@@ -39,7 +39,7 @@ export const ClientCard: React.FC<ClientCardProps> = ({ client }) => {
         </p>
 
         {/* Metrics Count */}
-        <div className="flex items-center gap-3 text-xs text-zinc-500 dark:text-zinc-400 font-medium mb-3">
+        <div className="flex items-center flex-wrap gap-1.5 sm:gap-3 text-xs text-zinc-500 dark:text-zinc-400 font-medium mb-3">
           <span>{client.projects_count ?? 0} {(client.projects_count ?? 0) === 1 ? 'Project' : 'Projects'}</span>
           <span>•</span>
           <span>{client.brand_assets_count ?? 0} {(client.brand_assets_count ?? 0) === 1 ? 'Brand Asset' : 'Brand Assets'}</span>
@@ -47,16 +47,16 @@ export const ClientCard: React.FC<ClientCardProps> = ({ client }) => {
       </div>
 
       {/* Quick Actions Buttons */}
-      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+      <div className="grid grid-cols-2 gap-2 pt-2.5 border-t border-zinc-100 dark:border-zinc-800">
         <button
           type="button"
           onClick={(e) => {
             e.stopPropagation();
             navigate(`/app/clients/${client.id}/projects`);
           }}
-          className="flex items-center justify-center gap-1.5 py-1.5 px-3 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-lg text-xs font-semibold transition-colors"
+          className="flex items-center justify-center gap-1.5 py-2 px-3 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-lg text-xs font-semibold transition-colors min-h-[38px]"
         >
-          <Folder className="h-3.5 w-3.5 text-blue-500" />
+          <Folder className="h-3.5 w-3.5 text-blue-500 shrink-0" />
           <span>Projects</span>
         </button>
 
@@ -66,9 +66,9 @@ export const ClientCard: React.FC<ClientCardProps> = ({ client }) => {
             e.stopPropagation();
             navigate(`/app/clients/${client.id}/brand-assets`);
           }}
-          className="flex items-center justify-center gap-1.5 py-1.5 px-3 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-lg text-xs font-semibold transition-colors"
+          className="flex items-center justify-center gap-1.5 py-2 px-3 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-lg text-xs font-semibold transition-colors min-h-[38px]"
         >
-          <FileText className="h-3.5 w-3.5 text-black dark:text-white" />
+          <FileText className="h-3.5 w-3.5 text-black dark:text-white shrink-0" />
           <span>Brand Assets</span>
         </button>
       </div>

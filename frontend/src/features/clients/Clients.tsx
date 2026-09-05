@@ -49,9 +49,9 @@ export const Clients: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-zinc-50/50 dark:bg-zinc-950 overflow-y-auto p-6 md:p-10">
+    <div className="flex-1 flex flex-col h-full bg-zinc-50/50 dark:bg-zinc-950 overflow-y-auto p-4 sm:p-6 md:p-10">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 sm:mb-8">
         <div>
           <div className="flex items-center gap-2.5 mb-1">
             <Briefcase className="h-6 w-6 text-blue-500" />
@@ -67,7 +67,7 @@ export const Clients: React.FC = () => {
             setSelectedClientForEdit(null);
             setIsFormModalOpen(true);
           }}
-          className="flex items-center justify-center gap-2 px-4 py-2.5 bg-black dark:bg-white text-white dark:text-black font-semibold text-xs rounded-xl hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors shadow-sm"
+          className="flex items-center justify-center gap-2 px-4 py-2.5 bg-black dark:bg-white text-white dark:text-black font-semibold text-xs rounded-xl hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors shadow-sm w-full sm:w-auto"
         >
           <Plus className="h-4 w-4" />
           <span>New Client</span>
@@ -75,7 +75,7 @@ export const Clients: React.FC = () => {
       </div>
 
       {/* Search & Status Filter Bar */}
-      <div className="flex flex-col sm:flex-row items-center gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-6">
         <div className="relative flex-1 w-full">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
           <input
@@ -87,11 +87,11 @@ export const Clients: React.FC = () => {
           />
         </div>
 
-        <div className="flex items-center gap-1.5 overflow-x-auto select-none no-scrollbar w-full sm:w-auto max-w-full">
+        <div className="flex items-center gap-1.5 overflow-x-auto select-none no-scrollbar w-full sm:w-auto max-w-full pb-1 sm:pb-0">
           <button
             type="button"
             onClick={() => setStatusFilter('ACTIVE')}
-            className={`rounded-full px-4 py-1.5 text-xs font-semibold tracking-wide transition-all whitespace-nowrap shrink-0 w-auto ${
+            className={`rounded-full px-4 py-2 text-xs font-semibold tracking-wide transition-all whitespace-nowrap shrink-0 w-auto ${
               statusFilter === 'ACTIVE'
                 ? 'bg-black text-white dark:bg-white dark:text-black'
                 : 'bg-zinc-100 text-black border border-zinc-200/50 hover:bg-zinc-200 dark:bg-black dark:text-white dark:border-zinc-800 dark:hover:bg-white/10'
@@ -102,7 +102,7 @@ export const Clients: React.FC = () => {
           <button
             type="button"
             onClick={() => setStatusFilter('INACTIVE')}
-            className={`rounded-full px-4 py-1.5 text-xs font-semibold tracking-wide transition-all whitespace-nowrap shrink-0 w-auto ${
+            className={`rounded-full px-4 py-2 text-xs font-semibold tracking-wide transition-all whitespace-nowrap shrink-0 w-auto ${
               statusFilter === 'INACTIVE'
                 ? 'bg-black text-white dark:bg-white dark:text-black'
                 : 'bg-zinc-100 text-black border border-zinc-200/50 hover:bg-zinc-200 dark:bg-black dark:text-white dark:border-zinc-800 dark:hover:bg-white/10'

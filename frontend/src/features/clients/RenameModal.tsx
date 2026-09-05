@@ -82,8 +82,8 @@ export const RenameModal: React.FC<RenameModalProps> = ({
   };
 
   return createPortal(
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-none z-50 flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-sm w-full p-6 shadow-xl relative animate-in fade-in zoom-in-95 duration-150 text-black dark:text-white">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-none z-50 flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-sm w-full p-4 sm:p-6 shadow-xl relative animate-in fade-in zoom-in-95 duration-150 text-black dark:text-white max-h-[90vh] overflow-y-auto">
         
         {/* Header */}
         <div className="flex items-center justify-between pb-3 mb-4 border-b border-zinc-100 dark:border-zinc-900">
