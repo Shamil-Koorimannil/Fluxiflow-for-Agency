@@ -174,35 +174,38 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None, organiza
             completed_this_week += 1
 
     # Workload & Capacity metrics
-    capacity_hours = 40.0
+    if not organization and getattr(user, 'active_organization', None):
+        organization = user.active_organization
+
+    capacity_hours = float(organization.weekly_capacity_hours) if (organization and getattr(organization, 'weekly_capacity_hours', None)) else 40.0
+    capacity_seconds = capacity_hours * 3600.0
+
     total_allocated_seconds = 0
     completed_allocated_seconds = 0
 
     for a in assignments:
         t = a.task
-        task_seconds = t.allocated_seconds or (t.task_type.allocated_seconds if t.task_type else 3600)
-        if t.status != 'COMPLETED':
-            total_allocated_seconds += task_seconds
-        else:
+        task_seconds = t.allocated_seconds or (t.task_type.allocated_seconds if t.task_type else 0)
+        total_allocated_seconds += task_seconds
+        if t.status == 'COMPLETED':
             completed_allocated_seconds += task_seconds
 
     for sa in subtask_assignments:
         st = sa.subtask
-        st_seconds = getattr(st, 'allocated_seconds', None) or 1800
-        if st.status != 'COMPLETED':
-            total_allocated_seconds += st_seconds
-        else:
+        st_seconds = getattr(st, 'allocated_seconds', None) or 0
+        total_allocated_seconds += st_seconds
+        if st.status == 'COMPLETED':
             completed_allocated_seconds += st_seconds
 
     total_allocated_hours = round(total_allocated_seconds / 3600.0, 1)
     completed_allocated_hours = round(completed_allocated_seconds / 3600.0, 1)
-    workload_percentage = min(150, round((total_allocated_hours / capacity_hours) * 100))
+    workload_percentage = round((total_allocated_seconds / capacity_seconds) * 100.0, 1) if capacity_seconds > 0 else 0.0
 
-    if workload_percentage < 70:
+    if workload_percentage < 70.0:
         workload_status = 'Underloaded'
-    elif workload_percentage <= 100:
+    elif workload_percentage <= 100.0:
         workload_status = 'Balanced'
-    elif workload_percentage <= 120:
+    elif workload_percentage <= 120.0:
         workload_status = 'High'
     else:
         workload_status = 'Overloaded'
@@ -980,9 +983,9 @@ class TeamWorkloadView(views.APIView):
         completed_tasks_count = user_tasks.filter(status='COMPLETED').count()
         active_tasks_count = total_tasks_count - completed_tasks_count
 
-        total_allocated_seconds = sum(t.allocated_seconds or 0 for t in user_tasks)
-        completed_allocated_seconds = sum(t.allocated_seconds or 0 for t in user_tasks.filter(status='COMPLETED'))
-        remaining_allocated_seconds = sum(t.allocated_seconds or 0 for t in user_tasks.filter(status='PENDING'))
+        total_allocated_seconds = sum((t.allocated_seconds or (t.task_type.allocated_seconds if t.task_type else 0)) for t in user_tasks)
+        completed_allocated_seconds = sum((t.allocated_seconds or (t.task_type.allocated_seconds if t.task_type else 0)) for t in user_tasks.filter(status='COMPLETED'))
+        remaining_allocated_seconds = sum((t.allocated_seconds or (t.task_type.allocated_seconds if t.task_type else 0)) for t in user_tasks.filter(status='PENDING'))
         
         total_tracked_seconds = 0
         now_ts = timezone.now()
