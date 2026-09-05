@@ -7,6 +7,7 @@ import { NotificationBell } from '../features/notifications/NotificationBell';
 import { OrganizationSwitcher } from '../components/common/OrganizationSwitcher';
 import { OrganizationOnboarding } from '../components/common/OrganizationOnboarding';
 import { useOrganization } from '../context/OrganizationContext';
+import { getRoleDisplayLabel } from '../utils/roleUtils';
 import { Drawer } from '@mui/material';
 import { useWebSockets } from '../hooks/useWebSockets';
 
@@ -71,7 +72,7 @@ export const MainLayout: React.FC = () => {
             <div className="overflow-hidden">
               <h2 className="font-semibold text-sm truncate leading-tight">{user.name}</h2>
               <span className="text-[11px] text-zinc-400 dark:text-zinc-500 font-medium tracking-wide uppercase">
-                {activeRole === 'ORG_ADMIN' ? 'Org Admin' : activeRole === 'ADMIN' ? 'Admin/Manager' : 'Member'}
+                {getRoleDisplayLabel(activeRole)}
               </span>
             </div>
           </Link>
@@ -358,7 +359,7 @@ export const MainLayout: React.FC = () => {
                 <div className="overflow-hidden">
                   <h2 className="font-semibold text-sm truncate leading-tight">{user.name}</h2>
                   <span className="text-[11px] text-zinc-400 dark:text-zinc-500 font-medium tracking-wide uppercase">
-                    {activeRole === 'ORG_ADMIN' ? 'Org Admin' : activeRole === 'ADMIN' ? 'Admin' : 'Member'}
+                    {getRoleDisplayLabel(activeRole)}
                   </span>
                 </div>
               </Link>

@@ -1671,11 +1671,11 @@ class OrganizationMultiTenantTestSuite(APITestCase):
         """5. Cannot demote or remove the last ORG_ADMIN of an organization."""
         res = self.client.patch(f'/api/organizations/members/{self.user.id}/role/', {'role': 'MEMBER'})
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("last Organization Admin", res.data['detail'])
+        self.assertIn("last Organisation admin", res.data['detail'])
 
         del_res = self.client.delete(f'/api/organizations/members/{self.user.id}/')
         self.assertEqual(del_res.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("last Organization Admin", del_res.data['detail'])
+        self.assertIn("last Organisation admin", del_res.data['detail'])
 
     def test_zero_organization_database_and_bootstrap_command(self):
         """6. Zero organization DB handles API without crash and bootstraps idempotently."""

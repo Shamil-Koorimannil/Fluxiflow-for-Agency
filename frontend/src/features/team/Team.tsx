@@ -5,6 +5,7 @@ import { api } from '../../services/api';
 import type { User, UserRole } from '../../types';
 import { useAuth } from '../auth/AuthContext';
 import { CustomDropdown } from '../../components/common/CustomDropdown';
+import { getRoleDisplayLabel } from '../../utils/roleUtils';
 import { TeamDetailDrawer } from './TeamDetailDrawer';
 import { TaskFormModal } from '../tasks/TaskFormModal';
 import {
@@ -1228,7 +1229,7 @@ export const Team: React.FC = () => {
                           {member.name}
                         </Typography>
                         <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
-                          {member.role === 'ORG_ADMIN' ? 'Org Admin' : member.role === 'ADMIN' ? 'Admin/Manager' : 'Member'}
+                          {getRoleDisplayLabel(member.role)}
                         </Typography>
                       </Box>
                     </Box>
@@ -1385,7 +1386,7 @@ export const Team: React.FC = () => {
                           {member.name}
                         </Typography>
                         <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
-                          {member.role === 'ORG_ADMIN' ? 'Org Admin' : member.role === 'ADMIN' ? 'Admin/Manager' : 'Member'}
+                          {getRoleDisplayLabel(member.role)}
                         </Typography>
                       </Box>
                     </Box>

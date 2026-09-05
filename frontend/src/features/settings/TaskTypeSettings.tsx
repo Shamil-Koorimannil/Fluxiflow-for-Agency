@@ -108,7 +108,7 @@ export const TaskTypeSettings: React.FC = () => {
   if (!isAdmin) {
     return (
       <div className="p-6 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-500 font-medium">
-        Task Type management is restricted to organization administrators and project managers.
+        Task Type management is restricted to Organisation admins and project managers.
       </div>
     );
   }

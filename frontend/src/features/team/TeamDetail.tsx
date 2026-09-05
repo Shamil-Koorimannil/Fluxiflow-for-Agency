@@ -14,12 +14,13 @@ import { useTaskDragSelect } from '../../hooks/useTaskDragSelect';
 import { getLocalDateString, formatDateOnly } from '../../utils/time';
 import { useAuth } from '../auth/AuthContext';
 import { useOrganization } from '../../context/OrganizationContext';
+import { getRoleDisplayLabel } from '../../utils/roleUtils';
 
 interface TeamMemberDetailResponse {
   summary: {
     id: string;
     name: string;
-    role: 'ADMIN' | 'MEMBER';
+    role: 'ORG_ADMIN' | 'ADMIN' | 'MEMBER';
     email: string;
     status: 'INVITED' | 'ACTIVE' | 'INACTIVE';
     is_active: boolean;
@@ -250,7 +251,7 @@ export const TeamDetail: React.FC = () => {
                     : 'bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800'
                 }`}>
                   <Shield className="h-3 w-3" />
-                  <span>{memberSummary.role === 'ADMIN' ? 'Admin / Manager' : 'Member'}</span>
+                  <span>{getRoleDisplayLabel(memberSummary.role)}</span>
                 </span>
                 {memberSummary.status === 'INACTIVE' && (
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-500 border border-zinc-300 dark:border-zinc-700">

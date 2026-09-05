@@ -54,7 +54,7 @@ export const OrganizationSwitcher: React.FC = () => {
     if (role === 'ORG_ADMIN') {
       return (
         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
-          <ShieldCheck className="h-2.5 w-2.5" /> Org Admin
+          <ShieldCheck className="h-2.5 w-2.5" /> Organisation admin
         </span>
       );
     }

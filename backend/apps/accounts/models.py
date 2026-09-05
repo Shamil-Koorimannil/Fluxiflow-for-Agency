@@ -96,7 +96,7 @@ class CustomUser(AbstractUser):
 
 class Membership(models.Model):
     ROLE_CHOICES = (
-        ('ORG_ADMIN', 'Organization Admin'),
+        ('ORG_ADMIN', 'Organisation admin'),
         ('ADMIN', 'Admin/Manager'),
         ('MEMBER', 'Member'),
     )
@@ -132,7 +132,7 @@ class Profile(models.Model):
 
 class Invitation(models.Model):
     ROLE_CHOICES = (
-        ('ORG_ADMIN', 'Organization Admin'),
+        ('ORG_ADMIN', 'Organisation admin'),
         ('ADMIN', 'Admin/Manager'),
         ('MEMBER', 'Member'),
     )

@@ -27,6 +27,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 
+import { getRoleDisplayLabel } from '../../utils/roleUtils';
+
 interface TeamDetailDrawerProps {
   memberId: string | null;
   open: boolean;
@@ -261,7 +263,7 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
                   </Typography>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
                     <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
-                      {summary.role === 'ADMIN' ? 'Admin/Manager' : 'Member'}
+                      {getRoleDisplayLabel(summary.role)}
                     </Typography>
                     {summary.status === 'INACTIVE' && (
                       <span className="text-[9px] font-extrabold px-1.5 py-0.5 bg-red-50 dark:bg-red-950/20 text-red-650 dark:text-red-400 rounded uppercase tracking-wider">

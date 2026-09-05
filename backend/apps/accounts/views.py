@@ -550,7 +550,7 @@ class TeamListView(views.APIView):
     def post(self, request):
         active_role = get_active_role(request.user, request=request)
         if active_role not in ('ORG_ADMIN', 'ADMIN'):
-            return Response({"detail": "Only organization administrators can add or invite team members."}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"detail": "Only Organisation admins can add or invite team members."}, status=status.HTTP_403_FORBIDDEN)
 
         email = request.data.get('email', '').strip().lower()
         name = request.data.get('name', '').strip()
@@ -690,7 +690,7 @@ class TeamDetailView(views.APIView):
         active_org = get_active_organization(request.user, request=request)
         active_role = get_active_role(request.user, request=request)
         if active_role not in ('ORG_ADMIN', 'ADMIN'):
-            return Response({"detail": "Only organization administrators can modify member details."}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"detail": "Only Organisation admins can modify member details."}, status=status.HTTP_403_FORBIDDEN)
 
         if not Membership.objects.filter(organization=active_org, user_id=pk, is_active=True).exists():
             return Response({"detail": "User not found in active organization."}, status=status.HTTP_404_NOT_FOUND)
@@ -714,7 +714,7 @@ class TeamDetailView(views.APIView):
 
             if role:
                 if active_role != 'ORG_ADMIN':
-                    return Response({"detail": "Only ORG_ADMIN can change organization roles."}, status=status.HTTP_403_FORBIDDEN)
+                    return Response({"detail": "Only Organisation admins can change organization roles."}, status=status.HTTP_403_FORBIDDEN)
                 if role not in ('MEMBER', 'ADMIN', 'ORG_ADMIN'):
                     return Response({"detail": "Invalid target role."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -725,7 +725,7 @@ class TeamDetailView(views.APIView):
                 if target_mem.role == 'ORG_ADMIN' and role != 'ORG_ADMIN':
                     admin_count = Membership.objects.filter(organization=active_org, role='ORG_ADMIN', is_active=True).count()
                     if admin_count <= 1:
-                        return Response({"detail": "Cannot demote the final ORG_ADMIN of the organization."}, status=status.HTTP_400_BAD_REQUEST)
+                        return Response({"detail": "Cannot demote the final Organisation admin of the organization."}, status=status.HTTP_400_BAD_REQUEST)
 
                 target_mem.role = role
                 target_mem.save()
@@ -1454,7 +1454,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['patch', 'put'], url_path='profile')
     def update_organization_profile(self, request):
         if not is_org_admin(request.user):
-            return Response({"detail": "Only Organization Admins can modify organization profile."}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"detail": "Only Organisation admins can modify organization profile."}, status=status.HTTP_403_FORBIDDEN)
 
         active_org = get_active_organization(request.user)
         if not active_org:
@@ -1489,7 +1489,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='invite')
     def invite_member(self, request):
         if not is_org_admin(request.user):
-            return Response({"detail": "Only Organization Admins can invite new members."}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"detail": "Only Organisation admins can invite new members."}, status=status.HTTP_403_FORBIDDEN)
 
         active_org = get_active_organization(request.user)
         if not active_org:
@@ -1562,7 +1562,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['patch'], url_path=r'members/(?P<user_id>[^/.]+)/role')
     def update_member_role(self, request, user_id=None):
         if not is_org_admin(request.user):
-            return Response({"detail": "Only Organization Admins can modify member roles."}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"detail": "Only Organisation admins can modify member roles."}, status=status.HTTP_403_FORBIDDEN)
 
         active_org = get_active_organization(request.user)
         if not active_org:
@@ -1579,7 +1579,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         if target_membership.role == 'ORG_ADMIN' and new_role != 'ORG_ADMIN':
             admin_count = Membership.objects.filter(organization=active_org, role='ORG_ADMIN', is_active=True).count()
             if admin_count <= 1:
-                return Response({"detail": "Cannot demote the last Organization Admin. Assign another Organization Admin first."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"detail": "Cannot demote the last Organisation admin. Assign another Organisation admin first."}, status=status.HTTP_400_BAD_REQUEST)
 
         target_membership.role = new_role
         target_membership.save(update_fields=['role'])
@@ -1588,7 +1588,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['delete'], url_path=r'members/(?P<user_id>[^/.]+)')
     def remove_member(self, request, user_id=None):
         if not is_org_admin(request.user):
-            return Response({"detail": "Only Organization Admins can remove members."}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"detail": "Only Organisation admins can remove members."}, status=status.HTTP_403_FORBIDDEN)
 
         active_org = get_active_organization(request.user)
         if not active_org:
@@ -1601,7 +1601,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         if target_membership.role == 'ORG_ADMIN':
             admin_count = Membership.objects.filter(organization=active_org, role='ORG_ADMIN', is_active=True).count()
             if admin_count <= 1:
-                return Response({"detail": "Cannot remove the last Organization Admin. Assign another Organization Admin first."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"detail": "Cannot remove the last Organisation admin. Assign another Organisation admin first."}, status=status.HTTP_400_BAD_REQUEST)
 
         target_membership.is_active = False
         target_membership.save(update_fields=['is_active'])

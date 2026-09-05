@@ -80,7 +80,7 @@ export const OrganizationMembersSettings: React.FC = () => {
   if (!isOrgAdmin) {
     return (
       <div className="p-6 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-500">
-        Organization member management is restricted to Organization Administrators.
+        Organization member management is restricted to Organisation admins.
       </div>
     );
   }
@@ -124,7 +124,7 @@ export const OrganizationMembersSettings: React.FC = () => {
             options={[
               { value: 'MEMBER', label: 'Member' },
               { value: 'ADMIN', label: 'Admin' },
-              { value: 'ORG_ADMIN', label: 'Organization Admin' },
+              { value: 'ORG_ADMIN', label: 'Organisation admin' },
             ]}
           />
 
@@ -166,7 +166,7 @@ export const OrganizationMembersSettings: React.FC = () => {
                       {m.user.name}
                       {m.role === 'ORG_ADMIN' && (
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400">
-                          Org Admin
+                          Organisation admin
                         </span>
                       )}
                     </h4>
@@ -184,7 +184,7 @@ export const OrganizationMembersSettings: React.FC = () => {
                     options={[
                       { value: 'MEMBER', label: 'Member' },
                       { value: 'ADMIN', label: 'Admin' },
-                      { value: 'ORG_ADMIN', label: 'Organization Admin' },
+                      { value: 'ORG_ADMIN', label: 'Organisation admin' },
                     ]}
                   />
 

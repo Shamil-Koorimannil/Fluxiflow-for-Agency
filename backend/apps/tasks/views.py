@@ -714,7 +714,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         # Only Admins and Org Admins can create subtasks
         from apps.accounts.tenant_context import is_admin_or_org_admin
         if not is_admin_or_org_admin(user, request=request):
-            return Response({"detail": "Only Admins and Organization Admins can create subtasks."}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"detail": "Only Admins and Organisation admins can create subtasks."}, status=status.HTTP_403_FORBIDDEN)
             
         serializer = SubTaskSerializer(data=request.data, context={'request': request})
         if serializer.is_valid():
@@ -1276,7 +1276,7 @@ class TaskTypeViewSet(viewsets.ModelViewSet):
         from apps.accounts.tenant_context import get_active_organization, is_admin_or_org_admin
         user = self.request.user
         if not is_admin_or_org_admin(user, request=self.request):
-            raise exceptions.PermissionDenied("Only organization admins and managers can create task types.")
+            raise exceptions.PermissionDenied("Only Organisation admins and managers can create task types.")
         active_org = get_active_organization(user, request=self.request)
         if not active_org:
             raise exceptions.PermissionDenied("User has no active organization membership.")
@@ -1286,7 +1286,7 @@ class TaskTypeViewSet(viewsets.ModelViewSet):
         from apps.accounts.tenant_context import get_active_organization, is_admin_or_org_admin
         user = self.request.user
         if not is_admin_or_org_admin(user, request=self.request):
-            raise exceptions.PermissionDenied("Only organization admins and managers can edit task types.")
+            raise exceptions.PermissionDenied("Only Organisation admins and managers can edit task types.")
         active_org = get_active_organization(user, request=self.request)
         if serializer.instance.organization != active_org:
             raise exceptions.PermissionDenied("Cannot modify task type belonging to another organization.")
@@ -1296,7 +1296,7 @@ class TaskTypeViewSet(viewsets.ModelViewSet):
         from apps.accounts.tenant_context import get_active_organization, is_admin_or_org_admin
         user = self.request.user
         if not is_admin_or_org_admin(user, request=self.request):
-            raise exceptions.PermissionDenied("Only organization admins and managers can delete task types.")
+            raise exceptions.PermissionDenied("Only Organisation admins and managers can delete task types.")
         active_org = get_active_organization(user, request=self.request)
         if instance.organization != active_org:
             raise exceptions.PermissionDenied("Cannot delete task type belonging to another organization.")
@@ -1328,7 +1328,7 @@ class OrganizationSettingsView(viewsets.ViewSet):
         if not org:
             return Response({"detail": "User has no active organization membership."}, status=status.HTTP_400_BAD_REQUEST)
         if not is_admin_or_org_admin(request.user, request=request):
-            return Response({"detail": "Only organization admins and managers can modify organization settings."}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"detail": "Only Organisation admins and managers can modify organization settings."}, status=status.HTTP_403_FORBIDDEN)
 
         display_name = request.data.get('display_name')
         name = request.data.get('name')
@@ -1337,7 +1337,7 @@ class OrganizationSettingsView(viewsets.ViewSet):
         logo_file = request.FILES.get('logo')
 
         if role != 'ORG_ADMIN' and (display_name is not None or (name is not None and isinstance(name, str) and name.strip()) or logo_file):
-            return Response({"detail": "Only Organization Admins can modify organization name and branding."}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"detail": "Only Organisation admins can modify organization name and branding."}, status=status.HTTP_403_FORBIDDEN)
 
         if display_name is not None and role == 'ORG_ADMIN':
             org.display_name = display_name.strip() if isinstance(display_name, str) else display_name
