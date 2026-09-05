@@ -416,7 +416,6 @@ export const Keep: React.FC = () => {
             <NewKeepItemMenu
               onCreateItem={handleCreateItem}
               onOpenUploadModal={() => setIsUploadFileModalOpen(true)}
-              onOpenSpreadsheetImportModal={() => setIsSpreadsheetImportModalOpen(true)}
               disabled={section === 'trash'}
             />
           </div>
