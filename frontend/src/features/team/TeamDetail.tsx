@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Mail, Shield, CheckCircle2,
-  AlertCircle, RefreshCw, Heart, Calendar
+  AlertCircle, RefreshCw, Heart
 } from 'lucide-react';
 import type { Task, MemberWorkload } from '../../types';
 import { api } from '../../services/api';
@@ -128,71 +128,34 @@ export const TeamDetail: React.FC = () => {
     return tasks.filter((t) => t.status === 'COMPLETED');
   }, [tasks]);
 
-  // Build Chronological Datewise Groups for Incomplete Tasks
-  const incompleteDateGroups = useMemo((): TaskDateGroup[] => {
-    const groupsMap = new Map<string | null, Task[]>();
+  const sortTasksByDueDate = (taskList: Task[]) => {
+    return [...taskList].sort((a, b) => {
+      const dateA = a.due_date ? a.due_date.split('T')[0] : null;
+      const dateB = b.due_date ? b.due_date.split('T')[0] : null;
 
-    incompleteTasks.forEach((task) => {
-      let datesToAssign: (string | null)[] = [];
-      if (task.dates && task.dates.length > 0) {
-        datesToAssign = Array.from(new Set(task.dates));
-      } else if (task.due_date) {
-        datesToAssign = [task.due_date];
-      } else {
-        datesToAssign = [null];
-      }
-
-      datesToAssign.forEach((dKey) => {
-        const key = dKey ? dKey.split('T')[0] : null;
-        if (!groupsMap.has(key)) {
-          groupsMap.set(key, []);
-        }
-        groupsMap.get(key)!.push(task);
-      });
+      if (dateA === null && dateB === null) return 0;
+      if (dateA === null) return 1;
+      if (dateB === null) return -1;
+      return dateA.localeCompare(dateB);
     });
+  };
 
-    const dateKeys = Array.from(groupsMap.keys());
-
-    // Passed dates -> Today -> Upcoming dates -> No Due Date
-    const sortedKeys = dateKeys.sort((a, b) => {
-      if (a === null) return 1;
-      if (b === null) return -1;
-      return a.localeCompare(b);
-    });
-
-    return sortedKeys.map((key) => {
-      const isToday = key === todayStr;
-      const isPassed = Boolean(key && key < todayStr);
-
-      let formattedDate = 'No Due Date';
-      if (key) {
-        const formatted = formatDateOnly(key);
-        formattedDate = isToday ? `${formatted} — Today` : formatted;
-      }
-
-      return {
-        dateKey: key,
-        formattedDate,
-        isPassed,
-        isToday,
-        tasks: groupsMap.get(key) || [],
-      };
-    });
-  }, [incompleteTasks, todayStr]);
-
-  // Filtered Date Groups according to active filter tab
-  const filteredDateGroups = useMemo(() => {
+  // Filtered Incomplete Tasks sorted by due_date ascending (earliest first, no due date last)
+  const filteredIncompleteTasks = useMemo(() => {
+    let list = incompleteTasks;
     if (filter === 'TODAY') {
-      return incompleteDateGroups.filter((g) => g.isToday);
+      list = list.filter((t) => t.due_date && t.due_date.split('T')[0] === todayStr);
+    } else if (filter === 'UPCOMING') {
+      list = list.filter((t) => t.due_date && t.due_date.split('T')[0] > todayStr);
+    } else if (filter === 'NO_DUE_DATE') {
+      list = list.filter((t) => !t.due_date);
     }
-    if (filter === 'UPCOMING') {
-      return incompleteDateGroups.filter((g) => g.dateKey && g.dateKey > todayStr);
-    }
-    if (filter === 'NO_DUE_DATE') {
-      return incompleteDateGroups.filter((g) => g.dateKey === null);
-    }
-    return incompleteDateGroups;
-  }, [incompleteDateGroups, filter, todayStr]);
+    return sortTasksByDueDate(list);
+  }, [incompleteTasks, filter, todayStr]);
+
+  const sortedCompletedTasks = useMemo(() => {
+    return sortTasksByDueDate(completedTasks);
+  }, [completedTasks]);
 
   const getHealthColor = (score?: number, status?: string) => {
     if (score === undefined || score === null || status === 'no_data') {
@@ -484,7 +447,7 @@ export const TeamDetail: React.FC = () => {
         <div className="space-y-6">
           <div className="flex items-center justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800 pb-3">
             <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
-              Assigned Tasks ({filter === 'COMPLETED' ? completedTasks.length : incompleteTasks.length})
+              Assigned Tasks ({filter === 'COMPLETED' ? sortedCompletedTasks.length : filteredIncompleteTasks.length})
             </h2>
 
             {/* Filter Bar */}
@@ -512,97 +475,63 @@ export const TeamDetail: React.FC = () => {
             </div>
           </div>
 
-        {/* INCOMPLETE TASKS SECTION (Datewise Chronological) */}
+        {/* INCOMPLETE TASKS SECTION (Single Continuous Grid sorted by Due Date) */}
         {filter !== 'COMPLETED' && (
-          <div className="space-y-8">
+          <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-                INCOMPLETE TASKS ({incompleteTasks.length})
+                INCOMPLETE TASKS ({filteredIncompleteTasks.length})
               </h3>
             </div>
 
-            {filteredDateGroups.length === 0 ? (
+            {filteredIncompleteTasks.length === 0 ? (
               <div className="text-center py-12 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl bg-white/40 dark:bg-zinc-900/20 p-6">
                 <CheckCircle2 className="h-8 w-8 text-zinc-400 mx-auto mb-2 opacity-50" />
                 <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">No incomplete tasks match this filter</p>
               </div>
             ) : (
-              filteredDateGroups.map((dateGroup) => (
-                <div key={dateGroup.dateKey || 'no-date-group'} className="space-y-4">
-                  {/* Date Group Header */}
-                  <div className="flex items-center gap-2 border-b border-zinc-200/60 dark:border-zinc-800/60 pb-2">
-                    {dateGroup.isPassed ? (
-                      <div className="flex items-center gap-2 text-xs font-bold text-red-600 dark:text-red-400 uppercase tracking-wider">
-                        <span className="shrink-0 text-red-500">🔴</span>
-                        <span>{dateGroup.formattedDate}</span>
-                        <span className="text-[10px] font-semibold bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400 px-2 py-0.5 rounded-full">
-                          {dateGroup.tasks.length} task{dateGroup.tasks.length > 1 ? 's' : ''}
-                        </span>
-                      </div>
-                    ) : dateGroup.isToday ? (
-                      <div className="flex items-center gap-2 text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
-                        <Calendar className="h-3.5 w-3.5 text-blue-500" />
-                        <span>{dateGroup.formattedDate}</span>
-                        <span className="text-[10px] font-semibold bg-blue-100 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full">
-                          {dateGroup.tasks.length} task{dateGroup.tasks.length > 1 ? 's' : ''}
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2 text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
-                        <Calendar className="h-3.5 w-3.5 text-zinc-400" />
-                        <span>{dateGroup.formattedDate}</span>
-                        <span className="text-[10px] font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 px-2 py-0.5 rounded-full">
-                          {dateGroup.tasks.length} task{dateGroup.tasks.length > 1 ? 's' : ''}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Tasks Grid - 2 cards per row on md+, 1 on mobile */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {dateGroup.tasks.map((task) => (
-                      <TaskCard
-                        key={`${dateGroup.dateKey || 'nodate'}-${task.id}`}
-                        task={task}
-                        currentUser={currentUser}
-                        isAdmin={isAdmin}
-                        onOpenDetail={(taskId) => {
-                          const targetTask = tasks.find((t) => t.id === taskId);
-                          if (targetTask) {
-                            setSelectedTask(targetTask);
-                            setIsTaskModalOpen(true);
-                          }
-                        }}
-                        onToggleComplete={(t) => handleToggleComplete(t)}
-                        onEdit={(t) => {
-                          setSelectedTask(t);
-                          setIsTaskModalOpen(true);
-                        }}
-                        isSelected={dragSelect.isSelected(task.id)}
-                        onToggleSelect={(taskId, shiftKey) => dragSelect.toggleSelect(taskId, shiftKey)}
-                        onPointerDown={(e, taskId) => dragSelect.handlePointerDown(e, taskId)}
-                        onPointerMove={dragSelect.handlePointerMove}
-                        onPointerUp={dragSelect.handlePointerUpOrCancel}
-                        onPointerCancel={dragSelect.handlePointerUpOrCancel}
-                        onCardClick={(e, taskId) => dragSelect.handleCardClick(e, taskId)}
-                        isSelectionActive={dragSelect.isSelectionActive}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {filteredIncompleteTasks.map((task) => (
+                  <TaskCard
+                    key={`incomplete-${task.id}`}
+                    task={task}
+                    currentUser={currentUser}
+                    isAdmin={isAdmin}
+                    onOpenDetail={(taskId) => {
+                      const targetTask = tasks.find((t) => t.id === taskId);
+                      if (targetTask) {
+                        setSelectedTask(targetTask);
+                        setIsTaskModalOpen(true);
+                      }
+                    }}
+                    onToggleComplete={(t) => handleToggleComplete(t)}
+                    onEdit={(t) => {
+                      setSelectedTask(t);
+                      setIsTaskModalOpen(true);
+                    }}
+                    isSelected={dragSelect.isSelected(task.id)}
+                    onToggleSelect={(taskId, shiftKey) => dragSelect.toggleSelect(taskId, shiftKey)}
+                    onPointerDown={(e, taskId) => dragSelect.handlePointerDown(e, taskId)}
+                    onPointerMove={dragSelect.handlePointerMove}
+                    onPointerUp={dragSelect.handlePointerUpOrCancel}
+                    onPointerCancel={dragSelect.handlePointerUpOrCancel}
+                    onCardClick={(e, taskId) => dragSelect.handleCardClick(e, taskId)}
+                    isSelectionActive={dragSelect.isSelectionActive}
+                  />
+                ))}
+              </div>
             )}
           </div>
         )}
 
         {/* COMPLETED TASKS SECTION */}
-        {(filter === 'ALL' || filter === 'COMPLETED') && completedTasks.length > 0 && (
+        {(filter === 'ALL' || filter === 'COMPLETED') && sortedCompletedTasks.length > 0 && (
           <div className="space-y-4 pt-4 border-t border-zinc-200 dark:border-zinc-800">
             <h3 className="text-xs font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-              COMPLETED TASKS ({completedTasks.length})
+              COMPLETED TASKS ({sortedCompletedTasks.length})
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {completedTasks.map((task) => (
+              {sortedCompletedTasks.map((task) => (
                 <TaskCard
                   key={`completed-${task.id}`}
                   task={task}
