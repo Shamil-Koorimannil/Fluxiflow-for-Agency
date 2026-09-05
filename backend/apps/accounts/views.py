@@ -273,7 +273,7 @@ class RequestOTPView(views.APIView):
         if not user:
             if request.data.get('create_account') or request.data.get('name'):
                 name = request.data.get('name', '').strip() or email.split('@')[0]
-                user = CustomUser.objects.create_user(
+                user = CustomUser.objects.create_user(  # type: ignore
                     email=email,
                     name=name,
                     status='ACTIVE'
@@ -1034,7 +1034,7 @@ class TeamWorkloadView(views.APIView):
         user_tasks = Task.objects.filter(id__in=task_ids).order_by('due_date', 'due_time')
 
         # Workload capacity calculations
-        membership = user.memberships.filter(organization=active_org).first() or user.memberships.first()
+        membership = Membership.objects.filter(user=user, organization=active_org).first() or Membership.objects.filter(user=user).first()
         org = membership.organization if membership else Organization.objects.first()
         capacity_hours = org.weekly_capacity_hours if org else 40
         capacity_seconds = capacity_hours * 3600
@@ -1430,7 +1430,7 @@ class GoogleAuthView(views.APIView):
                     "detail": "Your account is currently deactivated. Please contact your administrator."
                 }, status=status.HTTP_403_FORBIDDEN)
         else:
-            user = CustomUser.objects.create_user(
+            user = CustomUser.objects.create_user(  # type: ignore
                 email=email,
                 name=name or email.split('@')[0].capitalize(),
                 status='ACTIVE'
@@ -1718,7 +1718,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                 )
                 return Response(MembershipSerializer(mem, context={'request': request}).data, status=status.HTTP_201_CREATED)
         else:
-            target_user = CustomUser.objects.create_user(
+            target_user = CustomUser.objects.create_user(  # type: ignore
                 email=email,
                 name=name,
                 role='MEMBER',
