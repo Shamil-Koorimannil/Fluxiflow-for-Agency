@@ -102,6 +102,9 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       queryClient.clear();
 
       setActiveOrganization(response.data);
+      if (response.data?.id) {
+        localStorage.setItem('activeOrganizationId', response.data.id);
+      }
       setActiveRole('ORG_ADMIN');
       await fetchOrganizations();
       return response.data;

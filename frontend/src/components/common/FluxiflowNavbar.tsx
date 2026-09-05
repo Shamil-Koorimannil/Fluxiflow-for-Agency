@@ -150,7 +150,7 @@ export const FluxiflowNavbar: React.FC<FluxiflowNavbarProps> = ({ navbarRef }) =
                 Log In
               </Button>
               <Button 
-                onClick={() => handleNav('/login')} 
+                onClick={() => handleNav('/login?mode=create_org')} 
                 variant="contained"
                 sx={{ 
                   textTransform: 'none', 
@@ -162,13 +162,14 @@ export const FluxiflowNavbar: React.FC<FluxiflowNavbarProps> = ({ navbarRef }) =
                   px: 3.5,
                   py: 1,
                   boxShadow: 'none',
+                  whiteSpace: 'nowrap',
                   '&:hover': {
                     bgcolor: isDark ? '#e4e4e7' : '#27272a',
                     boxShadow: 'none'
                   }
                 }}
               >
-                Get Started
+                Create an organisation
               </Button>
             </Box>
 
@@ -269,7 +270,7 @@ export const FluxiflowNavbar: React.FC<FluxiflowNavbarProps> = ({ navbarRef }) =
           <Button 
             fullWidth 
             variant="contained" 
-            onClick={() => handleNav('/login')} 
+            onClick={() => handleNav('/login?mode=create_org')} 
             sx={{ 
               textTransform: 'none', 
               fontWeight: 700, 
@@ -281,7 +282,7 @@ export const FluxiflowNavbar: React.FC<FluxiflowNavbarProps> = ({ navbarRef }) =
               '&:hover': { bgcolor: isDark ? '#e4e4e7' : '#27272a', boxShadow: 'none' }
             }}
           >
-            Get Started
+            Create an organisation
           </Button>
         </Box>
       </Drawer>

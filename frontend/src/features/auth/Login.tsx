@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthContext';
+import { useOrganization } from '../../context/OrganizationContext';
 import { FluxiflowLogo } from '../../components/common/FluxiflowLogo';
 import {
   Box,
@@ -9,20 +10,24 @@ import {
   TextField,
   Typography,
   Alert,
-  CircularProgress,
   InputAdornment,
   IconButton,
   Checkbox,
   FormControlLabel,
 } from '@mui/material';
-import { Mail, AlertCircle, ArrowLeft, KeyRound, CheckCircle2, Lock, Eye, EyeOff } from 'lucide-react';
+import { Mail, AlertCircle, ArrowLeft, KeyRound, CheckCircle2, Lock, Eye, EyeOff, Building2 } from 'lucide-react';
 
 export const Login: React.FC = () => {
   const { requestOtp, login, loginWithPassword } = useAuth();
+  const { createOrganization } = useOrganization();
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Authentication screens step: 1 = Email request, 2 = OTP verification
+  const searchParams = new URLSearchParams(location.search);
+  const initialMode = searchParams.get('mode') === 'create_org' ? 'create_org' : 'login';
+
+  const [authMode, setAuthMode] = useState<'login' | 'create_org'>(initialMode);
+  const [orgName, setOrgName] = useState('');
   const [step, setStep] = useState<1 | 2>(1);
   const [loginMethod, setLoginMethod] = useState<'otp' | 'password'>('otp');
   const [email, setEmail] = useState('');
@@ -38,7 +43,6 @@ export const Login: React.FC = () => {
 
   const from = (location.state as any)?.from?.pathname || '/app/tasks';
 
-  // Timer countdown hook for resend limits
   useEffect(() => {
     let timer: any;
     if (resendCountdown > 0) {
@@ -79,13 +83,20 @@ export const Login: React.FC = () => {
       setError('Email address is required.');
       return;
     }
+    if (authMode === 'create_org' && !orgName.trim()) {
+      setError('Organisation name is required.');
+      return;
+    }
 
     setError(null);
     setSuccess(null);
     setIsSubmitting(true);
 
     try {
-      await requestOtp(email.trim().toLowerCase());
+      await requestOtp(email.trim().toLowerCase(), {
+        name: email.split('@')[0],
+        createAccount: authMode === 'create_org'
+      });
       setStep(2);
       setResendCountdown(60);
       setSuccess('Verification code sent successfully.');
@@ -102,6 +113,10 @@ export const Login: React.FC = () => {
       setError('Email address and password are required.');
       return;
     }
+    if (authMode === 'create_org' && !orgName.trim()) {
+      setError('Organisation name is required.');
+      return;
+    }
 
     setError(null);
     setSuccess(null);
@@ -109,6 +124,9 @@ export const Login: React.FC = () => {
 
     try {
       await loginWithPassword(email.trim().toLowerCase(), password, rememberMe);
+      if (authMode === 'create_org' && orgName.trim()) {
+        await createOrganization(orgName.trim());
+      }
       navigate(from, { replace: true });
     } catch (err: any) {
       setError(extractErrorMessage(err, 'Incorrect email or password. Please try again.'));
@@ -134,6 +152,9 @@ export const Login: React.FC = () => {
 
     try {
       await login(email.trim().toLowerCase(), otp.trim(), rememberMe);
+      if (authMode === 'create_org' && orgName.trim()) {
+        await createOrganization(orgName.trim());
+      }
       navigate(from, { replace: true });
     } catch (err: any) {
       setError(extractErrorMessage(err, 'That code is incorrect or expired. Please try again.'));
@@ -296,12 +317,44 @@ export const Login: React.FC = () => {
                 <Box component="form" onSubmit={handleSendOtp} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                   <Box>
                     <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5, color: 'text.primary' }}>
-                      Welcome back
+                      {authMode === 'create_org' ? 'Create an organisation' : 'Welcome back'}
                     </Typography>
                     <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                      Enter your email to continue. We'll send you a secure verification code.
+                      {authMode === 'create_org' 
+                        ? 'Enter your details to create your organisation.' 
+                        : "Enter your email to continue. We'll send you a secure verification code."}
                     </Typography>
                   </Box>
+
+                  {authMode === 'create_org' && (
+                    <TextField
+                      fullWidth
+                      variant="outlined"
+                      label="Organisation name"
+                      placeholder="e.g. Acme Agency"
+                      required
+                      value={orgName}
+                      onChange={(e) => setOrgName(e.target.value)}
+                      disabled={isSubmitting}
+                      slotProps={{
+                        input: {
+                          startAdornment: (
+                            <InputAdornment position="start">
+                              <Building2 size={16} color="#a1a1aa" />
+                            </InputAdornment>
+                          ),
+                        },
+                      }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          borderRadius: '8px',
+                          bgcolor: 'background.paper',
+                          '&:hover fieldset': { borderColor: 'text.primary' },
+                          '&.Mui-focused fieldset': { borderColor: 'text.primary', borderWidth: '1.5px' },
+                        },
+                      }}
+                    />
+                  )}
 
                   <TextField
                     fullWidth
@@ -371,7 +424,9 @@ export const Login: React.FC = () => {
                       '&.Mui-disabled': { bgcolor: 'divider', color: 'text.secondary' },
                     }}
                   >
-                    {isSubmitting ? <CircularProgress size={20} color="inherit" /> : 'Send OTP'}
+                    {isSubmitting 
+                      ? (authMode === 'create_org' ? 'Creating…' : 'Sending OTP…') 
+                      : (authMode === 'create_org' ? 'Continue' : 'Send OTP')}
                   </Button>
                 </Box>
               ) : (
@@ -379,12 +434,44 @@ export const Login: React.FC = () => {
                 <Box component="form" onSubmit={handlePasswordLogin} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                   <Box>
                     <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5, color: 'text.primary' }}>
-                      Welcome back
+                      {authMode === 'create_org' ? 'Create an organisation' : 'Welcome back'}
                     </Typography>
                     <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                      Enter your email and password to log in.
+                      {authMode === 'create_org'
+                        ? 'Enter your details to create your organisation.'
+                        : 'Enter your email and password to log in.'}
                     </Typography>
                   </Box>
+
+                  {authMode === 'create_org' && (
+                    <TextField
+                      fullWidth
+                      variant="outlined"
+                      label="Organisation name"
+                      placeholder="e.g. Acme Agency"
+                      required
+                      value={orgName}
+                      onChange={(e) => setOrgName(e.target.value)}
+                      disabled={isSubmitting}
+                      slotProps={{
+                        input: {
+                          startAdornment: (
+                            <InputAdornment position="start">
+                              <Building2 size={16} color="#a1a1aa" />
+                            </InputAdornment>
+                          ),
+                        },
+                      }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          borderRadius: '8px',
+                          bgcolor: 'background.paper',
+                          '&:hover fieldset': { borderColor: 'text.primary' },
+                          '&.Mui-focused fieldset': { borderColor: 'text.primary', borderWidth: '1.5px' },
+                        },
+                      }}
+                    />
+                  )}
 
                   <TextField
                     fullWidth
@@ -495,7 +582,9 @@ export const Login: React.FC = () => {
                       '&.Mui-disabled': { bgcolor: 'divider', color: 'text.secondary' },
                     }}
                   >
-                    {isSubmitting ? <CircularProgress size={20} color="inherit" /> : 'Log In'}
+                    {isSubmitting
+                      ? (authMode === 'create_org' ? 'Creating…' : 'Logging in…')
+                      : (authMode === 'create_org' ? 'Create organisation' : 'Log In')}
                   </Button>
                 </Box>
               )
@@ -568,7 +657,9 @@ export const Login: React.FC = () => {
                     '&.Mui-disabled': { bgcolor: 'divider', color: 'text.secondary' },
                   }}
                 >
-                  {isSubmitting ? <CircularProgress size={20} color="inherit" /> : 'Verify OTP'}
+                  {isSubmitting 
+                    ? (authMode === 'create_org' ? 'Creating…' : 'Verifying…') 
+                    : (authMode === 'create_org' ? 'Create organisation' : 'Verify OTP')}
                 </Button>
 
                 <Button
@@ -592,6 +683,53 @@ export const Login: React.FC = () => {
                 </Button>
               </Box>
             )}
+          </Box>
+
+          {/* Toggle between Login and Create Organisation */}
+          <Box sx={{ textAlign: 'center' }}>
+            <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '13px' }}>
+              {authMode === 'login' ? (
+                <>
+                  New to Fluxiflow?{' '}
+                  <Typography
+                    component="span"
+                    onClick={() => {
+                      setAuthMode('create_org');
+                      setError(null);
+                      setSuccess(null);
+                    }}
+                    sx={{
+                      color: 'text.primary',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      '&:hover': { textDecoration: 'underline' }
+                    }}
+                  >
+                    Create an organisation
+                  </Typography>
+                </>
+              ) : (
+                <>
+                  Already have an account?{' '}
+                  <Typography
+                    component="span"
+                    onClick={() => {
+                      setAuthMode('login');
+                      setError(null);
+                      setSuccess(null);
+                    }}
+                    sx={{
+                      color: 'text.primary',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      '&:hover': { textDecoration: 'underline' }
+                    }}
+                  >
+                    Sign in
+                  </Typography>
+                </>
+              )}
+            </Typography>
           </Box>
 
 

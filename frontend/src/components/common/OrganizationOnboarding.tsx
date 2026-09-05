@@ -38,7 +38,7 @@ export const OrganizationOnboarding: React.FC = () => {
           Welcome to Fluxiflow
         </h2>
         <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-8 leading-relaxed">
-          You don't belong to a workspace yet. Create a new organization for your team or agency, or accept an invitation to join an existing workspace.
+          You don't belong to an organisation yet. Create a new organisation for your team or agency, or accept an invitation to join an existing organisation.
         </p>
 
         {errorState && (
@@ -60,7 +60,7 @@ export const OrganizationOnboarding: React.FC = () => {
             onClick={() => setIsModalOpen(true)}
             className="w-full flex items-center justify-center gap-2 py-3 px-6 rounded-2xl bg-black dark:bg-white text-white dark:text-black font-semibold text-xs hover:opacity-90 transition-all shadow-md"
           >
-            <Plus className="h-4 w-4" /> Create Organization
+            <Plus className="h-4 w-4" /> Create an organisation
           </button>
 
           <button
@@ -77,10 +77,10 @@ export const OrganizationOnboarding: React.FC = () => {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
           <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 w-full max-w-md shadow-2xl text-left">
             <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-1">
-              Create New Workspace
+              Create an organisation
             </h3>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-6">
-              Set up an isolated workspace for your projects, tasks, clients, and team members.
+              Set up an isolated organisation for your projects, tasks, clients, and team members.
             </p>
 
             {createError && (
@@ -92,7 +92,7 @@ export const OrganizationOnboarding: React.FC = () => {
             <form onSubmit={handleCreateSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
-                  Organization Name
+                  Organisation name
                 </label>
                 <input
                   type="text"
@@ -117,7 +117,7 @@ export const OrganizationOnboarding: React.FC = () => {
                   disabled={isCreating || !newOrgName.trim()}
                   className="px-5 py-2 rounded-xl text-xs font-semibold bg-black dark:bg-white text-white dark:text-black hover:opacity-90 disabled:opacity-50"
                 >
-                  {isCreating ? 'Creating...' : 'Create Workspace'}
+                  {isCreating ? 'Creating…' : 'Create organisation'}
                 </button>
               </div>
             </form>

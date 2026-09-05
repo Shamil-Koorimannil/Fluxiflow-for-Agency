@@ -79,23 +79,23 @@ export const OrganizationSwitcher: React.FC = () => {
           onClick={() => setIsModalOpen(true)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm transition-colors"
         >
-          <Plus className="h-3.5 w-3.5" /> Create Organization
+          <Plus className="h-3.5 w-3.5" /> Create organisation
         </button>
 
         {isModalOpen && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 w-full max-w-md shadow-2xl text-left">
               <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-1">
-                Create New Workspace
+                Create an organisation
               </h3>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-6">
-                Create a separate, isolated workspace for your team or agency.
+                Create a separate, isolated organisation for your team or agency.
               </p>
 
               <form onSubmit={handleCreateSubmit} className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
-                    Workspace Name
+                    Organisation name
                   </label>
                   <input
                     type="text"
@@ -120,7 +120,7 @@ export const OrganizationSwitcher: React.FC = () => {
                     disabled={isCreating || !newOrgName.trim()}
                     className="px-5 py-2 rounded-xl text-xs font-semibold bg-black dark:bg-white text-white dark:text-black hover:opacity-90 disabled:opacity-50"
                   >
-                    {isCreating ? 'Creating...' : 'Create Workspace'}
+                    {isCreating ? 'Creating…' : 'Create organisation'}
                   </button>
                 </div>
               </form>
@@ -206,7 +206,7 @@ export const OrganizationSwitcher: React.FC = () => {
               }}
               className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-colors"
             >
-              <Plus className="h-4 w-4" /> Create Organization
+              <Plus className="h-4 w-4" /> Create organisation
             </button>
           </div>
         </div>
@@ -217,16 +217,16 @@ export const OrganizationSwitcher: React.FC = () => {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
           <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 w-full max-w-md shadow-2xl">
             <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-1">
-              Create New Workspace
+              Create an organisation
             </h3>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-6">
-              Create a separate, isolated workspace for your team or agency.
+              Create a separate, isolated organisation for your team or agency.
             </p>
 
             <form onSubmit={handleCreateSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
-                  Workspace Name
+                  Organisation name
                 </label>
                 <input
                   type="text"
@@ -251,7 +251,7 @@ export const OrganizationSwitcher: React.FC = () => {
                   disabled={isCreating || !newOrgName.trim()}
                   className="px-5 py-2 rounded-xl text-xs font-semibold bg-black dark:bg-white text-white dark:text-black hover:opacity-90 disabled:opacity-50"
                 >
-                  {isCreating ? 'Creating...' : 'Create Workspace'}
+                  {isCreating ? 'Creating…' : 'Create organisation'}
                 </button>
               </div>
             </form>

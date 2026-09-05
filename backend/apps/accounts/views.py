@@ -245,9 +245,18 @@ class RequestOTPView(views.APIView):
 
         user: CustomUser | None = User.objects.filter(email=email).first()  # type: ignore
         if not user:
-            return Response({
-                "detail": "This email is not registered or invited in the system. Please verify your spelling or contact your administrator."
-            }, status=status.HTTP_400_BAD_REQUEST)
+            if request.data.get('create_account') or request.data.get('name'):
+                name = request.data.get('name', '').strip() or email.split('@')[0]
+                user = CustomUser.objects.create_user(
+                    email=email,
+                    name=name,
+                    status='ACTIVE'
+                )
+                Profile.objects.get_or_create(user=user)
+            else:
+                return Response({
+                    "detail": "This email is not registered or invited in the system. Please verify your spelling or contact your administrator."
+                }, status=status.HTTP_400_BAD_REQUEST)
             
         if user.status == 'INACTIVE' or not user.is_active:
             return Response({
@@ -1397,10 +1406,12 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         queryset = self.get_queryset()
         serializer = self.get_serializer(queryset, many=True, context={'request': request})
         
-        active_membership = get_active_membership(request.user)
+        has_memberships = Membership.objects.filter(user=request.user, is_active=True, organization__is_active=True).exists()
         active_org_data = None
-        if active_membership:
-            active_org_data = OrganizationSerializer(active_membership.organization, context={'request': request}).data
+        if has_memberships:
+            active_membership = get_active_membership(request.user)
+            if active_membership:
+                active_org_data = OrganizationSerializer(active_membership.organization, context={'request': request}).data
 
         return Response({
             "organizations": serializer.data,
@@ -1409,8 +1420,8 @@ class OrganizationViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         name = request.data.get('name')
-        if not name or not name.strip():
-            return Response({"detail": "Organization name is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if not name or not isinstance(name, str) or not name.strip():
+            return Response({"detail": "Unable to create the organisation. Please check the details and try again."}, status=status.HTTP_400_BAD_REQUEST)
 
         with transaction.atomic():
             org = Organization.objects.create(name=name.strip())

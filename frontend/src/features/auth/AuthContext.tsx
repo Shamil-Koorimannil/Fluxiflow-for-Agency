@@ -8,7 +8,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   isInitializing: boolean;
-  requestOtp: (email: string) => Promise<void>;
+  requestOtp: (email: string, options?: { name?: string; createAccount?: boolean }) => Promise<void>;
   login: (email: string, otp: string, rememberMe?: boolean) => Promise<User>;
   loginWithPassword: (email: string, password: string, rememberMe?: boolean) => Promise<User>;
   logout: () => Promise<void>;
@@ -92,9 +92,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  const requestOtp = async (email: string): Promise<void> => {
+  const requestOtp = async (email: string, options?: { name?: string; createAccount?: boolean }): Promise<void> => {
     try {
-      await api.post('/auth/request-otp/', { email });
+      await api.post('/auth/request-otp/', {
+        email,
+        name: options?.name,
+        create_account: options?.createAccount
+      });
     } catch (error) {
       throw error;
     }

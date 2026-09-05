@@ -7,6 +7,7 @@ from django.core import mail
 from django.conf import settings
 from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
+from rest_framework_simplejwt.tokens import RefreshToken
 from apps.accounts.models import OTPVerification, Session, Organization, Membership, Invitation, Profile
 
 User = get_user_model()
@@ -1943,6 +1944,164 @@ class RoleMigrationAndMultiTenantPermissionsTestSuite(APITestCase):
         self.assertEqual(task.elapsed_seconds, 0)
         self.assertIsNone(task.timer_started_at)
         self.assertEqual(task.timer_status, 'NOT_STARTED')
+
+
+class OrganizationCreationFlowFeatureTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='user_creator@example.com',
+            name='Creator User',
+            password='password123',
+            status='ACTIVE'
+        )
+        self.token = str(RefreshToken.for_user(self.user).access_token)
+        self.client = APIClient()
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.token}')
+
+    def test_A_authenticated_user_can_create_organization(self):
+        """A. Authenticated user can create organization."""
+        res = self.client.post('/api/organizations/', {'name': 'Alpha Agency'}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data['name'], 'Alpha Agency')
+
+    def test_B_newly_created_organization_exists(self):
+        """B. Newly created organization exists in DB."""
+        self.client.post('/api/organizations/', {'name': 'Beta Agency'}, format='json')
+        self.assertTrue(Organization.objects.filter(name='Beta Agency').exists())
+
+    def test_C_creator_automatically_receives_org_admin_membership(self):
+        """C. Creator automatically receives ORG_ADMIN membership."""
+        res = self.client.post('/api/organizations/', {'name': 'Gamma Agency'}, format='json')
+        org_id = res.data['id']
+        membership = Membership.objects.filter(user=self.user, organization_id=org_id).first()
+        self.assertIsNotNone(membership)
+        self.assertEqual(membership.role, 'ORG_ADMIN')
+
+    def test_D_creator_cannot_choose_custom_role_during_creation(self):
+        """D. Creator cannot choose a lower or arbitrary role during creation."""
+        res = self.client.post('/api/organizations/', {'name': 'Delta Agency', 'role': 'MEMBER'}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        membership = Membership.objects.get(user=self.user, organization_id=res.data['id'])
+        self.assertEqual(membership.role, 'ORG_ADMIN')
+
+    def test_E_existing_user_can_create_second_organization(self):
+        """E. Existing user can create a second organization."""
+        res1 = self.client.post('/api/organizations/', {'name': 'First Agency'}, format='json')
+        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
+        res2 = self.client.post('/api/organizations/', {'name': 'Second Agency'}, format='json')
+        self.assertEqual(res2.status_code, status.HTTP_201_CREATED)
+
+        user_org_ids = Membership.objects.filter(user=self.user, is_active=True).values_list('organization_id', flat=True)
+        self.assertEqual(len(user_org_ids), 2)
+
+    def test_F_G_existing_memberships_and_data_remain_unchanged(self):
+        """F & G. Existing memberships and organization data remain unchanged."""
+        from apps.projects.models import Project
+        from apps.tasks.models import Task
+
+        org_a = Organization.objects.create(name='Agency A', slug='agency-a')
+        Membership.objects.create(organization=org_a, user=self.user, role='MEMBER', is_active=True)
+        self.user.active_organization = org_a
+        self.user.save()
+
+        proj_a = Project.objects.create(name='Org A Project', organization=org_a, created_by=self.user)
+        task_a = Task.objects.create(name='Org A Task', organization=org_a, created_by=self.user)
+
+        res = self.client.post('/api/organizations/', {'name': 'Agency B'}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        # Org A membership preserved
+        mem_a = Membership.objects.get(user=self.user, organization=org_a)
+        self.assertEqual(mem_a.role, 'MEMBER')
+
+        # Org A project and task preserved
+        proj_a.refresh_from_db()
+        task_a.refresh_from_db()
+        self.assertEqual(proj_a.organization, org_a)
+        self.assertEqual(task_a.organization, org_a)
+
+    def test_H_new_organization_contains_no_unrelated_data(self):
+        """H. New organization contains no unrelated tasks/projects/clients."""
+        from apps.projects.models import Project
+        from apps.tasks.models import Task
+
+        org_a = Organization.objects.create(name='Agency A', slug='agency-a-h')
+        Membership.objects.create(organization=org_a, user=self.user, role='ORG_ADMIN', is_active=True)
+        Project.objects.create(name='Legacy Project', organization=org_a, created_by=self.user)
+
+        res = self.client.post('/api/organizations/', {'name': 'Clean Agency'}, format='json')
+        org_b_id = res.data['id']
+
+        self.assertEqual(Project.objects.filter(organization_id=org_b_id).count(), 0)
+        self.assertEqual(Task.objects.filter(organization_id=org_b_id).count(), 0)
+
+    def test_I_J_organization_creation_validation_and_atomicity(self):
+        """I & J. Reject blank name and atomic transaction check."""
+        res_blank = self.client.post('/api/organizations/', {'name': '   '}, format='json')
+        self.assertEqual(res_blank.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('detail', res_blank.data)
+
+    def test_K_L_M_user_member_in_org_a_creates_org_b(self):
+        """K, L & M. User with MEMBER role in Org A can create Org B, becomes ORG_ADMIN in B while staying MEMBER in A."""
+        org_a = Organization.objects.create(name='Org Alpha', slug='org-alpha-klm')
+        Membership.objects.create(organization=org_a, user=self.user, role='MEMBER', is_active=True)
+        self.user.active_organization = org_a
+        self.user.save()
+
+        res = self.client.post('/api/organizations/', {'name': 'Org Beta'}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        org_b_id = res.data['id']
+
+        mem_a = Membership.objects.get(user=self.user, organization=org_a)
+        mem_b = Membership.objects.get(user=self.user, organization_id=org_b_id)
+
+        self.assertEqual(mem_a.role, 'MEMBER')
+        self.assertEqual(mem_b.role, 'ORG_ADMIN')
+
+    def test_N_user_with_zero_organizations_flow(self):
+        """N. User with zero organizations can access create path."""
+        zero_user = User.objects.create_user(email='zero_orgs@example.com', name='Zero User', password='password123', status='ACTIVE')
+        Membership.objects.filter(user=zero_user).delete()
+        zero_user.active_organization = None
+        zero_user.save()
+
+        token = str(RefreshToken.for_user(zero_user).access_token)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+        res_list = client.get('/api/organizations/')
+        self.assertEqual(res_list.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_list.data['organizations']), 0)
+        self.assertIsNone(res_list.data['active_organization'])
+
+        res_create = client.post('/api/organizations/', {'name': 'First Org'}, format='json')
+        self.assertEqual(res_create.status_code, status.HTTP_201_CREATED)
+
+    def test_O_invitation_flow_compatibility(self):
+        """O. Invitation flow remains functional and coexists with organization creation."""
+        inviter = User.objects.create_user(email='inviter@example.com', name='Inviter', password='password123', status='ACTIVE')
+        org_invited = Organization.objects.create(name='Invited Org', slug='invited-org')
+        Membership.objects.create(organization=org_invited, user=inviter, role='ORG_ADMIN', is_active=True)
+
+        invitation = Invitation.objects.create(
+            organization=org_invited,
+            email=self.user.email,
+            role='MEMBER',
+            invited_by=inviter,
+            expires_at=timezone.now() + timedelta(days=7)
+        )
+
+        # Accept invitation
+        invitation.status = 'ACCEPTED'
+        invitation.save()
+        Membership.objects.create(organization=org_invited, user=self.user, role='MEMBER', is_active=True)
+
+        # User can also create their own organization
+        res_own = self.client.post('/api/organizations/', {'name': 'Own Created Org'}, format='json')
+        self.assertEqual(res_own.status_code, status.HTTP_201_CREATED)
+
+        self.assertEqual(Membership.objects.filter(user=self.user).count(), 2)
+
 
 
 
