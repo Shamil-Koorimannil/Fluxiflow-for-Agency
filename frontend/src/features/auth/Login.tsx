@@ -171,7 +171,8 @@ export const Login: React.FC = () => {
   return (
     <Box
       sx={{
-        minHeight: '100vh',
+        height: '100vh',
+        maxHeight: '100vh',
         width: '100vw',
         display: 'flex',
         alignItems: 'center',
@@ -180,13 +181,15 @@ export const Login: React.FC = () => {
         fontFamily: 'Roboto, sans-serif',
         color: 'text.primary',
         px: 2,
+        py: 2,
+        overflow: 'hidden',
       }}
     >
       <Container maxWidth="xs">
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           {/* Logo */}
           <Box sx={{ display: 'flex', justifyContent: 'flex-start' }}>
-            <FluxiflowLogo height={160} />
+            <FluxiflowLogo height={44} />
           </Box>
 
           {/* Form Container */}
@@ -196,7 +199,7 @@ export const Login: React.FC = () => {
               border: '1px solid',
               borderColor: 'divider',
               borderRadius: '16px',
-              p: 4,
+              p: 3,
               bgcolor: 'background.paper',
               boxShadow: 'none',
             }}
@@ -206,7 +209,7 @@ export const Login: React.FC = () => {
                 severity="error"
                 icon={<AlertCircle size={16} />}
                 sx={{
-                  mb: 3,
+                  mb: 2,
                   borderRadius: '8px',
                   fontSize: '13px',
                   fontWeight: 500,
@@ -225,7 +228,7 @@ export const Login: React.FC = () => {
                 severity="success"
                 icon={<CheckCircle2 size={16} />}
                 sx={{
-                  mb: 3,
+                  mb: 2,
                   borderRadius: '8px',
                   fontSize: '13px',
                   fontWeight: 500,
@@ -240,7 +243,7 @@ export const Login: React.FC = () => {
             )}
 
             {step === 1 && (
-              <Box sx={{ display: 'flex', border: '1px solid', borderColor: 'divider', borderRadius: '8px', p: 0.5, mb: 3, bgcolor: 'background.default' }}>
+              <Box sx={{ display: 'flex', border: '1px solid', borderColor: 'divider', borderRadius: '8px', p: 0.5, mb: 2, bgcolor: 'background.default' }}>
                 <Button
                   fullWidth
                   onClick={() => {
@@ -293,7 +296,7 @@ export const Login: React.FC = () => {
             {step === 1 ? (
               loginMethod === 'otp' ? (
                 // STEP 1: Request OTP screen
-                <Box component="form" onSubmit={handleSendOtp} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <Box component="form" onSubmit={handleSendOtp} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 2.2 }}>
                   <Box>
                     <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5, color: 'text.primary' }}>
                       Welcome back
@@ -359,7 +362,7 @@ export const Login: React.FC = () => {
                     variant="contained"
                     disabled={isSubmitting}
                     sx={{
-                      py: 1.5,
+                      py: 1.3,
                       bgcolor: 'text.primary',
                       color: 'background.paper',
                       fontWeight: 600,
@@ -376,7 +379,7 @@ export const Login: React.FC = () => {
                 </Box>
               ) : (
                 // STEP 1: Password Login screen
-                <Box component="form" onSubmit={handlePasswordLogin} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <Box component="form" onSubmit={handlePasswordLogin} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 2.2 }}>
                   <Box>
                     <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5, color: 'text.primary' }}>
                       Welcome back
@@ -483,7 +486,7 @@ export const Login: React.FC = () => {
                     variant="contained"
                     disabled={isSubmitting}
                     sx={{
-                      py: 1.5,
+                      py: 1.3,
                       bgcolor: 'text.primary',
                       color: 'background.paper',
                       fontWeight: 600,
@@ -501,7 +504,7 @@ export const Login: React.FC = () => {
               )
             ) : (
               // STEP 2: Verify OTP screen
-              <Box component="form" onSubmit={handleVerifyOtp} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <Box component="form" onSubmit={handleVerifyOtp} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 2.2 }}>
                 <Box>
                   <IconButton
                     onClick={handleChangeEmail}
