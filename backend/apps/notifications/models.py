@@ -43,5 +43,15 @@ class Notification(models.Model):
             models.Index(fields=['created_at']),
         ]
 
+    def save(self, *args, **kwargs):
+        if not self.organization_id:
+            if self.related_task and getattr(self.related_task, 'organization_id', None):
+                self.organization = self.related_task.organization
+            elif self.related_project and getattr(self.related_project, 'organization_id', None):
+                self.organization = self.related_project.organization
+            elif self.recipient and getattr(self.recipient, 'active_organization_id', None):
+                self.organization = self.recipient.active_organization
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.recipient.name} - {self.title} - Read: {self.is_read}"

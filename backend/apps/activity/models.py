@@ -38,5 +38,10 @@ class ActivityLog(models.Model):
             models.Index(fields=['organization', '-created_at']),
         ]
 
+    def save(self, *args, **kwargs):
+        if not self.organization_id and self.user and getattr(self.user, 'active_organization_id', None):
+            self.organization = self.user.active_organization
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.user.name} - {self.action} - {self.created_at}"

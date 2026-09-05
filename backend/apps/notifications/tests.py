@@ -13,41 +13,56 @@ User = get_user_model()
 
 class NotificationBackendTests(APITestCase):
     def setUp(self):
+        from apps.accounts.models import Organization, Membership
+        self.org = Organization.objects.create(name="Test Org", slug="test-org")
+
         # Create users
         self.admin = User.objects.create_user(
             email='admin@example.com',
             name='Admin User',
             password='password123',
             role='ADMIN',
-            status='ACTIVE'
+            status='ACTIVE',
+            active_organization=self.org
         )
+        Membership.objects.create(user=self.admin, organization=self.org, role='ORG_ADMIN', is_active=True)
+
         self.member1 = User.objects.create_user(
             email='member1@example.com',
             name='Member One',
             password='password123',
             role='MEMBER',
-            status='ACTIVE'
+            status='ACTIVE',
+            active_organization=self.org
         )
+        Membership.objects.create(user=self.member1, organization=self.org, role='MEMBER', is_active=True)
+
         self.member2 = User.objects.create_user(
             email='member2@example.com',
             name='Member Two',
             password='password123',
             role='MEMBER',
-            status='ACTIVE'
+            status='ACTIVE',
+            active_organization=self.org
         )
+        Membership.objects.create(user=self.member2, organization=self.org, role='MEMBER', is_active=True)
+
         self.deactivated_member = User.objects.create_user(
             email='deactivated@example.com',
             name='Deactivated Member',
             password='password123',
             role='MEMBER',
             status='INACTIVE',
-            is_active=False
+            is_active=False,
+            active_organization=self.org
         )
+        Membership.objects.create(user=self.deactivated_member, organization=self.org, role='MEMBER', is_active=False)
 
         # Create Project
         self.project = Project.objects.create(
             name="Test Project",
-            created_by=self.admin
+            created_by=self.admin,
+            organization=self.org
         )
 
     def test_task_creation_creates_notifications(self):
