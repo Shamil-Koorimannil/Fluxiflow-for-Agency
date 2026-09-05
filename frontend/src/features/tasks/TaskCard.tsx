@@ -21,6 +21,7 @@ export interface TaskCardProps {
   onPointerCancel?: (e: React.PointerEvent) => void;
   onCardClick?: (e: React.MouseEvent, taskId: string, defaultOpenId?: string) => void;
   isSelectionActive?: boolean;
+  onContextMenu?: (e: React.MouseEvent, task: Task) => void;
 }
 
 export const TaskCard: React.FC<TaskCardProps> = ({
@@ -32,13 +33,12 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   onEdit,
   isMutating = false,
   isSelected = false,
-  onToggleSelect,
   onPointerDown,
   onPointerMove,
   onPointerUp,
   onPointerCancel,
   onCardClick,
-  isSelectionActive = false,
+  onContextMenu,
 }) => {
   const isAssigned = task.assignees?.some((a) => a.id === currentUser?.id);
   const canComplete = isAdmin || isAssigned;
@@ -143,6 +143,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
+      onContextMenu={(e) => onContextMenu?.(e, task)}
       onClick={(e) =>
         onCardClick
           ? onCardClick(e, task.id, task.is_subtask ? task.parent_task_id! : task.id)
@@ -285,40 +286,23 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         </div>
       </div>
 
-      {/* Right Side Actions: Admin Edit Button & Selection Checkbox */}
-      <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
-        {isAdmin && onEdit && (
+      {/* Right Side Actions: Admin Edit Button */}
+      {isAdmin && onEdit && (
+        <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
               onEdit(task);
             }}
-            className="px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-800 hover:border-black dark:hover:border-white bg-zinc-50 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-2xs hover:shadow-xs"
+            className="p-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 hover:border-black dark:hover:border-white bg-zinc-50 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 transition-colors shadow-2xs hover:shadow-xs"
             title="Edit task"
+            aria-label="Edit task"
           >
             <Pencil className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" />
-            <span>Edit</span>
           </button>
-        )}
-
-        {(onToggleSelect || isSelectionActive) && (
-          <div
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleSelect?.(task.id, e.shiftKey);
-            }}
-            className={`h-5 w-5 rounded-md border flex items-center justify-center transition-all cursor-pointer ${
-              isSelected
-                ? 'bg-blue-600 border-blue-600 text-white font-bold shadow-xs'
-                : 'border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 hover:border-blue-400'
-            }`}
-            title={isSelected ? 'Deselect task' : 'Select task'}
-          >
-            {isSelected && <span className="text-xs">✓</span>}
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };
