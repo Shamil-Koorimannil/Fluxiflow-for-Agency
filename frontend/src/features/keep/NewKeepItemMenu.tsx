@@ -50,7 +50,7 @@ export const NewKeepItemMenu: React.FC<NewKeepItemMenuProps> = ({
             }}
             className="w-full flex items-center gap-3 px-3.5 py-2 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-left font-medium"
           >
-            <div className="p-1 rounded bg-zinc-100 dark:bg-zinc-800 text-black dark:text-white">
+            <div className="p-1 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400">
               <FileText className="h-4 w-4" />
             </div>
             <div>
@@ -66,7 +66,7 @@ export const NewKeepItemMenu: React.FC<NewKeepItemMenuProps> = ({
             }}
             className="w-full flex items-center gap-3 px-3.5 py-2 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-left font-medium"
           >
-            <div className="p-1 rounded bg-zinc-100 dark:bg-zinc-800 text-black dark:text-white border border-black dark:border-white">
+            <div className="p-1 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-500">
               <StickyNote className="h-4 w-4" />
             </div>
             <div>
