@@ -6,10 +6,19 @@ User = get_user_model()
 
 class NotificationService:
     @staticmethod
-    def create_notification(recipient, notification_type, title, message, related_task=None, related_project=None, related_user=None):
+    def create_notification(recipient, notification_type, title, message, related_task=None, related_project=None, related_user=None, organization=None):
         # Only create if recipient is active
         if not recipient.is_active or recipient.status == 'INACTIVE':
             return None
+
+        if not organization:
+            if related_task and getattr(related_task, 'organization', None):
+                organization = related_task.organization
+            elif related_project and getattr(related_project, 'organization', None):
+                organization = related_project.organization
+            else:
+                from apps.accounts.tenant_context import get_active_organization
+                organization = get_active_organization(recipient)
 
         # Duplicate check criteria for time-based alerts:
         # Generate at most one of TASK_DUE_TODAY, TASK_DUE_SOON, or TASK_OVERDUE in any 24h window
@@ -19,6 +28,7 @@ class NotificationService:
                 recipient=recipient,
                 type=notification_type,
                 related_task=related_task,
+                organization=organization,
                 created_at__gte=today_start
             ).exists()
             if exists:
@@ -26,6 +36,7 @@ class NotificationService:
 
         # Create and save notification
         notification = Notification.objects.create(
+            organization=organization,
             recipient=recipient,
             type=notification_type,
             title=title,
@@ -37,8 +48,22 @@ class NotificationService:
         return notification
 
     @staticmethod
-    def notify_admins(notification_type, title, message, related_task=None, related_project=None, related_user=None):
-        admins = User.objects.filter(role='ADMIN', is_active=True)
+    def notify_admins(notification_type, title, message, related_task=None, related_project=None, related_user=None, organization=None):
+        if not organization:
+            if related_task and getattr(related_task, 'organization', None):
+                organization = related_task.organization
+            elif related_project and getattr(related_project, 'organization', None):
+                organization = related_project.organization
+
+        if organization:
+            admin_user_ids = organization.memberships.filter(
+                is_active=True,
+                role__in=['ADMIN', 'ORG_ADMIN']
+            ).values_list('user_id', flat=True)
+            admins = User.objects.filter(id__in=admin_user_ids, is_active=True)
+        else:
+            admins = User.objects.filter(role='ADMIN', is_active=True)
+
         notifications = []
         for admin in admins:
             notif = NotificationService.create_notification(
@@ -48,7 +73,8 @@ class NotificationService:
                 message=message,
                 related_task=related_task,
                 related_project=related_project,
-                related_user=related_user
+                related_user=related_user,
+                organization=organization
             )
             if notif:
                 notifications.append(notif)
@@ -76,6 +102,8 @@ class NotificationService:
         for assignment in active_assignments:
             task = assignment.task
             due_date = task.due_date
+            if not due_date:
+                continue
             due_time = task.due_time or time(23, 59, 59)
             
             # Combine due date and time

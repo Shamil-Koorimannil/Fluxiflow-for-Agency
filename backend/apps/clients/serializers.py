@@ -69,6 +69,20 @@ class ClientBrandAssetSerializer(serializers.ModelSerializer):
             return obj.file.url
         return None
 
+    def validate(self, attrs):
+        request = self.context.get('request')
+        if request and request.user and request.user.is_authenticated:
+            from apps.accounts.tenant_context import get_active_organization
+            active_org = get_active_organization(request.user, request=request)
+            if active_org:
+                client = attrs.get('client') or (self.instance.client if self.instance else None)
+                if client and client.organization_id != active_org.id:
+                    raise serializers.ValidationError({'client': 'Selected client belongs to another organization.'})
+                folder = attrs.get('folder') or (self.instance.folder if self.instance else None)
+                if folder and folder.organization_id != active_org.id:
+                    raise serializers.ValidationError({'folder': 'Selected folder belongs to another organization.'})
+        return attrs
+
 
 class ClientSerializer(serializers.ModelSerializer):
     created_by_name = serializers.CharField(source='created_by.name', read_only=True)

@@ -22,9 +22,14 @@ class NotificationViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if not user.is_authenticated:
             return Notification.objects.none()
+        from apps.accounts.tenant_context import get_active_organization
+        active_org = get_active_organization(user, request=self.request)
+        if not active_org:
+            return Notification.objects.none()
+
         # Trigger dynamic deadline-based notification checks before listing
         NotificationService.check_and_create_deadline_notifications(user)
-        return Notification.objects.filter(recipient=user).order_by('-created_at')
+        return Notification.objects.filter(recipient=user, organization=active_org).order_by('-created_at')
 
     def perform_destroy(self, instance):
         if instance.recipient != self.request.user:
@@ -47,8 +52,13 @@ class NotificationViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['POST'], url_path='mark-all-read')
     def mark_all_read(self, request):
         user = request.user
-        # Mark all of this user's unread notifications as read
-        Notification.objects.filter(recipient=user, is_read=False).update(
+        from apps.accounts.tenant_context import get_active_organization
+        active_org = get_active_organization(user, request=request)
+        if not active_org:
+            return Response({"detail": "No active organization."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Mark all of this user's unread notifications as read within active_org
+        Notification.objects.filter(recipient=user, organization=active_org, is_read=False).update(
             is_read=True,
             read_at=timezone.now()
         )
@@ -57,7 +67,12 @@ class NotificationViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['GET'], url_path='unread-count')
     def unread_count(self, request):
         user = request.user
+        from apps.accounts.tenant_context import get_active_organization
+        active_org = get_active_organization(user, request=request)
+        if not active_org:
+            return Response({"count": 0})
+
         # Trigger deadline checks to ensure count is updated in real-time
         NotificationService.check_and_create_deadline_notifications(user)
-        count = Notification.objects.filter(recipient=user, is_read=False).count()
+        count = Notification.objects.filter(recipient=user, organization=active_org, is_read=False).count()
         return Response({"count": count})

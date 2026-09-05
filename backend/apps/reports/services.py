@@ -38,7 +38,7 @@ class ReportGenerator:
         return start_dt, end_dt
 
     @staticmethod
-    def compile_report_data(start_date, end_date, member_id=None, project_id=None, status_filter=None, search_query=None, include_deactivated=False):
+    def compile_report_data(start_date, end_date, member_id=None, project_id=None, status_filter=None, search_query=None, include_deactivated=False, organization=None):
         tz = timezone.get_current_timezone()
         
         # Format date inputs
@@ -54,7 +54,12 @@ class ReportGenerator:
         _, total_end_dt = ReportGenerator.get_day_boundaries(end_date, tz)
 
         # 1. Fetch relevant members
-        members_query = User.objects.all()
+        if organization:
+            member_user_ids = organization.memberships.filter(is_active=True).values_list('user_id', flat=True)
+            members_query = User.objects.filter(id__in=member_user_ids)
+        else:
+            members_query = User.objects.all()
+
         if not include_deactivated:
             # Active members, or deactivated after start of the report range
             members_query = members_query.filter(
@@ -106,6 +111,12 @@ class ReportGenerator:
             ).filter(
                 models.Q(unassigned_at__isnull=True) | models.Q(unassigned_at__gt=day_start_dt)
             ).select_related('task', 'task__project', 'subtask', 'subtask__task', 'subtask__task__project', 'user')
+
+            if organization:
+                histories = histories.filter(
+                    models.Q(task__organization=organization) |
+                    models.Q(subtask__task__organization=organization)
+                )
 
             # Filter by project
             if project_id and project_id != 'all':
@@ -315,9 +326,9 @@ class ReportGenerator:
         }
 
     @staticmethod
-    def export_excel(start_date, end_date, member_id=None, project_id=None, status_filter=None, search_query=None, include_deactivated=False):
+    def export_excel(start_date, end_date, member_id=None, project_id=None, status_filter=None, search_query=None, include_deactivated=False, organization=None):
         data = ReportGenerator.compile_report_data(
-            start_date, end_date, member_id, project_id, status_filter, search_query, include_deactivated
+            start_date, end_date, member_id, project_id, status_filter, search_query, include_deactivated, organization=organization
         )
 
         wb = Workbook()
@@ -419,9 +430,9 @@ class ReportGenerator:
         return output
 
     @staticmethod
-    def export_csv(start_date, end_date, member_id=None, project_id=None, status_filter=None, search_query=None, include_deactivated=False):
+    def export_csv(start_date, end_date, member_id=None, project_id=None, status_filter=None, search_query=None, include_deactivated=False, organization=None):
         data = ReportGenerator.compile_report_data(
-            start_date, end_date, member_id, project_id, status_filter, search_query, include_deactivated
+            start_date, end_date, member_id, project_id, status_filter, search_query, include_deactivated, organization=organization
         )
         
         import io
@@ -449,9 +460,9 @@ class ReportGenerator:
         return b'\xef\xbb\xbf' + output.getvalue().encode('utf-8')
 
     @staticmethod
-    def export_pdf(start_date, end_date, member_id=None, project_id=None, status_filter=None, search_query=None, include_deactivated=False):
+    def export_pdf(start_date, end_date, member_id=None, project_id=None, status_filter=None, search_query=None, include_deactivated=False, organization=None):
         data = ReportGenerator.compile_report_data(
-            start_date, end_date, member_id, project_id, status_filter, search_query, include_deactivated
+            start_date, end_date, member_id, project_id, status_filter, search_query, include_deactivated, organization=organization
         )
 
         buffer = BytesIO()

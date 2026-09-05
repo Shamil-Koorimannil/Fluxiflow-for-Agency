@@ -80,6 +80,7 @@ class ClientViewSet(viewsets.ModelViewSet):
 
         ActivityLog.objects.create(
             user=user,
+            organization=active_org,
             action='PROFILE_UPDATED',
             entity_type='Client',
             entity_id=client.id,
@@ -92,6 +93,7 @@ class ClientViewSet(viewsets.ModelViewSet):
 
         ActivityLog.objects.create(
             user=user,
+            organization=client.organization,
             action='PROFILE_UPDATED',
             entity_type='Client',
             entity_id=client.id,
@@ -110,6 +112,7 @@ class ClientViewSet(viewsets.ModelViewSet):
 
         ActivityLog.objects.create(
             user=request.user,
+            organization=client.organization,
             action='PROFILE_UPDATED',
             entity_type='Client',
             entity_id=client.id,
@@ -201,6 +204,7 @@ class ClientViewSet(viewsets.ModelViewSet):
         for proj in projects:
             ActivityLog.objects.create(
                 user=request.user,
+                organization=client.organization,
                 action='PROFILE_UPDATED',
                 entity_type='Project',
                 entity_id=proj.id,
@@ -310,6 +314,7 @@ class ClientViewSet(viewsets.ModelViewSet):
 
             ActivityLog.objects.create(
                 user=request.user,
+                organization=client.organization,
                 action='PROFILE_UPDATED',
                 entity_type='ClientBrandAsset',
                 entity_id=asset.id,
@@ -373,6 +378,7 @@ class ClientBrandAssetFolderViewSet(viewsets.ModelViewSet):
         folder = serializer.save(organization=active_org, created_by=user)
         ActivityLog.objects.create(
             user=user,
+            organization=active_org,
             action='PROFILE_UPDATED',
             entity_type='ClientBrandAssetFolder',
             entity_id=folder.id,
@@ -392,6 +398,7 @@ class ClientBrandAssetFolderViewSet(viewsets.ModelViewSet):
 
         ActivityLog.objects.create(
             user=request.user,
+            organization=folder.organization,
             action='PROFILE_UPDATED',
             entity_type='ClientBrandAssetFolder',
             entity_id=folder.id,
@@ -430,6 +437,7 @@ class ClientBrandAssetViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         ActivityLog.objects.create(
             user=self.request.user,
+            organization=instance.organization,
             action='PROFILE_UPDATED',
             entity_type='ClientBrandAsset',
             entity_id=instance.id,
@@ -458,6 +466,7 @@ class ClientBrandAssetViewSet(viewsets.ModelViewSet):
         asset.save(update_fields=['folder', 'updated_at'])
         ActivityLog.objects.create(
             user=request.user,
+            organization=asset.organization,
             action='PROFILE_UPDATED',
             entity_type='ClientBrandAsset',
             entity_id=asset.id,
@@ -485,6 +494,7 @@ class ClientBrandAssetViewSet(viewsets.ModelViewSet):
 
         ActivityLog.objects.create(
             user=request.user,
+            organization=asset.organization,
             action='PROFILE_UPDATED',
             entity_type='ClientBrandAsset',
             entity_id=asset.id,

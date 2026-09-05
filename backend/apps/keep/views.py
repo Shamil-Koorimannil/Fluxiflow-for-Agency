@@ -79,7 +79,11 @@ class KeepItemViewSet(viewsets.ModelViewSet):
     def get_object(self):
         lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
         pk = self.kwargs[lookup_url_kwarg]
-        obj = KeepItem.objects.get(pk=pk)
+        org = get_user_organization(self.request.user)
+        try:
+            obj = KeepItem.objects.get(pk=pk, organization=org)
+        except KeepItem.DoesNotExist:
+            raise Http404("No KeepItem matches the given query.")
         self.check_object_permissions(self.request, obj)
         return obj
 
@@ -526,7 +530,11 @@ def keep_search(request):
         return Response([])
 
     user = request.user
-    qs = KeepItem.objects.filter(is_deleted=False)
+    org = get_user_organization(user)
+    if not org:
+        return Response([])
+
+    qs = KeepItem.objects.filter(organization=org, is_deleted=False)
 
     results = []
     for item in qs:

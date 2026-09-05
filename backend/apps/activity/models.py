@@ -20,6 +20,7 @@ class ActivityLog(models.Model):
     )
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, null=True, blank=True, related_name='activities')
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='activities')
     action = models.CharField(max_length=50, choices=ACTION_CHOICES)
     entity_type = models.CharField(max_length=50)  # e.g., 'Task', 'Project', 'SubProject', 'Profile'
@@ -34,6 +35,7 @@ class ActivityLog(models.Model):
         indexes = [
             models.Index(fields=['created_at']),
             models.Index(fields=['user']),
+            models.Index(fields=['organization', '-created_at']),
         ]
 
     def __str__(self):

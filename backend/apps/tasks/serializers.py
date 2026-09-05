@@ -319,6 +319,9 @@ class TaskSerializer(serializers.ModelSerializer):
                 project = attrs.get('project')
                 if project and project.organization_id != active_org.id:
                     raise serializers.ValidationError({"project": "Selected project belongs to another organization."})
+                task_type = attrs.get('task_type')
+                if task_type and task_type.organization_id != active_org.id:
+                    raise serializers.ValidationError({"task_type": "Selected task type belongs to another organization."})
 
         return attrs
 

@@ -42,3 +42,14 @@ class ProjectSerializer(serializers.ModelSerializer):
             return None # Frontend will show "No tasks yet" as required by requirement 64
         completed_tasks = obj.tasks.filter(status='COMPLETED').count()
         return round((completed_tasks / total_tasks) * 100)
+
+    def validate(self, attrs):
+        request = self.context.get('request')
+        if request and request.user and request.user.is_authenticated:
+            from apps.accounts.tenant_context import get_active_organization
+            active_org = get_active_organization(request.user, request=request)
+            if active_org:
+                client = attrs.get('client')
+                if client and client.organization_id != active_org.id:
+                    raise serializers.ValidationError({"client": "Selected client belongs to another organization."})
+        return attrs

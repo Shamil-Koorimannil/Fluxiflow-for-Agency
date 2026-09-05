@@ -37,6 +37,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         # Log activity
         ActivityLog.objects.create(
             user=self.request.user,
+            organization=active_org,
             action='PROJECT_CREATED',
             entity_type='Project',
             entity_id=project.id,
@@ -48,6 +49,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         # Log activity
         ActivityLog.objects.create(
             user=self.request.user,
+            organization=project.organization,
             action='PROJECT_UPDATED',
             entity_type='Project',
             entity_id=project.id,
@@ -61,6 +63,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         # Log activity
         ActivityLog.objects.create(
             user=self.request.user,
+            organization=instance.organization,
             action='PROJECT_DELETED',
             entity_type='Project',
             entity_id=project_id,
@@ -151,6 +154,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
             ActivityLog.objects.create(
                 user=request.user,
+                organization=active_org,
                 action='PROJECT_CREATED',
                 entity_type='Project',
                 entity_id=new_project.id,

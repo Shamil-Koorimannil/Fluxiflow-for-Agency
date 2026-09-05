@@ -189,6 +189,7 @@ class TaskViewSet(viewsets.ModelViewSet):
                     
                     ActivityLog.objects.create(
                         user=request.user,
+                        organization=task.organization,
                         action='TASK_CREATED',
                         entity_type='Task',
                         entity_id=task.id,
@@ -198,6 +199,7 @@ class TaskViewSet(viewsets.ModelViewSet):
                     if assignees_names:
                         ActivityLog.objects.create(
                             user=request.user,
+                            organization=task.organization,
                             action='TASK_ASSIGNED',
                             entity_type='Task',
                             entity_id=task.id,
@@ -218,6 +220,7 @@ class TaskViewSet(viewsets.ModelViewSet):
             # Log activity for creation
             ActivityLog.objects.create(
                 user=request.user,
+                organization=task.organization,
                 action='TASK_CREATED',
                 entity_type='Task',
                 entity_id=task.id,
@@ -228,6 +231,7 @@ class TaskViewSet(viewsets.ModelViewSet):
             if assignees_names:
                 ActivityLog.objects.create(
                     user=request.user,
+                    organization=task.organization,
                     action='TASK_ASSIGNED',
                     entity_type='Task',
                     entity_id=task.id,
@@ -249,6 +253,7 @@ class TaskViewSet(viewsets.ModelViewSet):
             # Log activity
             ActivityLog.objects.create(
                 user=request.user,
+                organization=updated_task.organization,
                 action='TASK_UPDATED',
                 entity_type='Task',
                 entity_id=updated_task.id,
@@ -269,6 +274,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         # Log activity
         ActivityLog.objects.create(
             user=request.user,
+            organization=task.organization,
             action='TASK_DELETED',
             entity_type='Task',
             entity_id=task_id,
@@ -311,6 +317,7 @@ class TaskViewSet(viewsets.ModelViewSet):
             for t in task_list:
                 ActivityLog.objects.create(
                     user=request.user,
+                    organization=t.organization,
                     action='TASK_DELETED',
                     entity_type='Task',
                     entity_id=t.id,
@@ -401,6 +408,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         # Log activity
         ActivityLog.objects.create(
             user=user,
+            organization=task.organization,
             action='TASK_COMPLETED',
             entity_type='Task',
             entity_id=task.id,
@@ -475,6 +483,7 @@ class TaskViewSet(viewsets.ModelViewSet):
 
             ActivityLog.objects.create(
                 user=request.user,
+                organization=new_task.organization,
                 action='TASK_CREATED',
                 entity_type='Task',
                 entity_id=new_task.id,
@@ -531,6 +540,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         # Log activity
         ActivityLog.objects.create(
             user=user,
+            organization=task.organization,
             action='TASK_REOPENED',
             entity_type='Task',
             entity_id=task.id,
@@ -716,6 +726,7 @@ class TaskViewSet(viewsets.ModelViewSet):
             # Log activity
             ActivityLog.objects.create(
                 user=user,
+                organization=task.organization,
                 action='SUBTASK_CREATED',
                 entity_type='SubTask',
                 entity_id=subtask.id,
@@ -812,6 +823,7 @@ class TaskViewSet(viewsets.ModelViewSet):
                 
                 ActivityLog.objects.create(
                     user=user,
+                    organization=new_task.organization,
                     action='TASK_CREATED',
                     entity_type='Task',
                     entity_id=new_task.id,
@@ -823,9 +835,18 @@ class TaskViewSet(viewsets.ModelViewSet):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 class SubTaskViewSet(viewsets.ModelViewSet):
-    queryset = SubTask.objects.all()
     serializer_class = SubTaskSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user.is_authenticated:
+            return SubTask.objects.none()
+        from apps.accounts.tenant_context import get_active_organization
+        active_org = get_active_organization(user, request=self.request)
+        if not active_org:
+            return SubTask.objects.none()
+        return SubTask.objects.filter(task__organization=active_org)
 
     def update(self, request, *args, **kwargs):
         # Only Admins can modify subtask info
@@ -900,6 +921,7 @@ class SubTaskViewSet(viewsets.ModelViewSet):
             # Log assignee completion
             ActivityLog.objects.create(
                 user=request.user,
+                organization=subtask.task.organization,
                 action='SUBTASK_COMPLETED',
                 entity_type='SubTask',
                 entity_id=subtask.id,
@@ -932,6 +954,7 @@ class SubTaskViewSet(viewsets.ModelViewSet):
             
             ActivityLog.objects.create(
                 user=request.user,
+                organization=subtask.task.organization,
                 action='SUBTASK_COMPLETED',
                 entity_type='SubTask',
                 entity_id=subtask.id,
@@ -974,6 +997,7 @@ class SubTaskViewSet(viewsets.ModelViewSet):
             
             ActivityLog.objects.create(
                 user=request.user,
+                organization=subtask.task.organization,
                 action='SUBTASK_REOPENED',
                 entity_type='SubTask',
                 entity_id=subtask.id,
@@ -989,6 +1013,7 @@ class SubTaskViewSet(viewsets.ModelViewSet):
                 
             ActivityLog.objects.create(
                 user=request.user,
+                organization=subtask.task.organization,
                 action='SUBTASK_REOPENED',
                 entity_type='SubTask',
                 entity_id=subtask.id,

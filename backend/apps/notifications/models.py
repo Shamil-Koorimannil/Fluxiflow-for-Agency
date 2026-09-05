@@ -23,6 +23,7 @@ class Notification(models.Model):
     )
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, null=True, blank=True, related_name='notifications')
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notifications')
     type = models.CharField(max_length=50, choices=TYPE_CHOICES)
     title = models.CharField(max_length=150)
@@ -38,6 +39,7 @@ class Notification(models.Model):
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['recipient', 'is_read']),
+            models.Index(fields=['organization', 'recipient', 'is_read']),
             models.Index(fields=['created_at']),
         ]
 

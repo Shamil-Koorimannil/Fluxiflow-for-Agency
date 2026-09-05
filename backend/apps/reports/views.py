@@ -25,6 +25,8 @@ class ReportViewSet(viewsets.ViewSet):
             date_str = str(timezone.localdate())
             
         member_id, project_id, status_filter, search_query, include_deactivated = self._get_common_params(request)
+        from apps.accounts.tenant_context import get_active_organization
+        active_org = get_active_organization(request.user, request=request)
         
         try:
             data = ReportGenerator.compile_report_data(
@@ -34,7 +36,8 @@ class ReportViewSet(viewsets.ViewSet):
                 project_id=project_id,
                 status_filter=status_filter,
                 search_query=search_query,
-                include_deactivated=include_deactivated
+                include_deactivated=include_deactivated,
+                organization=active_org
             )
             return Response(data)
         except Exception as e:
@@ -52,6 +55,8 @@ class ReportViewSet(viewsets.ViewSet):
             )
             
         member_id, project_id, status_filter, search_query, include_deactivated = self._get_common_params(request)
+        from apps.accounts.tenant_context import get_active_organization
+        active_org = get_active_organization(request.user, request=request)
         
         try:
             data = ReportGenerator.compile_report_data(
@@ -61,7 +66,8 @@ class ReportViewSet(viewsets.ViewSet):
                 project_id=project_id,
                 status_filter=status_filter,
                 search_query=search_query,
-                include_deactivated=include_deactivated
+                include_deactivated=include_deactivated,
+                organization=active_org
             )
             return Response(data)
         except Exception as e:
@@ -80,6 +86,8 @@ class ReportViewSet(viewsets.ViewSet):
             )
 
         member_id, project_id, status_filter, search_query, include_deactivated = self._get_common_params(request)
+        from apps.accounts.tenant_context import get_active_organization
+        active_org = get_active_organization(request.user, request=request)
 
         try:
             excel_file = ReportGenerator.export_excel(
@@ -89,12 +97,14 @@ class ReportViewSet(viewsets.ViewSet):
                 project_id=project_id,
                 status_filter=status_filter,
                 search_query=search_query,
-                include_deactivated=include_deactivated
+                include_deactivated=include_deactivated,
+                organization=active_org
             )
             
             # Log export activity
             ActivityLog.objects.create(
                 user=request.user,
+                organization=active_org,
                 action='REPORT_EXPORTED',
                 entity_type='Report',
                 description=f"{request.user.name} exported Excel report for period {start_date} to {end_date}."
@@ -123,6 +133,8 @@ class ReportViewSet(viewsets.ViewSet):
             )
 
         member_id, project_id, status_filter, search_query, include_deactivated = self._get_common_params(request)
+        from apps.accounts.tenant_context import get_active_organization
+        active_org = get_active_organization(request.user, request=request)
 
         try:
             csv_data = ReportGenerator.export_csv(
@@ -132,12 +144,14 @@ class ReportViewSet(viewsets.ViewSet):
                 project_id=project_id,
                 status_filter=status_filter,
                 search_query=search_query,
-                include_deactivated=include_deactivated
+                include_deactivated=include_deactivated,
+                organization=active_org
             )
             
             # Log export activity
             ActivityLog.objects.create(
                 user=request.user,
+                organization=active_org,
                 action='REPORT_EXPORTED',
                 entity_type='Report',
                 description=f"{request.user.name} exported CSV report for period {start_date} to {end_date}."
@@ -163,6 +177,8 @@ class ReportViewSet(viewsets.ViewSet):
             )
 
         member_id, project_id, status_filter, search_query, include_deactivated = self._get_common_params(request)
+        from apps.accounts.tenant_context import get_active_organization
+        active_org = get_active_organization(request.user, request=request)
 
         try:
             pdf_file = ReportGenerator.export_pdf(
@@ -172,12 +188,14 @@ class ReportViewSet(viewsets.ViewSet):
                 project_id=project_id,
                 status_filter=status_filter,
                 search_query=search_query,
-                include_deactivated=include_deactivated
+                include_deactivated=include_deactivated,
+                organization=active_org
             )
             
             # Log export activity
             ActivityLog.objects.create(
                 user=request.user,
+                organization=active_org,
                 action='REPORT_EXPORTED',
                 entity_type='Report',
                 description=f"{request.user.name} exported PDF report for period {start_date} to {end_date}."
