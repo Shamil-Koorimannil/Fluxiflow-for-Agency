@@ -319,20 +319,20 @@ export const TeamDetail: React.FC = () => {
       {/* Member Header Card with Workload Health Bar */}
       <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 md:p-8 shadow-sm mb-8 space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="flex items-center gap-4">
-            <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-xl shadow-md">
+          <div className="flex items-center gap-4 min-w-0">
+            <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-xl shadow-md shrink-0 flex-shrink-0 min-w-[64px] min-h-[64px]">
               {memberSummary.avatar_url ? (
-                <img src={memberSummary.avatar_url} alt={memberSummary.name} className="h-full w-full rounded-2xl object-cover" />
+                <img src={memberSummary.avatar_url} alt={memberSummary.name} className="h-full w-full rounded-2xl object-cover shrink-0" />
               ) : (
                 memberSummary.name.charAt(0).toUpperCase()
               )}
             </div>
-            <div>
-              <div className="flex items-center gap-3 mb-1">
-                <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2 mb-1">
+                <h1 className="text-xl sm:text-2xl font-bold text-zinc-900 dark:text-zinc-100 truncate">
                   {memberSummary.name}
                 </h1>
-                <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold tracking-wide uppercase ${
+                <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold tracking-wide uppercase shrink-0 ${
                   memberSummary.role === 'ADMIN'
                     ? 'bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800'
                     : 'bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800'
@@ -341,21 +341,15 @@ export const TeamDetail: React.FC = () => {
                   <span>{getRoleDisplayLabel(memberSummary.role)}</span>
                 </span>
                 {memberSummary.status === 'INACTIVE' && (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-500 border border-zinc-300 dark:border-zinc-700">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-500 border border-zinc-300 dark:border-zinc-700 shrink-0">
                     Deactivated
                   </span>
                 )}
               </div>
 
-              <div className="flex items-center gap-3 text-xs text-zinc-500 dark:text-zinc-400 font-medium">
-                <div className="flex items-center gap-1.5">
-                  <Mail className="h-3.5 w-3.5" />
-                  <span>{memberSummary.email}</span>
-                </div>
-                <span>•</span>
-                <span>
-                  {tasks.length} Tasks • {completedTasks.length} Completed • {incompleteTasks.length} Incomplete
-                </span>
+              <div className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400 font-medium min-w-0">
+                <Mail className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{memberSummary.email}</span>
               </div>
             </div>
           </div>
@@ -650,14 +644,10 @@ export const TeamDetail: React.FC = () => {
         /* ASSIGNED WORK VIEW */
         <div className="space-y-6">
           <div className="flex items-center justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800 pb-3">
-            <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
-              Assigned Tasks ({filter === 'COMPLETED' ? sortedCompletedTasks.length : filteredIncompleteTasks.length})
-            </h2>
-
             {/* Filter Bar */}
-            <div className="flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar">
+            <div className="flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar w-full">
               {[
-                { key: 'ALL', label: 'All' },
+                { key: 'ALL', label: `All Tasks (${tasks.length})` },
                 { key: 'INCOMPLETED', label: `Incomplete (${incompleteTasks.length})` },
                 { key: 'COMPLETED', label: `Completed (${completedTasks.length})` },
                 { key: 'TODAY', label: 'Today' },
