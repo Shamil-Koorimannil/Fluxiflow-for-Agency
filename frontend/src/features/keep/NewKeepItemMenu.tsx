@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Plus, FileText, StickyNote, Table, Folder, Upload, ChevronDown } from 'lucide-react';
+import { Plus, FileText, StickyNote, FileSpreadsheet, Folder, Upload, ChevronDown } from 'lucide-react';
 import type { KeepItemType } from '../../types';
 
 interface NewKeepItemMenuProps {
@@ -83,7 +83,7 @@ export const NewKeepItemMenu: React.FC<NewKeepItemMenuProps> = ({
             className="w-full flex items-center gap-3 px-3.5 py-2 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-left font-medium"
           >
             <div className="p-1 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
-              <Table className="h-4 w-4" />
+              <FileSpreadsheet className="h-4 w-4" />
             </div>
             <div>
               <div className="font-semibold">Spreadsheet</div>
@@ -134,7 +134,7 @@ export const NewKeepItemMenu: React.FC<NewKeepItemMenuProps> = ({
               className="w-full flex items-center gap-3 px-3.5 py-2 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-left font-medium text-xs"
             >
               <div className="p-1 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
-                <Table className="h-4 w-4" />
+                <FileSpreadsheet className="h-4 w-4" />
               </div>
               <div>
                 <div className="font-semibold">Import Spreadsheet</div>
