@@ -3,6 +3,8 @@ export type UserRole = 'ORG_ADMIN' | 'ADMIN' | 'MEMBER';
 export interface Organization {
   id: string;
   name: string;
+  display_name?: string | null;
+  effective_name?: string;
   slug: string;
   logo_url: string | null;
   description?: string | null;
@@ -44,11 +46,17 @@ export interface User {
   health_status?: 'excellent' | 'healthy' | 'needs_attention' | 'at_risk' | 'critical' | 'no_data';
   pending_tasks?: number;
   today_tasks?: number;
+  tomorrow_tasks?: number;
   overdue_tasks?: number;
   completed_this_week?: number;
   completed_this_month?: number;
   on_time_completion_rate?: number;
   late_completions?: number;
+  workload_percentage?: number;
+  workload_status?: string;
+  total_allocated_hours?: number;
+  completed_allocated_hours?: number;
+  capacity_hours?: number;
   completed?: boolean;
   submission_status?: 'PENDING' | 'OVERDUE' | 'COMPLETED_ON_TIME' | 'LATE';
   late_by_minutes?: number;
@@ -206,8 +214,12 @@ export interface ActivityLog {
 export interface TeamWorkloadSummary {
   name: string;
   role: UserRole;
+  pending_tasks?: number;
+  today_tasks?: number;
+  tomorrow_tasks?: number;
   total_pending: number;
   due_today: number;
+  due_tomorrow?: number;
   overdue_tasks?: number;
   completed_this_week: number;
   completed_this_month: number;

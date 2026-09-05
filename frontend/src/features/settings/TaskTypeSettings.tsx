@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Edit, Trash2, Tag, RefreshCw, AlertCircle, Check } from 'lucide-react';
+import { useConfirm } from '../../context/ConfirmDialogContext';
 import type { TaskType, OrganizationSettings } from '../../types';
 import { api } from '../../services/api';
+import { useOrganization } from '../../context/OrganizationContext';
 import { TaskTypeModal } from './TaskTypeModal';
 
 export const TaskTypeSettings: React.FC = () => {
+  const { confirm } = useConfirm();
   const [taskTypes, setTaskTypes] = useState<TaskType[]>([]);
   const [settings, setSettings] = useState<OrganizationSettings>({
     enable_task_types: true,
@@ -19,6 +22,8 @@ export const TaskTypeSettings: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedTaskType, setSelectedTaskType] = useState<TaskType | null>(null);
 
+  const { isAdmin } = useOrganization();
+
   const fetchSettingsAndTypes = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -30,7 +35,7 @@ export const TaskTypeSettings: React.FC = () => {
       setSettings(settingsRes.data);
       setTaskTypes(typesRes.data);
     } catch (err: any) {
-      setError('Failed to load Task Type settings.');
+      setError(err?.response?.data?.detail || 'Failed to load Task Type settings.');
     } finally {
       setLoading(false);
     }
@@ -42,14 +47,15 @@ export const TaskTypeSettings: React.FC = () => {
 
   const handleToggleEnable = async () => {
     setSavingSetting(true);
+    setError(null);
     const updatedStatus = !settings.enable_task_types;
     try {
       const res = await api.post<OrganizationSettings>('/organization-settings/', {
         enable_task_types: updatedStatus
       });
       setSettings(res.data);
-    } catch (err) {
-      alert('Failed to update Task Types setting.');
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || 'Failed to update Task Types setting.');
     } finally {
       setSavingSetting(false);
     }
@@ -57,36 +63,45 @@ export const TaskTypeSettings: React.FC = () => {
 
   const handleCapacityChange = async (newCapacity: number) => {
     setSavingSetting(true);
+    setError(null);
     try {
       const res = await api.post<OrganizationSettings>('/organization-settings/', {
         weekly_capacity_hours: newCapacity
       });
       setSettings(res.data);
-    } catch (err) {
-      alert('Failed to update weekly capacity hours.');
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || 'Failed to update weekly capacity hours.');
     } finally {
       setSavingSetting(false);
     }
   };
 
   const handleToggleActive = async (taskType: TaskType) => {
+    setError(null);
     try {
       const res = await api.patch<TaskType>(`/task-types/${taskType.id}/`, {
         is_active: !taskType.is_active
       });
       setTaskTypes(prev => prev.map(t => t.id === taskType.id ? res.data : t));
-    } catch (err) {
-      alert('Failed to toggle Task Type status.');
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || 'Failed to toggle Task Type status.');
     }
   };
 
   const handleDeleteTaskType = async (taskType: TaskType) => {
-    if (!confirm(`Are you sure you want to delete Task Type "${taskType.name}"? Existing tasks will retain their snapshotted duration.`)) return;
+    const ok = await confirm({
+      title: 'Delete Task Type?',
+      message: `Are you sure you want to delete Task Type "${taskType.name}"? Existing tasks will retain their snapshotted duration.`,
+      confirmText: 'Delete',
+      variant: 'danger',
+    });
+    if (!ok) return;
+    setError(null);
     try {
       await api.delete(`/task-types/${taskType.id}/`);
       setTaskTypes(prev => prev.filter(t => t.id !== taskType.id));
-    } catch (err) {
-      alert('Failed to delete Task Type.');
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || 'Failed to delete Task Type.');
     }
   };
 
@@ -97,6 +112,14 @@ export const TaskTypeSettings: React.FC = () => {
     if (hrs > 0) return `${hrs}h`;
     return `${mins}m`;
   };
+
+  if (!isAdmin) {
+    return (
+      <div className="p-6 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-500 font-medium">
+        Task Type management is restricted to Organisation admins and project managers.
+      </div>
+    );
+  }
 
   if (loading) {
     return (

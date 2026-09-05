@@ -84,6 +84,35 @@ html.dark body {
   color: #ffffff;
 }
 
+select {
+  background-color: #ffffff;
+  color: #000000;
+}
+
+html.dark select {
+  background-color: #18181b;
+  color: #ffffff;
+}
+
+select option {
+  background-color: #ffffff;
+  color: #000000;
+}
+
+html.dark select option {
+  background-color: #18181b;
+  color: #ffffff;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* Custom scrollbar styling for minimal SaaS look */
 ::-webkit-scrollbar {
   width: 6px;

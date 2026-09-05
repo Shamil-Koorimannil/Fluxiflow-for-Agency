@@ -5,14 +5,12 @@ import type { KeepItemType } from '../../types';
 interface NewKeepItemMenuProps {
   onCreateItem: (type: KeepItemType) => void;
   onOpenUploadModal: () => void;
-  onOpenSpreadsheetImportModal?: () => void;
   disabled?: boolean;
 }
 
 export const NewKeepItemMenu: React.FC<NewKeepItemMenuProps> = ({
   onCreateItem,
   onOpenUploadModal,
-  onOpenSpreadsheetImportModal,
   disabled = false
 }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -66,7 +64,7 @@ export const NewKeepItemMenu: React.FC<NewKeepItemMenuProps> = ({
             }}
             className="w-full flex items-center gap-3 px-3.5 py-2 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-left font-medium"
           >
-            <div className="p-1 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400">
+            <div className="p-1 rounded bg-zinc-100 dark:bg-zinc-800 text-black dark:text-white">
               <StickyNote className="h-4 w-4" />
             </div>
             <div>
@@ -121,27 +119,9 @@ export const NewKeepItemMenu: React.FC<NewKeepItemMenuProps> = ({
             </div>
             <div>
               <div className="font-semibold">Upload File</div>
-              <div className="text-xs text-zinc-400">PDF, PNG, DOCX, Code, Zip, etc.</div>
+              <div className="text-xs text-zinc-400">PDF, PNG, Excel/CSV, DOCX, Zip, etc.</div>
             </div>
           </button>
-
-          {onOpenSpreadsheetImportModal && (
-            <button
-              onClick={() => {
-                onOpenSpreadsheetImportModal();
-                setIsOpen(false);
-              }}
-              className="w-full flex items-center gap-3 px-3.5 py-2 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-left font-medium text-xs"
-            >
-              <div className="p-1 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
-                <Table className="h-4 w-4" />
-              </div>
-              <div>
-                <div className="font-semibold">Import Spreadsheet</div>
-                <div className="text-xs text-zinc-400">Convert Excel or CSV</div>
-              </div>
-            </button>
-          )}
         </div>
       )}
     </div>

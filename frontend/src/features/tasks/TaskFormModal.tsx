@@ -6,6 +6,7 @@ import type { Task, Project, User, TaskType, OrganizationSettings } from '../../
 import { X, Tag } from 'lucide-react';
 import { TimePicker } from '../../components/common/TimePicker';
 import { DatePicker } from '../../components/common/DatePicker';
+import { CustomDropdown } from '../../components/common/CustomDropdown';
 
 interface TaskFormModalProps {
   isOpen: boolean;
@@ -252,23 +253,24 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
           {/* Task Type Selector (When Enabled) */}
           {orgSettings?.enable_task_types && (
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-                <Tag className="h-3.5 w-3.5 text-blue-500" />
-                <span>Task Type</span>
-              </label>
-              <select
-                value={selectedTaskTypeId || ''}
-                onChange={(e) => setSelectedTaskTypeId(e.target.value || null)}
+              <CustomDropdown
+                label="Task Type"
+                fullWidth
                 disabled={submitMutation.isPending}
-                className="w-full px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs focus:outline-none focus:border-black dark:focus:border-white disabled:opacity-50 transition-colors"
-              >
-                <option value="">No Task Type</option>
-                {taskTypes?.filter(tt => tt.is_active || tt.id === selectedTaskTypeId).map((tt) => (
-                  <option key={tt.id} value={tt.id}>
-                    {tt.name} ({formatReadableDuration(tt.allocated_seconds)})
-                  </option>
-                ))}
-              </select>
+                value={selectedTaskTypeId || ''}
+                onChange={(val) => setSelectedTaskTypeId(val || null)}
+                placeholder="No Task Type"
+                icon={<Tag className="h-3.5 w-3.5 text-blue-500" />}
+                options={[
+                  { value: '', label: 'No Task Type' },
+                  ...(taskTypes
+                    ?.filter((tt) => tt.is_active || tt.id === selectedTaskTypeId)
+                    .map((tt) => ({
+                      value: tt.id,
+                      label: `${tt.name} (${formatReadableDuration(tt.allocated_seconds)})`,
+                    })) || []),
+                ]}
+              />
 
               {selectedTypeObj && (
                 <div className="p-2.5 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl flex items-center justify-between text-xs text-blue-900 dark:text-blue-200 mt-1">
@@ -314,39 +316,37 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">
-              Project
-            </label>
-            <select
-              value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
+            <CustomDropdown
+              label="Project"
+              fullWidth
               disabled={submitMutation.isPending || !!projectIdProp}
-              className="w-full px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs focus:outline-none focus:border-black dark:focus:border-white disabled:opacity-50 transition-colors"
-            >
-              <option value="">No Project</option>
-              {projects?.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+              value={projectId}
+              onChange={(val) => setProjectId(val)}
+              placeholder="No Project"
+              options={[
+                { value: '', label: 'No Project' },
+                ...(projects?.map((p) => ({
+                  value: p.id,
+                  label: p.name,
+                })) || []),
+              ]}
+            />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">
-                Priority
-              </label>
-              <select
-                value={priority}
-                onChange={(e) => setPriority(e.target.value as any)}
+              <CustomDropdown
+                label="Priority"
+                fullWidth
                 disabled={submitMutation.isPending}
-                className="w-full px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs focus:outline-none focus:border-black dark:focus:border-white disabled:opacity-50 transition-colors"
-              >
-                <option value="LOW">Low</option>
-                <option value="MEDIUM">Medium</option>
-                <option value="HIGH">High</option>
-              </select>
+                value={priority}
+                onChange={(val) => setPriority(val as any)}
+                options={[
+                  { value: 'LOW', label: 'Low' },
+                  { value: 'MEDIUM', label: 'Medium' },
+                  { value: 'HIGH', label: 'High' },
+                ]}
+              />
             </div>
 
             <div className="space-y-1">

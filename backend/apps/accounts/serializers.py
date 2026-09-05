@@ -107,12 +107,13 @@ from .models import Organization, Membership, Invitation
 
 class OrganizationSerializer(serializers.ModelSerializer):
     logo_url = serializers.SerializerMethodField()
+    effective_name = serializers.CharField(read_only=True)
     role = serializers.SerializerMethodField()
 
     class Meta:
         model = Organization
-        fields = ['id', 'name', 'slug', 'logo', 'logo_url', 'description', 'enable_task_types', 'weekly_capacity_hours', 'is_active', 'created_at', 'role']
-        read_only_fields = ['id', 'created_at', 'slug']
+        fields = ['id', 'name', 'display_name', 'effective_name', 'slug', 'logo', 'logo_url', 'description', 'enable_task_types', 'weekly_capacity_hours', 'is_active', 'created_at', 'role']
+        read_only_fields = ['id', 'created_at', 'slug', 'effective_name']
 
     def get_logo_url(self, obj):
         if obj.logo:

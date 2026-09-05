@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Play, Pause, Clock, AlertTriangle, CheckCircle2, RotateCcw } from 'lucide-react';
+import { useConfirm } from '../../context/ConfirmDialogContext';
 import type { Task } from '../../types';
 import { api } from '../../services/api';
 
@@ -10,6 +11,12 @@ interface TaskTimerProps {
 }
 
 export const TaskTimer: React.FC<TaskTimerProps> = ({ task, onTimerChange, compact = false }) => {
+  const { showAlert } = useConfirm();
+  // Tasks without a Task Type must NOT display timer functionality
+  if (!task.task_type && !task.task_type_detail) {
+    return null;
+  }
+
   const [loading, setLoading] = useState(false);
   const [now, setNow] = useState(Date.now());
 
@@ -67,7 +74,7 @@ export const TaskTimer: React.FC<TaskTimerProps> = ({ task, onTimerChange, compa
       const res = await api.post<Task>(`/tasks/${task.id}/timer/start/`);
       if (onTimerChange) onTimerChange(res.data);
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to start timer.');
+      showAlert({ title: 'Timer Error', message: err.response?.data?.detail || 'Failed to start timer.', variant: 'warning' });
     } finally {
       setLoading(false);
     }
@@ -81,7 +88,7 @@ export const TaskTimer: React.FC<TaskTimerProps> = ({ task, onTimerChange, compa
       const res = await api.post<Task>(`/tasks/${task.id}/timer/pause/`);
       if (onTimerChange) onTimerChange(res.data);
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to pause timer.');
+      showAlert({ title: 'Timer Error', message: err.response?.data?.detail || 'Failed to pause timer.', variant: 'warning' });
     } finally {
       setLoading(false);
     }
@@ -95,7 +102,7 @@ export const TaskTimer: React.FC<TaskTimerProps> = ({ task, onTimerChange, compa
       const res = await api.post<Task>(`/tasks/${task.id}/timer/reset/`);
       if (onTimerChange) onTimerChange(res.data);
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to reset timer.');
+      showAlert({ title: 'Timer Error', message: err.response?.data?.detail || 'Failed to reset timer.', variant: 'warning' });
     } finally {
       setLoading(false);
     }

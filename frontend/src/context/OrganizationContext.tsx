@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { Organization, UserRole } from '../types';
 import { api } from '../services/api';
 import { useAuth } from '../features/auth/AuthContext';
+import { useConfirm } from './ConfirmDialogContext';
 
 interface OrganizationContextType {
   organizations: Organization[];
@@ -21,6 +22,7 @@ interface OrganizationContextType {
 const OrganizationContext = createContext<OrganizationContextType | undefined>(undefined);
 
 export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { showAlert } = useConfirm();
   const queryClient = useQueryClient();
   const { isAuthenticated, isInitializing } = useAuth();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
@@ -74,7 +76,7 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         role: UserRole;
       }>('/organizations/switch/', { organization_id: orgId });
 
-      // Clear React Query cache to purge stale organization data
+      // Clear React Query cache to purge stale organization data (tasks, projects, clients, team, reports, etc.)
       queryClient.clear();
 
       const newOrg = response.data.active_organization;
@@ -85,27 +87,39 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       setActiveRole(response.data.role);
       await fetchOrganizations();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to switch workspace.');
+      const msg = err.response?.data?.detail || err.message || 'Failed to switch workspace. Please try again.';
+      showAlert({ title: 'Workspace Switch Error', message: msg, variant: 'warning' });
+      throw err;
     } finally {
       setIsLoading(false);
     }
   };
 
   const createOrganization = async (name: string): Promise<Organization> => {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      throw new Error('Organisation name is required.');
+    }
+
     setIsLoading(true);
     try {
-      const response = await api.post<Organization>('/organizations/', { name });
+      const response = await api.post<Organization>('/organizations/', { name: trimmedName });
       
       // Clear React Query cache for fresh workspace
       queryClient.clear();
 
       setActiveOrganization(response.data);
+      if (response.data?.id) {
+        localStorage.setItem('activeOrganizationId', response.data.id);
+      }
       setActiveRole('ORG_ADMIN');
       await fetchOrganizations();
       return response.data;
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to create organization.');
-      throw err;
+      const errorMessage = err.response?.data?.detail || err.response?.data?.name?.[0] || err.message || 'Something went wrong while creating the organisation. Please try again.';
+      const structuredError = new Error(errorMessage);
+      (structuredError as any).response = err.response;
+      throw structuredError;
     } finally {
       setIsLoading(false);
     }

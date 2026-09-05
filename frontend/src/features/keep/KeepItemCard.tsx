@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  Folder, FileText, StickyNote, Pin, MoreVertical, FileSpreadsheet,
+  Folder, FileText, StickyNote, Pin, MoreVertical, Table,
   Image as ImageIcon, FileCode, Archive, File
 } from 'lucide-react';
 import type { KeepItem } from '../../types';
@@ -43,7 +43,7 @@ export const KeepItemCard: React.FC<KeepItemCardProps> = ({
         return <Archive className="h-6 w-6 text-amber-500 flex-shrink-0" />;
       }
       if (['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext)) {
-        return <FileSpreadsheet className="h-6 w-6 text-emerald-500 flex-shrink-0" />;
+        return <Table className="h-6 w-6 text-emerald-500 flex-shrink-0" />;
       }
       return <File className="h-6 w-6 text-zinc-400 flex-shrink-0" />;
     }
@@ -52,11 +52,11 @@ export const KeepItemCard: React.FC<KeepItemCardProps> = ({
       case 'FOLDER':
         return <Folder className="h-6 w-6 text-amber-500 flex-shrink-0" />;
       case 'DOCUMENT':
-        return <FileText className="h-6 w-6 text-blue-500 flex-shrink-0" />;
+        return <FileText className="h-6 w-6 text-blue-500 dark:text-blue-400 flex-shrink-0" />;
       case 'NOTE':
-        return <StickyNote className="h-6 w-6 text-amber-600 dark:text-amber-400 flex-shrink-0" />;
+        return <StickyNote className="h-6 w-6 text-black dark:text-white flex-shrink-0" />;
       case 'SPREADSHEET':
-        return <FileSpreadsheet className="h-6 w-6 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />;
+        return <Table className="h-6 w-6 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />;
       default:
         return <File className="h-6 w-6 text-zinc-400 flex-shrink-0" />;
     }

@@ -6,6 +6,7 @@ import {
   Table as TableIcon, History, Share2, ArrowLeft, Check, AlertCircle, RefreshCw, Save,
   Palette, Type, StickyNote, CheckSquare
 } from 'lucide-react';
+import { useConfirm } from '../../context/ConfirmDialogContext';
 import type { KeepItem } from '../../types';
 import { api } from '../../services/api';
 import { ShareModal } from './ShareModal';
@@ -82,6 +83,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   onBack,
   onItemUpdated
 }) => {
+  const { prompt, showAlert } = useConfirm();
   const isNote = item.item_type === 'NOTE';
   const [title, setTitle] = useState(item.name);
   const [content, setContent] = useState(item.document_content || '');
@@ -200,14 +202,18 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   };
 
   // Link Insertion Workflow
-  const insertLink = () => {
-    const rawUrl = prompt('Enter website URL:');
+  const insertLink = async () => {
+    const rawUrl = await prompt({
+      title: 'Insert Link',
+      message: 'Enter website URL:',
+      placeholder: 'https://example.com',
+    });
     if (!rawUrl) return;
 
     const trimmed = rawUrl.trim();
     const lower = trimmed.toLowerCase();
     if (lower.startsWith('javascript:') || lower.startsWith('data:') || lower.startsWith('vbscript:')) {
-      alert('Unsafe URL protocol rejected.');
+      showAlert({ title: 'Security Warning', message: 'Unsafe URL protocol rejected.', variant: 'warning' });
       return;
     }
 
@@ -422,7 +428,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
           </button>
 
           {item.item_type === 'NOTE' && (
-            <StickyNote className="h-5 w-5 text-amber-500 flex-shrink-0" />
+            <StickyNote className="h-5 w-5 text-black dark:text-white flex-shrink-0" />
           )}
 
           <input

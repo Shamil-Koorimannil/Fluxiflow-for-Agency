@@ -13,14 +13,14 @@ import { AttachmentsSection } from './AttachmentsSection';
 import { TaskTimer } from './TaskTimer';
 import { TaskTypeBadge } from './TaskTypeBadge';
 import { TaskDatePicker } from './TaskDatePicker';
+import { useOrganization } from '../../context/OrganizationContext';
+import { useConfirm } from '../../context/ConfirmDialogContext';
 
 interface TaskDetailPanelProps {
   taskId: string | null;
   onClose: () => void;
   onEdit?: (task: any) => void;
 }
-
-import { useOrganization } from '../../context/OrganizationContext';
 
 export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
   taskId,
@@ -30,6 +30,7 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { isAdmin } = useOrganization();
+  const { confirm, showAlert } = useConfirm();
 
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
@@ -233,11 +234,11 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
       queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
       queryClient.invalidateQueries({ queryKey: ['team'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      alert('Task duplicated successfully.');
+      showAlert({ title: 'Success', message: 'Task duplicated successfully.', variant: 'info' });
       onClose();
     },
     onError: (err: any) => {
-      alert(err?.response?.data?.detail || 'Failed to duplicate task.');
+      showAlert({ title: 'Error', message: err?.response?.data?.detail || 'Failed to duplicate task.', variant: 'warning' });
     },
   });
 
@@ -580,8 +581,14 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                             <div className="flex gap-2 justify-end pt-1">
                               <button
                                 type="button"
-                                onClick={() => {
-                                  if (window.confirm("Are you sure you want to delete this subtask?")) {
+                                onClick={async () => {
+                                  const ok = await confirm({
+                                    title: 'Delete Subtask?',
+                                    message: 'Are you sure you want to delete this subtask?',
+                                    confirmText: 'Delete',
+                                    variant: 'danger',
+                                  });
+                                  if (ok) {
                                     deleteSubTaskMutation.mutate(sub.id);
                                     setEditingSubTaskId(null);
                                   }

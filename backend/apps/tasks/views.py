@@ -74,7 +74,8 @@ class TaskViewSet(viewsets.ModelViewSet):
         data = list(serializer.data)
             
         # Append subtasks if it's the general list (no project filter) and user is a MEMBER
-        if not project_id and user.is_authenticated and user.role != 'ADMIN':
+        from apps.accounts.tenant_context import is_admin_or_org_admin
+        if not project_id and user.is_authenticated and not is_admin_or_org_admin(user, request=request):
             from apps.accounts.serializers import UserSerializer
             from apps.tasks.helpers import calculate_assignee_submission_status, calculate_submission_status
             
@@ -164,10 +165,9 @@ class TaskViewSet(viewsets.ModelViewSet):
         return Response(data, status=status.HTTP_200_OK)
 
     def check_modify_permission(self, request, task=None):
-        """Helper to ensure only Admins can create/edit/delete tasks."""
-        if request.user.role != 'ADMIN':
-            return False
-        return True
+        """Helper to ensure only Admins and Org Admins can create/edit/delete tasks."""
+        from apps.accounts.tenant_context import is_admin_or_org_admin
+        return is_admin_or_org_admin(request.user, request=request)
 
     def create(self, request, *args, **kwargs):
         if not self.check_modify_permission(request):
@@ -343,9 +343,10 @@ class TaskViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
             
-        # Check permission: Admin, or Member assigned to the task
+        # Check permission: Admin/OrgAdmin, or Member assigned to the task
+        from apps.accounts.tenant_context import is_admin_or_org_admin
         is_assigned = TaskAssignee.objects.filter(task=task, user=user).exists()
-        if user.role != 'ADMIN' and not is_assigned:
+        if not is_admin_or_org_admin(user, request=request) and not is_assigned:
             return Response({"detail": "You cannot complete a task that is not assigned to you."}, status=status.HTTP_403_FORBIDDEN)
             
         from apps.notifications.services import NotificationService
@@ -496,9 +497,10 @@ class TaskViewSet(viewsets.ModelViewSet):
         task.refresh_from_db()
         user = request.user
         
-        # Check permission: Admin, or Member assigned to the task
+        # Check permission: Admin/OrgAdmin, or Member assigned to the task
+        from apps.accounts.tenant_context import is_admin_or_org_admin
         is_assigned = TaskAssignee.objects.filter(task=task, user=user).exists()
-        if user.role != 'ADMIN' and not is_assigned:
+        if not is_admin_or_org_admin(user, request=request) and not is_assigned:
             return Response({"detail": "You cannot reopen a task that is not assigned to you."}, status=status.HTTP_403_FORBIDDEN)
             
         from apps.notifications.services import NotificationService
@@ -551,9 +553,13 @@ class TaskViewSet(viewsets.ModelViewSet):
         task = self.get_object()
         user = request.user
 
+        from apps.accounts.tenant_context import is_admin_or_org_admin
         is_assigned = TaskAssignee.objects.filter(task=task, user=user).exists()
-        if user.role != 'ADMIN' and not is_assigned:
+        if not is_admin_or_org_admin(user, request=request) and not is_assigned:
             return Response({"detail": "You do not have permission to start this task timer."}, status=status.HTTP_403_FORBIDDEN)
+
+        if not task.task_type:
+            return Response({"detail": "Tasks without a Task Type cannot have timer sessions."}, status=status.HTTP_400_BAD_REQUEST)
 
         if task.status == 'COMPLETED':
             return Response({"detail": "Cannot start timer on a completed task. Reopen task first."}, status=status.HTTP_400_BAD_REQUEST)
@@ -571,8 +577,9 @@ class TaskViewSet(viewsets.ModelViewSet):
         task = self.get_object()
         user = request.user
 
+        from apps.accounts.tenant_context import is_admin_or_org_admin
         is_assigned = TaskAssignee.objects.filter(task=task, user=user).exists()
-        if user.role != 'ADMIN' and not is_assigned:
+        if not is_admin_or_org_admin(user, request=request) and not is_assigned:
             return Response({"detail": "You do not have permission to pause this task timer."}, status=status.HTTP_403_FORBIDDEN)
 
         if task.timer_status == 'RUNNING' and task.timer_started_at:
@@ -600,8 +607,9 @@ class TaskViewSet(viewsets.ModelViewSet):
         task = self.get_object()
         user = request.user
 
+        from apps.accounts.tenant_context import is_admin_or_org_admin
         is_assigned = TaskAssignee.objects.filter(task=task, user=user).exists()
-        if user.role != 'ADMIN' and not is_assigned:
+        if not is_admin_or_org_admin(user, request=request) and not is_assigned:
             return Response({"detail": "You do not have permission to reset this task timer."}, status=status.HTTP_403_FORBIDDEN)
 
         task.elapsed_seconds = 0
@@ -703,9 +711,10 @@ class TaskViewSet(viewsets.ModelViewSet):
         task = self.get_object()
         user = request.user
         
-        # Only Admins can create subtasks
-        if user.role != 'ADMIN':
-            return Response({"detail": "Only Admins can create subtasks."}, status=status.HTTP_403_FORBIDDEN)
+        # Only Admins and Org Admins can create subtasks
+        from apps.accounts.tenant_context import is_admin_or_org_admin
+        if not is_admin_or_org_admin(user, request=request):
+            return Response({"detail": "Only Admins and Organisation admins can create subtasks."}, status=status.HTTP_403_FORBIDDEN)
             
         serializer = SubTaskSerializer(data=request.data, context={'request': request})
         if serializer.is_valid():
@@ -1253,32 +1262,44 @@ class TaskTypeViewSet(viewsets.ModelViewSet):
         if not user.is_authenticated:
             return TaskType.objects.none()
 
-        membership = user.memberships.first()
-        if not membership:
+        from apps.accounts.tenant_context import get_active_organization, is_admin_or_org_admin
+        active_org = get_active_organization(user, request=self.request)
+        if not active_org:
             return TaskType.objects.none()
 
-        qs = TaskType.objects.filter(organization=membership.organization)
-        if user.role != 'ADMIN':
+        qs = TaskType.objects.filter(organization=active_org)
+        if not is_admin_or_org_admin(user, request=self.request):
             qs = qs.filter(is_active=True)
         return qs
 
     def perform_create(self, serializer):
+        from apps.accounts.tenant_context import get_active_organization, is_admin_or_org_admin
         user = self.request.user
-        if user.role != 'ADMIN':
-            raise exceptions.PermissionDenied("Only Admins can create Task Types.")
-        membership = user.memberships.first()
-        if not membership:
-            raise exceptions.PermissionDenied("User has no organization membership.")
-        serializer.save(organization=membership.organization)
+        if not is_admin_or_org_admin(user, request=self.request):
+            raise exceptions.PermissionDenied("Only Organisation admins and managers can create task types.")
+        active_org = get_active_organization(user, request=self.request)
+        if not active_org:
+            raise exceptions.PermissionDenied("User has no active organization membership.")
+        serializer.save(organization=active_org)
 
     def perform_update(self, serializer):
-        if self.request.user.role != 'ADMIN':
-            raise exceptions.PermissionDenied("Only Admins can edit Task Types.")
+        from apps.accounts.tenant_context import get_active_organization, is_admin_or_org_admin
+        user = self.request.user
+        if not is_admin_or_org_admin(user, request=self.request):
+            raise exceptions.PermissionDenied("Only Organisation admins and managers can edit task types.")
+        active_org = get_active_organization(user, request=self.request)
+        if serializer.instance.organization != active_org:
+            raise exceptions.PermissionDenied("Cannot modify task type belonging to another organization.")
         serializer.save()
 
     def perform_destroy(self, instance):
-        if self.request.user.role != 'ADMIN':
-            raise exceptions.PermissionDenied("Only Admins can delete Task Types.")
+        from apps.accounts.tenant_context import get_active_organization, is_admin_or_org_admin
+        user = self.request.user
+        if not is_admin_or_org_admin(user, request=self.request):
+            raise exceptions.PermissionDenied("Only Organisation admins and managers can delete task types.")
+        active_org = get_active_organization(user, request=self.request)
+        if instance.organization != active_org:
+            raise exceptions.PermissionDenied("Cannot delete task type belonging to another organization.")
         instance.delete()
 
 
@@ -1286,39 +1307,59 @@ class OrganizationSettingsView(viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def list(self, request):
-        user = request.user
-        membership = user.memberships.first()
-        if not membership:
-            return Response({"detail": "User has no organization membership."}, status=status.HTTP_400_BAD_REQUEST)
-        org = membership.organization
+        from apps.accounts.tenant_context import get_active_organization
+        org = get_active_organization(request.user, request=request)
+        if not org:
+            return Response({"detail": "User has no active organization membership."}, status=status.HTTP_400_BAD_REQUEST)
         return Response({
+            "id": str(org.id),
+            "name": org.name,
+            "display_name": org.display_name,
+            "effective_name": org.effective_name,
+            "logo_url": request.build_absolute_uri(org.logo.url) if org.logo else None,
             "enable_task_types": org.enable_task_types,
             "weekly_capacity_hours": org.weekly_capacity_hours,
         })
 
     def create(self, request):
-        user = request.user
-        if user.role != 'ADMIN':
-            return Response({"detail": "Only Admins can modify organization settings."}, status=status.HTTP_403_FORBIDDEN)
+        from apps.accounts.tenant_context import get_active_organization, get_active_role, is_admin_or_org_admin
+        org = get_active_organization(request.user, request=request)
+        role = get_active_role(request.user, request=request)
+        if not org:
+            return Response({"detail": "User has no active organization membership."}, status=status.HTTP_400_BAD_REQUEST)
+        if not is_admin_or_org_admin(request.user, request=request):
+            return Response({"detail": "Only Organisation admins and managers can modify organization settings."}, status=status.HTTP_403_FORBIDDEN)
 
-        membership = user.memberships.first()
-        if not membership:
-            return Response({"detail": "User has no organization membership."}, status=status.HTTP_400_BAD_REQUEST)
-        org = membership.organization
-
+        display_name = request.data.get('display_name')
+        name = request.data.get('name')
         enable_task_types = request.data.get('enable_task_types')
         weekly_capacity_hours = request.data.get('weekly_capacity_hours')
+        logo_file = request.FILES.get('logo')
 
+        if role != 'ORG_ADMIN' and (display_name is not None or (name is not None and isinstance(name, str) and name.strip()) or logo_file):
+            return Response({"detail": "Only Organisation admins can modify organization name and branding."}, status=status.HTTP_403_FORBIDDEN)
+
+        if display_name is not None and role == 'ORG_ADMIN':
+            org.display_name = display_name.strip() if isinstance(display_name, str) else display_name
+        if name is not None and isinstance(name, str) and name.strip() and role == 'ORG_ADMIN':
+            org.name = name.strip()
         if enable_task_types is not None:
-            org.enable_task_types = bool(enable_task_types)
+            org.enable_task_types = str(enable_task_types).lower() in ('true', '1')
         if weekly_capacity_hours is not None:
             try:
                 org.weekly_capacity_hours = int(weekly_capacity_hours)
             except (ValueError, TypeError):
                 pass
+        if logo_file and role == 'ORG_ADMIN':
+            org.logo = logo_file
 
         org.save()
         return Response({
+            "id": str(org.id),
+            "name": org.name,
+            "display_name": org.display_name,
+            "effective_name": org.effective_name,
+            "logo_url": request.build_absolute_uri(org.logo.url) if org.logo else None,
             "enable_task_types": org.enable_task_types,
             "weekly_capacity_hours": org.weekly_capacity_hours,
         })

@@ -16,6 +16,7 @@ export const OrganizationSwitcher: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newOrgName, setNewOrgName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -28,6 +29,12 @@ export const OrganizationSwitcher: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setNewOrgName('');
+    setCreateError(null);
+  };
+
   const handleSelectOrg = async (orgId: string) => {
     setIsOpen(false);
     if (activeOrganization?.id !== orgId) {
@@ -37,14 +44,20 @@ export const OrganizationSwitcher: React.FC = () => {
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newOrgName.trim()) return;
+    if (isCreating) return;
+    const trimmed = newOrgName.trim();
+    if (!trimmed) {
+      setCreateError('Organisation name is required.');
+      return;
+    }
     setIsCreating(true);
+    setCreateError(null);
     try {
-      await createOrganization(newOrgName.trim());
+      await createOrganization(trimmed);
       setNewOrgName('');
       setIsModalOpen(false);
-    } catch (err) {
-      // Error handled in context
+    } catch (err: any) {
+      setCreateError(err.message || err.response?.data?.detail || 'Failed to create organisation. Please try again.');
     } finally {
       setIsCreating(false);
     }
@@ -54,7 +67,7 @@ export const OrganizationSwitcher: React.FC = () => {
     if (role === 'ORG_ADMIN') {
       return (
         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
-          <ShieldCheck className="h-2.5 w-2.5" /> Org Admin
+          <ShieldCheck className="h-2.5 w-2.5" /> Organisation admin
         </span>
       );
     }
@@ -79,23 +92,23 @@ export const OrganizationSwitcher: React.FC = () => {
           onClick={() => setIsModalOpen(true)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm transition-colors"
         >
-          <Plus className="h-3.5 w-3.5" /> Create Organization
+          <Plus className="h-3.5 w-3.5" /> Create organisation
         </button>
 
         {isModalOpen && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 w-full max-w-md shadow-2xl text-left">
               <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-1">
-                Create New Workspace
+                Create an organisation
               </h3>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-6">
-                Create a separate, isolated workspace for your team or agency.
+                Create a separate, isolated organisation for your team or agency.
               </p>
 
               <form onSubmit={handleCreateSubmit} className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
-                    Workspace Name
+                    Organisation name
                   </label>
                   <input
                     type="text"
@@ -110,7 +123,7 @@ export const OrganizationSwitcher: React.FC = () => {
                 <div className="flex items-center justify-end gap-2 pt-4">
                   <button
                     type="button"
-                    onClick={() => setIsModalOpen(false)}
+                    onClick={handleCloseModal}
                     className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
                   >
                     Cancel
@@ -120,7 +133,7 @@ export const OrganizationSwitcher: React.FC = () => {
                     disabled={isCreating || !newOrgName.trim()}
                     className="px-5 py-2 rounded-xl text-xs font-semibold bg-black dark:bg-white text-white dark:text-black hover:opacity-90 disabled:opacity-50"
                   >
-                    {isCreating ? 'Creating...' : 'Create Workspace'}
+                    {isCreating ? 'Creating…' : 'Create organisation'}
                   </button>
                 </div>
               </form>
@@ -137,18 +150,18 @@ export const OrganizationSwitcher: React.FC = () => {
       <button
         onClick={() => setIsOpen(!isOpen)}
         disabled={isLoading}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-850 text-zinc-900 dark:text-zinc-100 transition-colors shadow-sm text-xs font-semibold"
+        className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-850 text-zinc-900 dark:text-zinc-100 transition-colors shadow-sm text-xs font-semibold whitespace-nowrap shrink-0"
       >
         <div className="h-5 w-5 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-[10px] shrink-0">
           {activeOrganization?.logo_url ? (
-            <img src={activeOrganization.logo_url} alt={activeOrganization?.name || 'Workspace'} className="h-full w-full rounded-lg object-cover" />
+            <img src={activeOrganization.logo_url} alt={activeOrganization?.effective_name || activeOrganization?.name || 'Workspace'} className="h-full w-full rounded-lg object-cover" />
           ) : (
-            activeOrganization?.name.charAt(0).toUpperCase() || 'W'
+            (activeOrganization?.effective_name || activeOrganization?.display_name || activeOrganization?.name || 'W').charAt(0).toUpperCase()
           )}
         </div>
 
-        <span className="truncate max-w-[120px] md:max-w-[160px]">
-          {activeOrganization?.name || 'Select Workspace'}
+        <span className="truncate whitespace-nowrap max-w-[100px] sm:max-w-[160px]">
+          {activeOrganization?.effective_name || activeOrganization?.display_name || activeOrganization?.name || 'Select Workspace'}
         </span>
 
         <ChevronDown className={`h-3.5 w-3.5 text-zinc-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
@@ -156,12 +169,12 @@ export const OrganizationSwitcher: React.FC = () => {
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xl z-50 p-2 space-y-1">
+        <div className="absolute right-0 mt-2 w-64 max-w-[calc(100vw-2rem)] rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xl z-50 p-2 space-y-1">
           <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800">
             <p className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">Current Workspace</p>
             <div className="flex items-center justify-between mt-1">
               <span className="font-bold text-sm text-zinc-900 dark:text-zinc-100 truncate">
-                {activeOrganization?.name}
+                {activeOrganization?.effective_name || activeOrganization?.display_name || activeOrganization?.name}
               </span>
               {getRoleBadge(activeRole || undefined)}
             </div>
@@ -171,6 +184,7 @@ export const OrganizationSwitcher: React.FC = () => {
             <p className="px-3 py-1 text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">Workspaces ({organizations.length})</p>
             {organizations.map((org) => {
               const isSelected = org.id === activeOrganization?.id;
+              const orgName = org.effective_name || org.display_name || org.name;
               return (
                 <button
                   key={org.id}
@@ -183,9 +197,9 @@ export const OrganizationSwitcher: React.FC = () => {
                 >
                   <div className="flex items-center gap-2 truncate">
                     <div className="h-5 w-5 rounded-md bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-[10px] font-bold text-zinc-600 dark:text-zinc-400 shrink-0">
-                      {org.name.charAt(0).toUpperCase()}
+                      {orgName.charAt(0).toUpperCase()}
                     </div>
-                    <span className="truncate">{org.name}</span>
+                    <span className="truncate">{orgName}</span>
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -205,7 +219,7 @@ export const OrganizationSwitcher: React.FC = () => {
               }}
               className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-colors"
             >
-              <Plus className="h-4 w-4" /> Create Organization
+              <Plus className="h-4 w-4" /> Create organisation
             </button>
           </div>
         </div>
@@ -216,16 +230,22 @@ export const OrganizationSwitcher: React.FC = () => {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
           <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 w-full max-w-md shadow-2xl">
             <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-1">
-              Create New Workspace
+              Create an organisation
             </h3>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-6">
-              Create a separate, isolated workspace for your team or agency.
+              Create a separate, isolated organisation for your team or agency.
             </p>
+
+            {createError && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 rounded-xl text-xs font-medium">
+                {createError}
+              </div>
+            )}
 
             <form onSubmit={handleCreateSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
-                  Workspace Name
+                  Organisation name
                 </label>
                 <input
                   type="text"
@@ -240,7 +260,7 @@ export const OrganizationSwitcher: React.FC = () => {
               <div className="flex items-center justify-end gap-2 pt-4">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={handleCloseModal}
                   className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
                   Cancel
@@ -250,7 +270,7 @@ export const OrganizationSwitcher: React.FC = () => {
                   disabled={isCreating || !newOrgName.trim()}
                   className="px-5 py-2 rounded-xl text-xs font-semibold bg-black dark:bg-white text-white dark:text-black hover:opacity-90 disabled:opacity-50"
                 >
-                  {isCreating ? 'Creating...' : 'Create Workspace'}
+                  {isCreating ? 'Creating…' : 'Create organisation'}
                 </button>
               </div>
             </form>

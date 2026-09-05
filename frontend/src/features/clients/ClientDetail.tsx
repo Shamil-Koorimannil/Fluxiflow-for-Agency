@@ -2,10 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
   ArrowLeft, Edit, Plus, Folder, FileText, Download, Trash2, Mail, Phone, Globe, MapPin,
-  RefreshCw, AlertCircle, Upload, Link2, ExternalLink, Unlink, ArrowUpDown, Check, Calendar,
+  RefreshCw, AlertCircle, Upload, Link2, ExternalLink, Unlink, ArrowUpDown, Calendar,
   Filter, MoreVertical, ChevronRight, FolderPlus, Edit2, MoveRight, Eye
 } from 'lucide-react';
-import { Button, Menu, MenuItem } from '@mui/material';
+import { Menu, MenuItem } from '@mui/material';
+import { useConfirm } from '../../context/ConfirmDialogContext';
 import type { Client, Project, ClientBrandAsset, ClientBrandAssetFolder } from '../../types';
 import { api } from '../../services/api';
 import { formatDateOnly } from '../../utils/time';
@@ -17,12 +18,14 @@ import { ProjectMonthPickerModal } from '../projects/ProjectMonthPickerModal';
 import { CreateFolderModal } from './CreateFolderModal';
 import { RenameModal } from './RenameModal';
 import { MoveAssetModal } from './MoveAssetModal';
+import { CustomDropdown } from '../../components/common/CustomDropdown';
 
 interface ClientDetailProps {
   viewMode?: 'full' | 'projects-only' | 'brand-assets-only';
 }
 
 export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMode }) => {
+  const { confirm, showAlert } = useConfirm();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -70,10 +73,6 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
     { type: 'folder'; item: ClientBrandAssetFolder } | { type: 'asset'; item: ClientBrandAsset } | null
   >(null);
   const [moveAssetTarget, setMoveAssetTarget] = useState<ClientBrandAsset | null>(null);
-
-  // MUI Menu anchors
-  const [sortAnchorEl, setSortAnchorEl] = useState<null | HTMLElement>(null);
-  const [dateFilterAnchorEl, setDateFilterAnchorEl] = useState<null | HTMLElement>(null);
 
   // Context Menus
   const [folderMenuState, setFolderMenuState] = useState<{ anchorEl: HTMLElement | null; folder: ClientBrandAssetFolder | null }>({ anchorEl: null, folder: null });
@@ -174,16 +173,6 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
     }
   });
 
-  const getSortLabel = () => {
-    switch (projectSortBy) {
-      case 'project_date_desc': return 'Project Date — Newest First';
-      case 'project_date_asc': return 'Project Date — Oldest First';
-      case 'newest': return 'Newest Created';
-      case 'oldest': return 'Oldest Created';
-      default: return 'Newest Created';
-    }
-  };
-
   const getDateFilterLabel = () => {
     if (projectDateFilter === 'all') return 'All Dates';
     if (projectCustomMonth !== null) {
@@ -225,32 +214,27 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
       const res = await api.patch<Client>(`/clients/${client.id}/`, { status: newStatus });
       setClient(res.data);
     } catch (err) {
-      alert('Failed to update client status.');
+      showAlert({ title: 'Error', message: 'Failed to update client status.', variant: 'warning' });
     }
   };
 
-  const handleDeleteClient = async () => {
-    if (!client) return;
-    if (!confirm(`Are you sure you want to delete client "${client.name}"?`)) return;
-
-    try {
-      await api.delete(`/clients/${client.id}/`);
-      navigate('/app/clients');
-    } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to delete client.');
-    }
-  };
 
   const handleRemoveProject = async (project: Project, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!client) return;
-    if (!confirm(`Remove this project from ${client.name}? The project will not be deleted.`)) return;
+    const ok = await confirm({
+      title: 'Remove Project?',
+      message: `Remove this project from ${client.name}? The project will not be deleted.`,
+      confirmText: 'Remove',
+      variant: 'danger',
+    });
+    if (!ok) return;
 
     try {
       await api.delete(`/clients/${client.id}/projects/${project.id}/`);
       fetchClientDetails();
     } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to remove project from client.');
+      showAlert({ title: 'Error', message: err?.response?.data?.detail || 'Failed to remove project from client.', variant: 'warning' });
     }
   };
 
@@ -261,11 +245,21 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
     const hasSubfolders = folders.some((f) => f.parent === folder.id);
 
     if (hasAssets || hasSubfolders) {
-      alert(`Cannot delete folder "${folder.name}": Folder is not empty. Please move or remove all files and subfolders first.`);
+      showAlert({
+        title: 'Cannot Delete Folder',
+        message: `Cannot delete folder "${folder.name}": Folder is not empty. Please move or remove all files and subfolders first.`,
+        variant: 'warning',
+      });
       return;
     }
 
-    if (!confirm(`Are you sure you want to delete folder "${folder.name}"?`)) return;
+    const ok = await confirm({
+      title: 'Delete Folder?',
+      message: `Are you sure you want to delete folder "${folder.name}"?`,
+      confirmText: 'Delete',
+      variant: 'danger',
+    });
+    if (!ok) return;
 
     try {
       await api.delete(`/client-brand-asset-folders/${folder.id}/`);
@@ -274,18 +268,24 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
       }
       fetchClientDetails();
     } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to delete folder.');
+      showAlert({ title: 'Error', message: err?.response?.data?.detail || 'Failed to delete folder.', variant: 'warning' });
     }
   };
 
   const handleDeleteAsset = async (assetId: string, assetName: string) => {
     setAssetMenuState({ anchorEl: null, asset: null });
-    if (!confirm(`Are you sure you want to delete brand asset "${assetName}"?`)) return;
+    const ok = await confirm({
+      title: 'Delete Brand Asset?',
+      message: `Are you sure you want to delete brand asset "${assetName}"?`,
+      confirmText: 'Delete',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await api.delete(`/client-brand-assets/${assetId}/`);
       fetchClientDetails();
     } catch (err) {
-      alert('Failed to delete brand asset.');
+      showAlert({ title: 'Error', message: 'Failed to delete brand asset.', variant: 'warning' });
     }
   };
 
@@ -318,7 +318,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      alert('Failed to download asset.');
+      showAlert({ title: 'Download Failed', message: 'Failed to download asset.', variant: 'warning' });
     }
   };
 
@@ -362,10 +362,10 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
       {/* Status Tabs, Date Filter & Sorting Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-3 border-b border-zinc-100 dark:border-zinc-900">
         {/* Status Tabs (Ongoing vs Completed) */}
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar max-w-full pb-1">
           <button
             onClick={() => setProjectStatusTab('ongoing')}
-            className={`px-4 py-2 text-xs font-semibold rounded-xl transition-all border ${
+            className={`px-4 py-2 text-xs font-semibold rounded-xl transition-all border whitespace-nowrap shrink-0 w-auto ${
               projectStatusTab === 'ongoing'
                 ? 'bg-black text-white border-black dark:bg-white dark:text-black dark:border-white shadow-sm'
                 : 'bg-transparent text-zinc-550 border-zinc-200 dark:border-zinc-800 hover:text-black dark:hover:text-white'
@@ -375,7 +375,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
           </button>
           <button
             onClick={() => setProjectStatusTab('completed')}
-            className={`px-4 py-2 text-xs font-semibold rounded-xl transition-all border ${
+            className={`px-4 py-2 text-xs font-semibold rounded-xl transition-all border whitespace-nowrap shrink-0 w-auto ${
               projectStatusTab === 'completed'
                 ? 'bg-black text-white border-black dark:bg-white dark:text-black dark:border-white shadow-sm'
                 : 'bg-transparent text-zinc-550 border-zinc-200 dark:border-zinc-800 hover:text-black dark:hover:text-white'
@@ -388,158 +388,35 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
         {/* Date Filter & Sort Controls */}
         <div className="flex flex-wrap items-center gap-3">
           {/* Date Filter Trigger */}
-          <Button
-            onClick={(e) => setDateFilterAnchorEl(e.currentTarget)}
-            variant="outlined"
-            startIcon={<Filter size={14} />}
-            endIcon={<span>▾</span>}
-            sx={{
-              textTransform: 'none',
-              fontWeight: 600,
-              borderRadius: '8px',
-              borderColor: 'divider',
-              color: 'text.primary',
-              height: '36px',
-              fontSize: '12px',
-              px: 1.5,
-              whiteSpace: 'nowrap',
-              '&:hover': { borderColor: 'text.primary', bgcolor: 'action.hover' }
-            }}
-          >
-            Date: {getDateFilterLabel()}
-          </Button>
-
-          <Menu
-            anchorEl={dateFilterAnchorEl}
-            open={Boolean(dateFilterAnchorEl)}
-            onClose={() => setDateFilterAnchorEl(null)}
-            slotProps={{
-              paper: {
-                elevation: 1,
-                sx: {
-                  border: '1px solid #e4e4e7',
-                  borderRadius: '8px',
-                  minWidth: 180,
-                  '& .MuiMenuItem-root': {
-                    fontSize: '13px',
-                    fontWeight: 500,
-                    py: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 1.5,
-                    '&:hover': { bgcolor: '#f4f4f5' },
-                  },
-                },
-              },
-            }}
-          >
-            <MenuItem
-              onClick={() => {
-                setProjectDateFilter('all');
-                setDateFilterAnchorEl(null);
-              }}
-            >
-              <span>All Dates</span>
-              {projectDateFilter === 'all' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                setDateFilterAnchorEl(null);
+          <CustomDropdown
+            value={projectDateFilter}
+            buttonText={`Date: ${getDateFilterLabel()}`}
+            icon={<Filter size={14} />}
+            onChange={(val) => {
+              if (val === 'custom') {
                 setIsMonthPickerOpen(true);
-              }}
-            >
-              <span className="flex items-center gap-1.5">
-                <Calendar size={14} className="text-zinc-500" /> Select Month / Year...
-              </span>
-              {projectDateFilter === 'custom' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-          </Menu>
-
-          {/* Sort Trigger */}
-          <Button
-            onClick={(e) => setSortAnchorEl(e.currentTarget)}
-            variant="outlined"
-            startIcon={<ArrowUpDown size={15} />}
-            endIcon={<span>▾</span>}
-            sx={{
-              textTransform: 'none',
-              fontWeight: 600,
-              borderRadius: '8px',
-              borderColor: 'divider',
-              color: 'text.primary',
-              height: '36px',
-              fontSize: '12px',
-              px: 1.5,
-              whiteSpace: 'nowrap',
-              '&:hover': { borderColor: 'text.primary', bgcolor: 'action.hover' }
+              } else {
+                setProjectDateFilter(val as any);
+              }
             }}
-          >
-            Sort: {getSortLabel()}
-          </Button>
+            options={[
+              { value: 'all', label: 'All Dates' },
+              { value: 'custom', label: 'Select Month / Year...', icon: <Calendar size={14} /> },
+            ]}
+          />
 
-          <Menu
-            anchorEl={sortAnchorEl}
-            open={Boolean(sortAnchorEl)}
-            onClose={() => setSortAnchorEl(null)}
-            slotProps={{
-              paper: {
-                elevation: 1,
-                sx: {
-                  border: '1px solid #e4e4e7',
-                  borderRadius: '8px',
-                  minWidth: 190,
-                  '& .MuiMenuItem-root': {
-                    fontSize: '13px',
-                    fontWeight: 500,
-                    py: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 1.5,
-                    '&:hover': { bgcolor: '#f4f4f5' },
-                  },
-                },
-              },
-            }}
-          >
-            <MenuItem
-              onClick={() => {
-                setProjectSortBy('newest');
-                setSortAnchorEl(null);
-              }}
-            >
-              <span>Newest Created</span>
-              {projectSortBy === 'newest' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                setProjectSortBy('oldest');
-                setSortAnchorEl(null);
-              }}
-            >
-              <span>Oldest Created</span>
-              {projectSortBy === 'oldest' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                setProjectSortBy('project_date_desc');
-                setSortAnchorEl(null);
-              }}
-            >
-              <span>Project Date — Newest First</span>
-              {projectSortBy === 'project_date_desc' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                setProjectSortBy('project_date_asc');
-                setSortAnchorEl(null);
-              }}
-            >
-              <span>Project Date — Oldest First</span>
-              {projectSortBy === 'project_date_asc' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-          </Menu>
+          <CustomDropdown
+            value={projectSortBy}
+            onChange={(val) => setProjectSortBy(val as any)}
+            icon={<ArrowUpDown size={15} />}
+            valuePrefix="Sort: "
+            options={[
+              { value: 'newest', label: 'Newest Created' },
+              { value: 'oldest', label: 'Oldest Created' },
+              { value: 'project_date_desc', label: 'Project Date — Newest First' },
+              { value: 'project_date_asc', label: 'Project Date — Oldest First' },
+            ]}
+          />
         </div>
       </div>
 
@@ -770,7 +647,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
                           <tr key={asset.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/40 transition-colors">
                             <td className="py-3 px-4 font-semibold">
                               <div className="flex items-center gap-2">
-                                <FileText className="h-4 w-4 text-purple-500 flex-shrink-0" />
+                                <FileText className="h-4 w-4 text-black dark:text-white flex-shrink-0" />
                                 <span className="truncate max-w-xs">{asset.name}</span>
                               </div>
                             </td>
@@ -1143,13 +1020,6 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
             {client.status === 'ACTIVE' ? 'Archive Client' : 'Activate Client'}
           </button>
 
-          <button
-            onClick={handleDeleteClient}
-            className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl transition-colors"
-            title="Delete Client"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
         </div>
       </div>
 
@@ -1229,10 +1099,10 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
       </div>
 
       {/* Tabs Navigation */}
-      <div className="flex items-center gap-2 mb-6 border-b border-zinc-200 dark:border-zinc-800 pb-2">
+      <div className="flex items-center gap-2 mb-6 border-b border-zinc-200 dark:border-zinc-800 pb-2 overflow-x-auto no-scrollbar max-w-full">
         <button
           onClick={() => setSearchParams({ tab: 'projects' })}
-          className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-colors ${
+          className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-colors whitespace-nowrap shrink-0 w-auto ${
             activeTab === 'projects'
               ? 'bg-black dark:bg-white text-white dark:text-black shadow-sm'
               : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800'
@@ -1244,7 +1114,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
 
         <button
           onClick={() => setSearchParams({ tab: 'assets' })}
-          className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-colors ${
+          className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-colors whitespace-nowrap shrink-0 w-auto ${
             activeTab === 'assets'
               ? 'bg-black dark:bg-white text-white dark:text-black shadow-sm'
               : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800'

@@ -1,25 +1,38 @@
 import React, { useState } from 'react';
 import { Building2, Plus, Mail, AlertCircle } from 'lucide-react';
+import { useConfirm } from '../../context/ConfirmDialogContext';
 import { useOrganization } from '../../context/OrganizationContext';
 
 export const OrganizationOnboarding: React.FC = () => {
+  const { showAlert } = useConfirm();
   const { createOrganization, refreshOrganizations, errorState } = useOrganization();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newOrgName, setNewOrgName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setNewOrgName('');
+    setCreateError(null);
+  };
+
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newOrgName.trim()) return;
+    if (isCreating) return;
+    const trimmed = newOrgName.trim();
+    if (!trimmed) {
+      setCreateError('Organisation name is required.');
+      return;
+    }
     setIsCreating(true);
     setCreateError(null);
     try {
-      await createOrganization(newOrgName.trim());
+      await createOrganization(trimmed);
       setNewOrgName('');
       setIsModalOpen(false);
     } catch (err: any) {
-      setCreateError(err.response?.data?.detail || 'Failed to create workspace.');
+      setCreateError(err.message || err.response?.data?.detail || 'Something went wrong while creating the organisation. Please try again.');
     } finally {
       setIsCreating(false);
     }
@@ -36,7 +49,7 @@ export const OrganizationOnboarding: React.FC = () => {
           Welcome to Fluxiflow
         </h2>
         <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-8 leading-relaxed">
-          You don't belong to a workspace yet. Create a new organization for your team or agency, or accept an invitation to join an existing workspace.
+          You don't belong to an organisation yet. Create a new organisation for your team or agency, or accept an invitation to join an existing organisation.
         </p>
 
         {errorState && (
@@ -58,11 +71,11 @@ export const OrganizationOnboarding: React.FC = () => {
             onClick={() => setIsModalOpen(true)}
             className="w-full flex items-center justify-center gap-2 py-3 px-6 rounded-2xl bg-black dark:bg-white text-white dark:text-black font-semibold text-xs hover:opacity-90 transition-all shadow-md"
           >
-            <Plus className="h-4 w-4" /> Create Organization
+            <Plus className="h-4 w-4" /> Create an organisation
           </button>
 
           <button
-            onClick={() => alert('Please check your email inbox for an invitation link, or contact your organization administrator.')}
+            onClick={() => showAlert({ title: 'Invitation Info', message: 'Please check your email inbox for an invitation link, or contact your Organisation admin.', variant: 'info' })}
             className="w-full flex items-center justify-center gap-2 py-3 px-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-700 dark:text-zinc-300 font-semibold text-xs hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-all"
           >
             <Mail className="h-4 w-4" /> Accept Invitation
@@ -75,10 +88,10 @@ export const OrganizationOnboarding: React.FC = () => {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
           <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 w-full max-w-md shadow-2xl text-left">
             <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-1">
-              Create New Workspace
+              Create an organisation
             </h3>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-6">
-              Set up an isolated workspace for your projects, tasks, clients, and team members.
+              Set up an isolated organisation for your projects, tasks, clients, and team members.
             </p>
 
             {createError && (
@@ -90,7 +103,7 @@ export const OrganizationOnboarding: React.FC = () => {
             <form onSubmit={handleCreateSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
-                  Organization Name
+                  Organisation name
                 </label>
                 <input
                   type="text"
@@ -105,7 +118,7 @@ export const OrganizationOnboarding: React.FC = () => {
               <div className="flex items-center justify-end gap-2 pt-4">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={handleCloseModal}
                   className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
                   Cancel
@@ -115,7 +128,7 @@ export const OrganizationOnboarding: React.FC = () => {
                   disabled={isCreating || !newOrgName.trim()}
                   className="px-5 py-2 rounded-xl text-xs font-semibold bg-black dark:bg-white text-white dark:text-black hover:opacity-90 disabled:opacity-50"
                 >
-                  {isCreating ? 'Creating...' : 'Create Workspace'}
+                  {isCreating ? 'Creating…' : 'Create organisation'}
                 </button>
               </div>
             </form>

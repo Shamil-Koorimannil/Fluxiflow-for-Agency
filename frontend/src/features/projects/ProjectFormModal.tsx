@@ -5,6 +5,8 @@ import { X, Folder, AlertCircle, RefreshCw } from 'lucide-react';
 import type { Client, Project } from '../../types';
 import { api } from '../../services/api';
 
+import { CustomDropdown } from '../../components/common/CustomDropdown';
+
 interface ProjectFormModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -132,21 +134,20 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
           {/* Client Selection (Admin Only) */}
           {isAdmin && (
             <div>
-              <label className="block font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                Client (Optional)
-              </label>
-              <select
+              <CustomDropdown
+                label="Client (Optional)"
+                fullWidth
                 value={selectedClientId}
-                onChange={(e) => setSelectedClientId(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs outline-none focus:border-black dark:focus:border-white transition-colors"
-              >
-                <option value="">No Client (Internal Agency Project)</option>
-                {clients.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} {c.company_name ? `(${c.company_name})` : ''}
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => setSelectedClientId(val)}
+                placeholder="No Client (Internal Agency Project)"
+                options={[
+                  { value: '', label: 'No Client (Internal Agency Project)' },
+                  ...clients.map((c) => ({
+                    value: c.id,
+                    label: `${c.name} ${c.company_name ? `(${c.company_name})` : ''}`,
+                  })),
+                ]}
+              />
             </div>
           )}
 

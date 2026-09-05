@@ -6,6 +6,7 @@ from django.utils import timezone
 class Organization(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255)
+    display_name = models.CharField(max_length=255, null=True, blank=True)
     slug = models.CharField(max_length=255, unique=True, null=True, blank=True)
     logo = models.ImageField(upload_to='org_logos/', null=True, blank=True)
     description = models.TextField(blank=True, default='')
@@ -16,6 +17,10 @@ class Organization(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     objects = models.Manager()
+
+    @property
+    def effective_name(self) -> str:
+        return self.display_name or self.name
 
     def save(self, *args, **kwargs):
         if not self.slug:
@@ -30,7 +35,7 @@ class Organization(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return self.name
+        return self.effective_name
 
 class CustomUserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
@@ -91,7 +96,7 @@ class CustomUser(AbstractUser):
 
 class Membership(models.Model):
     ROLE_CHOICES = (
-        ('ORG_ADMIN', 'Organization Admin'),
+        ('ORG_ADMIN', 'Organisation admin'),
         ('ADMIN', 'Admin/Manager'),
         ('MEMBER', 'Member'),
     )
@@ -127,7 +132,7 @@ class Profile(models.Model):
 
 class Invitation(models.Model):
     ROLE_CHOICES = (
-        ('ORG_ADMIN', 'Organization Admin'),
+        ('ORG_ADMIN', 'Organisation admin'),
         ('ADMIN', 'Admin/Manager'),
         ('MEMBER', 'Member'),
     )

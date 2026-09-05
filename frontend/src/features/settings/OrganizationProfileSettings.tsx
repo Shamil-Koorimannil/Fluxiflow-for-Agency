@@ -7,6 +7,7 @@ export const OrganizationProfileSettings: React.FC = () => {
   const { activeOrganization, isOrgAdmin, refreshOrganizations } = useOrganization();
   
   const [name, setName] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [description, setDescription] = useState('');
   const [weeklyCapacityHours, setWeeklyCapacityHours] = useState(40);
   const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -19,6 +20,7 @@ export const OrganizationProfileSettings: React.FC = () => {
   useEffect(() => {
     if (activeOrganization) {
       setName(activeOrganization.name || '');
+      setDisplayName(activeOrganization.display_name || '');
       setDescription(activeOrganization.description || '');
       setWeeklyCapacityHours(activeOrganization.weekly_capacity_hours || 40);
       setLogoPreview(activeOrganization.logo_url || null);
@@ -44,6 +46,7 @@ export const OrganizationProfileSettings: React.FC = () => {
     try {
       const formData = new FormData();
       formData.append('name', name.trim());
+      formData.append('display_name', displayName.trim());
       formData.append('description', description.trim());
       formData.append('weekly_capacity_hours', String(weeklyCapacityHours));
       if (logoFile) {
@@ -66,7 +69,7 @@ export const OrganizationProfileSettings: React.FC = () => {
   if (!isOrgAdmin) {
     return (
       <div className="p-6 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-500">
-        Organization settings are restricted to Organization Administrators.
+        Organization settings are restricted to Organisation admins.
       </div>
     );
   }
@@ -124,11 +127,26 @@ export const OrganizationProfileSettings: React.FC = () => {
           <input
             type="text"
             required
-            placeholder="e.g. Zywo"
+            placeholder="e.g. Zywo Labs"
             value={name}
             onChange={(e) => setName(e.target.value)}
             className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
+        </div>
+
+        {/* Display Name (White-Label Branding) */}
+        <div>
+          <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
+            Display Name (White-Label Branding)
+          </label>
+          <input
+            type="text"
+            placeholder="e.g. Zywo Agency (Leave empty to use Organization Name)"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <p className="text-[11px] text-zinc-400 mt-1">This display name will be reflected across workspace headers and organization switchers.</p>
         </div>
 
         {/* Description */}

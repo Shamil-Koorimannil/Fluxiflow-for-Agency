@@ -11,12 +11,12 @@ import { classifyTask } from '../../utils/taskClassifier';
 import { getLocalDateString } from '../../utils/time';
 import { PasteTasksModal } from './PasteTasksModal';
 import { TaskCard } from './TaskCard';
+import { TaskContextMenu } from './TaskContextMenu';
 import { useTaskDragSelect } from '../../hooks/useTaskDragSelect';
-import { SelectionToolbar } from '../../components/common/SelectionToolbar';
 
 import { useOrganization } from '../../context/OrganizationContext';
 
-type FilterType = 'all' | 'incompleted' | 'today' | 'tomorrow' | 'upcoming' | 'no_due_date' | 'completed' | 'late';
+type FilterType = 'all' | 'incompleted' | 'pending' | 'today' | 'tomorrow' | 'upcoming' | 'no_due_date' | 'completed' | 'late';
 
 export const Tasks: React.FC = () => {
   const queryClient = useQueryClient();
@@ -35,6 +35,7 @@ export const Tasks: React.FC = () => {
 
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
+  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
 
 
 
@@ -69,6 +70,14 @@ export const Tasks: React.FC = () => {
     }
   }, [createProjectIdParam, isAdmin]);
 
+  const { data: meData } = useQuery({
+    queryKey: ['me'],
+    queryFn: async () => {
+      const response = await api.get('/auth/me/');
+      return response.data;
+    },
+  });
+
   const { data: tasks, isLoading, error } = useQuery<Task[]>({
     queryKey: ['tasks'],
     queryFn: async () => {
@@ -100,6 +109,7 @@ export const Tasks: React.FC = () => {
       return response.data;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['me'] });
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
       queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
@@ -123,6 +133,7 @@ export const Tasks: React.FC = () => {
       return response.data;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['me'] });
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
       queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
@@ -207,7 +218,7 @@ export const Tasks: React.FC = () => {
   const todayList: Task[] = [];
   const tomorrowList: Task[] = [];
   const upcomingList: Task[] = [];
-  const overdueList: Task[] = [];
+  const pendingList: Task[] = [];
   const noDueDateList: Task[] = [];
 
   deduplicatedTasks.forEach((task) => {
@@ -220,8 +231,8 @@ export const Tasks: React.FC = () => {
       tomorrowList.push(task);
     } else if (category === 'upcoming') {
       upcomingList.push(task);
-    } else if (category === 'overdue') {
-      overdueList.push(task);
+    } else if (category === 'pending') {
+      pendingList.push(task);
     } else if (category === 'no_due_date') {
       noDueDateList.push(task);
     }
@@ -254,7 +265,7 @@ export const Tasks: React.FC = () => {
     return a.created_at.localeCompare(b.created_at);
   });
 
-  overdueList.sort((a, b) => {
+  pendingList.sort((a, b) => {
     if (!a.due_date || !b.due_date) return 0;
     const dateCompare = a.due_date.localeCompare(b.due_date);
     if (dateCompare !== 0) return dateCompare;
@@ -272,6 +283,42 @@ export const Tasks: React.FC = () => {
 
 
 
+
+  const handleTaskContextMenu = (e: React.MouseEvent, task: Task) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!dragSelect.isSelected(task.id)) {
+      dragSelect.setSelectedTaskIds([task.id]);
+    }
+
+    setContextMenuPos({ x: e.clientX, y: e.clientY });
+  };
+
+  const handleCopyTasks = () => {
+    const tasksToCopy = deduplicatedTasks.filter((t) => dragSelect.isSelected(t.id));
+    if (tasksToCopy.length === 0) return;
+    localStorage.setItem('fluxiflow_copied_tasks', JSON.stringify(tasksToCopy));
+    window.dispatchEvent(new Event('fluxiflow_copied_tasks_changed'));
+    try {
+      navigator.clipboard?.writeText(tasksToCopy.map((t) => t.name).join('\n'));
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleToggleCompleteSelected = () => {
+    const selected = deduplicatedTasks.filter((t) => dragSelect.isSelected(t.id));
+    if (selected.length === 0) return;
+    const allCompleted = selected.every((t) => t.status === 'COMPLETED');
+    selected.forEach((t) => {
+      if (allCompleted) {
+        reopenTaskMutation.mutate(t.id);
+      } else if (t.status !== 'COMPLETED') {
+        completeTaskMutation.mutate(t.id);
+      }
+    });
+  };
 
   const renderTaskCard = (task: Task) => (
     <TaskCard
@@ -300,18 +347,19 @@ export const Tasks: React.FC = () => {
       onPointerCancel={dragSelect.handlePointerUpOrCancel}
       onCardClick={dragSelect.handleCardClick}
       isSelectionActive={dragSelect.isSelectionActive}
+      onContextMenu={handleTaskContextMenu}
     />
   );
 
-  const renderSection = (title: string, list: Task[], isOverdue = false) => {
+  const renderSection = (title: string, list: Task[], isPending = false) => {
     if (list.length === 0) return null;
     return (
       <div className="space-y-3">
         <h3 className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest flex items-center gap-2">
           {title} ({list.length})
-          {isOverdue && (
+          {isPending && (
             <span className="flex items-center gap-0.5 text-[10px] font-semibold text-red-500 bg-red-50 dark:bg-red-950/20 px-1.5 py-0.5 rounded-full uppercase">
-              <AlertCircle className="h-3 w-3" /> overdue
+              <AlertCircle className="h-3 w-3" /> pending
             </span>
           )}
         </h3>
@@ -352,6 +400,7 @@ export const Tasks: React.FC = () => {
   const filters: { value: FilterType; label: string }[] = [
     { value: 'all', label: 'All' },
     { value: 'incompleted', label: 'Incompleted Tasks' },
+    { value: 'pending', label: 'Pending' },
     { value: 'today', label: 'Today' },
     { value: 'tomorrow', label: 'Tomorrow' },
     { value: 'upcoming', label: 'Upcoming' },
@@ -393,15 +442,80 @@ export const Tasks: React.FC = () => {
         )}
       </div>
 
+      {/* AUTHENTICATED USER PERSONAL SUMMARY HEADER (FOR ALL ROLES: MEMBER, ADMIN, ORG_ADMIN) */}
+      <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 md:p-5 shadow-xs space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-full bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 flex items-center justify-center text-xs font-bold shadow-sm shrink-0">
+              {user?.name?.slice(0, 2).toUpperCase() || 'ME'}
+            </div>
+            <div>
+              <h2 className="text-sm md:text-base font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                <span>Personal Performance & Health</span>
+                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 uppercase tracking-wide">
+                  {meData?.role || user?.role || 'MEMBER'}
+                </span>
+              </h2>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Your operational metrics & daily backlog summary.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 self-end md:self-auto">
+            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Health Score:</span>
+            <span className="text-lg md:text-xl font-black text-zinc-900 dark:text-zinc-100">
+              {meData?.health_score !== undefined ? `${meData.health_score}%` : '—'}
+            </span>
+          </div>
+        </div>
+
+        {/* Health Bar */}
+        <div className="w-full h-2 bg-zinc-100 dark:bg-zinc-900 rounded-full overflow-hidden">
+          <div
+            className={`h-full transition-all duration-500 ${
+              (meData?.health_score || 0) >= 80
+                ? 'bg-emerald-500'
+                : (meData?.health_score || 0) >= 60
+                ? 'bg-amber-500'
+                : 'bg-red-500'
+            }`}
+            style={{ width: `${Math.min(100, meData?.health_score || 0)}%` }}
+          />
+        </div>
+
+        {/* Operational Metrics Cards: Pending, Today, Tomorrow */}
+        <div className="grid grid-cols-3 gap-3 pt-1 text-center">
+          <div className="p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800/80">
+            <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest block">PENDING</span>
+            <span className="text-base md:text-lg font-extrabold text-zinc-900 dark:text-zinc-100 mt-0.5 block">
+              {meData?.pending_tasks ?? 0}
+            </span>
+          </div>
+          <div className="p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800/80">
+            <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest block">TODAY</span>
+            <span className="text-base md:text-lg font-extrabold text-zinc-900 dark:text-zinc-100 mt-0.5 block">
+              {meData?.today_tasks ?? 0}
+            </span>
+          </div>
+          <div className="p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800/80">
+            <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest block">TOMORROW</span>
+            <span className="text-base md:text-lg font-extrabold text-zinc-900 dark:text-zinc-100 mt-0.5 block">
+              {meData?.tomorrow_tasks ?? 0}
+            </span>
+          </div>
+        </div>
+      </div>
+
       {/* FILTER PILLS BUTTONS */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 select-none no-scrollbar">
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 select-none no-scrollbar max-w-full">
         {filters.map((f) => {
           const isSelected = activeFilter === f.value;
           return (
             <button
               key={f.value}
               onClick={() => setActiveFilter(f.value)}
-              className={`rounded-full px-4 py-1.5 text-xs font-semibold tracking-wide transition-all ${
+              className={`rounded-full px-4 py-1.5 text-xs font-semibold tracking-wide transition-all whitespace-nowrap shrink-0 w-auto ${
                 isSelected
                   ? 'bg-black text-white dark:bg-white dark:text-black'
                   : 'bg-zinc-100 text-black border border-zinc-200/50 hover:bg-zinc-200 dark:bg-black dark:text-white dark:border-zinc-800 dark:hover:bg-white/10'
@@ -449,9 +563,9 @@ export const Tasks: React.FC = () => {
         <div className="space-y-8 pt-2">
           {activeFilter === 'all' ? (
             <>
+              {renderSection('Pending', pendingList, true)}
               {renderSection('Today', todayList)}
               {renderSection('Tomorrow', tomorrowList)}
-              {renderSection('Overdue', overdueList, true)}
               {renderSection('Upcoming', upcomingList)}
               {renderSection('No Due Date', noDueDateList)}
               {renderSection('Completed', completedList)}
@@ -486,16 +600,26 @@ export const Tasks: React.FC = () => {
         />
       )}
 
-      {/* Floating Selection & Bulk Delete Toolbar */}
-      <SelectionToolbar
-        selectedCount={dragSelect.selectedTaskIds.length}
-        totalVisibleCount={filteredTasks.length}
-        onClearSelection={dragSelect.clearSelection}
-        onSelectAll={() => dragSelect.selectAll()}
-        areAllSelected={filteredTasks.length > 0 && filteredTasks.every((t) => dragSelect.isSelected(t.id))}
-        onConfirmDelete={() => bulkDeleteMutation.mutateAsync(dragSelect.selectedTaskIds)}
-        isDeleting={bulkDeleteMutation.isPending}
-      />
+      {/* TASK RIGHT-CLICK CONTEXT MENU */}
+      {contextMenuPos && (
+        <TaskContextMenu
+          x={contextMenuPos.x}
+          y={contextMenuPos.y}
+          selectedTasks={deduplicatedTasks.filter((t) => dragSelect.isSelected(t.id))}
+          hasCopiedTasks={copiedTasksCount > 0}
+          onClose={() => setContextMenuPos(null)}
+          onCopy={handleCopyTasks}
+          onPaste={() => setIsPasteModalOpen(true)}
+          onEdit={(taskToEditTarget) => {
+            setTaskToEdit(taskToEditTarget);
+            setIsFormModalOpen(true);
+          }}
+          onDelete={() => bulkDeleteMutation.mutate(dragSelect.selectedTaskIds)}
+          onToggleComplete={handleToggleCompleteSelected}
+          onSelectAll={() => dragSelect.selectAll()}
+          onClearSelection={dragSelect.clearSelection}
+        />
+      )}
 
       {/* Paste Tasks Modal */}
       <PasteTasksModal

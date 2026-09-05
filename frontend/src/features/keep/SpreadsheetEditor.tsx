@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef } from 'react';
 import {
-  ArrowLeft, Download, History, Share2, Check, RefreshCw, AlertCircle, FileSpreadsheet
+  ArrowLeft, Download, History, Share2, Check, RefreshCw, AlertCircle, Table
 } from 'lucide-react';
 import type { KeepItem, KeepSpreadsheetData, KeepSheet } from '../../types';
 import { SpreadsheetGrid } from './SpreadsheetGrid';
@@ -158,7 +158,7 @@ export const SpreadsheetEditor: React.FC<SpreadsheetEditorProps> = ({
             <ArrowLeft className="h-5 w-5" />
           </button>
 
-          <FileSpreadsheet className="h-5 w-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+          <Table className="h-5 w-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
 
           <input
             type="text"

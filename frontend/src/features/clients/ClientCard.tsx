@@ -68,7 +68,7 @@ export const ClientCard: React.FC<ClientCardProps> = ({ client }) => {
           }}
           className="flex items-center justify-center gap-1.5 py-1.5 px-3 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-lg text-xs font-semibold transition-colors"
         >
-          <FileText className="h-3.5 w-3.5 text-purple-500" />
+          <FileText className="h-3.5 w-3.5 text-black dark:text-white" />
           <span>Brand Assets</span>
         </button>
       </div>

@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import type { KeepItem, KeepPermission, KeepShareLink, KeepAccessLevel, KeepRole } from '../../types';
 import { api } from '../../services/api';
+import { CustomDropdown } from '../../components/common/CustomDropdown';
 
 interface ShareModalProps {
   isOpen: boolean;
@@ -140,14 +141,14 @@ export const ShareModal: React.FC<ShareModalProps> = ({
                 onChange={(e) => setEmail(e.target.value)}
                 className="flex-1 px-3.5 py-2 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-sm outline-none focus:border-black dark:focus:border-white"
               />
-              <select
+              <CustomDropdown
                 value={role}
-                onChange={(e) => setRole(e.target.value as KeepRole)}
-                className="px-3 py-2 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs font-semibold outline-none"
-              >
-                <option value="VIEW">Can view</option>
-                <option value="EDIT">Can edit</option>
-              </select>
+                onChange={(val) => setRole(val as KeepRole)}
+                options={[
+                  { value: 'VIEW', label: 'Can view' },
+                  { value: 'EDIT', label: 'Can edit' },
+                ]}
+              />
               <button
                 type="submit"
                 className="px-4 py-2 bg-black dark:bg-white text-white dark:text-black font-semibold text-xs rounded-xl hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors"

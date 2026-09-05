@@ -8,9 +8,10 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   isInitializing: boolean;
-  requestOtp: (email: string) => Promise<void>;
+  requestOtp: (email: string, options?: { name?: string; createAccount?: boolean }) => Promise<void>;
   login: (email: string, otp: string, rememberMe?: boolean) => Promise<User>;
   loginWithPassword: (email: string, password: string, rememberMe?: boolean) => Promise<User>;
+  loginWithGoogle: (token: string, rememberMe?: boolean) => Promise<User>;
   logout: () => Promise<void>;
   updateUser: (user: User) => void;
 }
@@ -92,9 +93,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  const requestOtp = async (email: string): Promise<void> => {
+  const requestOtp = async (email: string, options?: { name?: string; createAccount?: boolean }): Promise<void> => {
     try {
-      await api.post('/auth/request-otp/', { email });
+      await api.post('/auth/request-otp/', {
+        email,
+        name: options?.name,
+        create_account: options?.createAccount
+      });
     } catch (error) {
       throw error;
     }
@@ -148,6 +153,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const loginWithGoogle = async (googleToken: string, rememberMe?: boolean): Promise<User> => {
+    try {
+      const response = await api.post('/auth/google/', { token: googleToken, remember_me: rememberMe });
+      const { access, refresh, user: userData } = response.data;
+      setTokens(access, refresh, rememberMe);
+      setUser(userData);
+      localStorage.setItem('userRole', userData.role);
+      return userData;
+    } catch (error) {
+      throw error;
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -158,6 +176,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         requestOtp,
         login,
         loginWithPassword,
+        loginWithGoogle,
         logout,
         updateUser,
       }}

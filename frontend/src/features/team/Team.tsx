@@ -4,6 +4,8 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../../services/api';
 import type { User, UserRole } from '../../types';
 import { useAuth } from '../auth/AuthContext';
+import { CustomDropdown } from '../../components/common/CustomDropdown';
+import { getRoleDisplayLabel } from '../../utils/roleUtils';
 import { TeamDetailDrawer } from './TeamDetailDrawer';
 import { TaskFormModal } from '../tasks/TaskFormModal';
 import {
@@ -23,9 +25,6 @@ import {
   Avatar,
   Snackbar,
   Alert,
-  Select,
-  FormControl,
-  InputLabel,
   InputAdornment,
   LinearProgress,
   Tooltip,
@@ -39,7 +38,6 @@ import {
   Mail,
   Upload,
   HelpCircle,
-  Check,
   Calendar,
   Grid as GridIcon,
   History,
@@ -60,7 +58,7 @@ export const Team: React.FC = () => {
 
   // Health filter and Sorting states
   const [healthFilter, setHealthFilter] = useState<'all' | 'excellent' | 'healthy' | 'needs_attention' | 'at_risk' | 'critical'>('all');
-  const [sortBy, setSortBy] = useState<'health_low' | 'health_high' | 'name' | 'pending_high' | 'overdue_high'>('health_low');
+  const [sortBy, setSortBy] = useState<'health_low' | 'health_high' | 'name' | 'pending_high'>('health_low');
 
   // Right drawer states
   const [drawerMemberId, setDrawerMemberId] = useState<string | null>(null);
@@ -132,14 +130,10 @@ export const Team: React.FC = () => {
   const [customEndMonth, setCustomEndMonth] = useState<number>(currentMonthIdx);
   const [customEndYear, setCustomEndYear] = useState<number>(currentYear);
 
-  const [dropdownAnchorEl, setDropdownAnchorEl] = useState<null | HTMLElement>(null);
   const [pickerAnchorEl, setPickerAnchorEl] = useState<null | HTMLElement>(null);
   const [pickerType, setPickerType] = useState<'month' | 'range' | null>(null);
   const [viewYear, setViewYear] = useState<number>(currentYear);
-  const mainButtonRef = useRef<HTMLButtonElement | null>(null);
-
-  const [healthAnchorEl, setHealthAnchorEl] = useState<null | HTMLElement>(null);
-  const [sortAnchorEl, setSortAnchorEl] = useState<null | HTMLElement>(null);
+  const mainButtonRef = useRef<HTMLDivElement | null>(null);
 
   const [rangeStep, setRangeStep] = useState<'start' | 'end'>('start');
   const [isMobile, setIsMobile] = useState(window.innerWidth < 640);
@@ -612,34 +606,8 @@ export const Team: React.FC = () => {
     if (effectiveSortBy === 'pending_high') {
       return (b.pending_tasks ?? 0) - (a.pending_tasks ?? 0);
     }
-    if (effectiveSortBy === 'overdue_high') {
-      return (b.overdue_tasks ?? 0) - (a.overdue_tasks ?? 0);
-    }
     return 0;
   });
-
-  const getHealthFilterLabel = () => {
-    switch (healthFilter) {
-      case 'all': return 'All Statuses';
-      case 'excellent': return 'Excellent';
-      case 'healthy': return 'Healthy';
-      case 'needs_attention': return 'Needs Attention';
-      case 'at_risk': return 'At Risk';
-      case 'critical': return 'Critical';
-      default: return 'All Statuses';
-    }
-  };
-
-  const getSortByLabel = () => {
-    switch (sortBy) {
-      case 'health_low': return 'Health: Low → High';
-      case 'health_high': return 'Health: High → Low';
-      case 'name': return 'Name: A → Z';
-      case 'pending_high': return 'Pending: High → Low';
-      case 'overdue_high': return 'Overdue: High → Low';
-      default: return 'Health: Low → High';
-    }
-  };
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 4, pb: 8 }}>
@@ -683,7 +651,7 @@ export const Team: React.FC = () => {
 
 
       {/* Active vs Deactivated Tab Selection */}
-      <Box sx={{ display: 'flex', gap: 1.5, borderBottom: '1px solid', borderColor: 'divider', pb: 2 }}>
+      <Box sx={{ display: 'flex', gap: 1.5, borderBottom: '1px solid', borderColor: 'divider', pb: 2, overflowX: 'auto', whiteSpace: 'nowrap', maxWidth: '100%', WebkitOverflowScrolling: 'touch' }}>
         <Button
           onClick={() => {
             setActiveTab('active');
@@ -696,6 +664,9 @@ export const Team: React.FC = () => {
             fontSize: '13px',
             px: 3,
             py: 0.5,
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+            width: 'auto',
             bgcolor: activeTab === 'active' ? 'text.primary' : 'transparent',
             color: activeTab === 'active' ? 'background.paper' : 'text.secondary',
             border: '1px solid',
@@ -720,6 +691,9 @@ export const Team: React.FC = () => {
             fontSize: '13px',
             px: 3,
             py: 0.5,
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+            width: 'auto',
             bgcolor: activeTab === 'deactivated' ? 'text.primary' : 'transparent',
             color: activeTab === 'deactivated' ? 'background.paper' : 'text.secondary',
             border: '1px solid',
@@ -752,8 +726,8 @@ export const Team: React.FC = () => {
           }}
           sx={{
             flex: 1,
-            minWidth: '240px',
-            maxWidth: '380px',
+            minWidth: { xs: '100%', sm: '240px' },
+            maxWidth: { xs: '100%', sm: '380px' },
             '& .MuiOutlinedInput-root': {
               borderRadius: '8px',
               bgcolor: 'background.paper',
@@ -766,219 +740,49 @@ export const Team: React.FC = () => {
         {/* Health status filter */}
         {activeTab === 'active' && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-            {/* Polished Health Status Trigger */}
-            <Button
-              onClick={(e) => setHealthAnchorEl(e.currentTarget)}
-              variant="outlined"
-              startIcon={<Heart size={15} />}
-              endIcon={<span>▾</span>}
-              sx={{
-                textTransform: 'none',
-                fontWeight: 600,
-                borderRadius: '8px',
-                borderColor: 'divider',
-                color: 'text.primary',
-                height: '40px',
-                px: 2,
-                '&:hover': { borderColor: 'text.primary', bgcolor: 'action.hover' }
-              }}
-            >
-              Health: {getHealthFilterLabel()}
-            </Button>
+            {/* Custom Health Status Dropdown */}
+            <CustomDropdown
+              value={healthFilter}
+              onChange={(val) => setHealthFilter(val as any)}
+              icon={<Heart size={15} />}
+              valuePrefix="Health: "
+              options={[
+                { value: 'all', label: 'All Statuses' },
+                { value: 'excellent', label: 'Excellent' },
+                { value: 'healthy', label: 'Healthy' },
+                { value: 'needs_attention', label: 'Needs Attention' },
+                { value: 'at_risk', label: 'At Risk' },
+                { value: 'critical', label: 'Critical' },
+              ]}
+            />
 
-            {/* Dropdown Menu for Health filter options */}
-            <Menu
-              anchorEl={healthAnchorEl}
-              open={Boolean(healthAnchorEl)}
-              onClose={() => setHealthAnchorEl(null)}
-              slotProps={{
-                paper: {
-                  elevation: 1,
-                  sx: {
-                    border: '1px solid #e4e4e7',
-                    borderRadius: '8px',
-                    minWidth: 160,
-                    '& .MuiMenuItem-root': {
-                      fontSize: '13px',
-                      fontWeight: 500,
-                      py: 1,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 1.5,
-                      '&:hover': { bgcolor: '#f4f4f5' },
-                    },
-                  },
-                },
-              }}
-            >
-              <MenuItem
-                onClick={() => {
-                  setHealthFilter('all');
-                  setHealthAnchorEl(null);
+            {/* Custom Period Selector Dropdown */}
+            <div ref={mainButtonRef}>
+              <CustomDropdown
+                value={periodOption}
+                buttonText={getPeriodLabel()}
+                icon={<Calendar size={15} />}
+                onChange={(val) => {
+                  if (val === 'select_month') {
+                    setPickerType('month');
+                    setViewYear(selectedYear);
+                    setPickerAnchorEl(mainButtonRef.current);
+                  } else if (val === 'custom_range') {
+                    setPickerType('range');
+                    setPickerAnchorEl(mainButtonRef.current);
+                  } else {
+                    setPeriodOption(val as any);
+                  }
                 }}
-              >
-                <span>All Statuses</span>
-                {healthFilter === 'all' && <Check size={14} className="text-zinc-800" />}
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  setHealthFilter('excellent');
-                  setHealthAnchorEl(null);
-                }}
-              >
-                <span>Excellent</span>
-                {healthFilter === 'excellent' && <Check size={14} className="text-zinc-800" />}
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  setHealthFilter('healthy');
-                  setHealthAnchorEl(null);
-                }}
-              >
-                <span>Healthy</span>
-                {healthFilter === 'healthy' && <Check size={14} className="text-zinc-800" />}
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  setHealthFilter('needs_attention');
-                  setHealthAnchorEl(null);
-                }}
-              >
-                <span>Needs Attention</span>
-                {healthFilter === 'needs_attention' && <Check size={14} className="text-zinc-800" />}
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  setHealthFilter('at_risk');
-                  setHealthAnchorEl(null);
-                }}
-              >
-                <span>At Risk</span>
-                {healthFilter === 'at_risk' && <Check size={14} className="text-zinc-800" />}
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  setHealthFilter('critical');
-                  setHealthAnchorEl(null);
-                }}
-              >
-                <span>Critical</span>
-                {healthFilter === 'critical' && <Check size={14} className="text-zinc-800" />}
-              </MenuItem>
-            </Menu>
-
-            {/* Polished Period Selector Trigger */}
-            <Button
-              ref={mainButtonRef}
-              onClick={(e) => setDropdownAnchorEl(e.currentTarget)}
-              variant="outlined"
-              startIcon={<Calendar size={15} />}
-              endIcon={<span>▾</span>}
-              sx={{
-                textTransform: 'none',
-                fontWeight: 600,
-                borderRadius: '8px',
-                borderColor: 'divider',
-                color: 'text.primary',
-                height: '40px',
-                px: 2,
-                '&:hover': { borderColor: 'text.primary', bgcolor: 'action.hover' }
-              }}
-            >
-              {getPeriodLabel()}
-            </Button>
-
-            {/* Dropdown Menu for options */}
-            <Menu
-              anchorEl={dropdownAnchorEl}
-              open={Boolean(dropdownAnchorEl)}
-              onClose={() => setDropdownAnchorEl(null)}
-              slotProps={{
-                paper: {
-                  elevation: 1,
-                  sx: {
-                    border: '1px solid #e4e4e7',
-                    borderRadius: '8px',
-                    minWidth: 180,
-                    '& .MuiMenuItem-root': {
-                      fontSize: '13px',
-                      fontWeight: 500,
-                      py: 1,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 1.5,
-                      '&:hover': { bgcolor: '#f4f4f5' },
-                    },
-                  },
-                },
-              }}
-            >
-              <MenuItem
-                onClick={() => {
-                  setPeriodOption('current_month');
-                  setDropdownAnchorEl(null);
-                }}
-              >
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Calendar size={14} className="text-zinc-550" />
-                  <span>Current Month</span>
-                </Box>
-                {periodOption === 'current_month' && <Check size={14} className="text-zinc-800" />}
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  setDropdownAnchorEl(null);
-                  setPickerType('month');
-                  setViewYear(selectedYear);
-                  setPickerAnchorEl(mainButtonRef.current);
-                }}
-              >
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <GridIcon size={14} className="text-zinc-550" />
-                  <span>Select Month</span>
-                </Box>
-                {periodOption === 'select_month' && <Check size={14} className="text-zinc-800" />}
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  setPeriodOption('last_3_months');
-                  setDropdownAnchorEl(null);
-                }}
-              >
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <History size={14} className="text-zinc-550" />
-                  <span>Last 3 Months</span>
-                </Box>
-                {periodOption === 'last_3_months' && <Check size={14} className="text-zinc-800" />}
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  setDropdownAnchorEl(null);
-                  setPickerType('range');
-                  setPickerAnchorEl(mainButtonRef.current);
-                }}
-              >
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <ArrowLeftRight size={14} className="text-zinc-550" />
-                  <span>Custom Range</span>
-                </Box>
-                {periodOption === 'custom_range' && <Check size={14} className="text-zinc-800" />}
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  setPeriodOption('current_year');
-                  setDropdownAnchorEl(null);
-                }}
-              >
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <CircleDot size={14} className="text-zinc-550" />
-                  <span>Current Year</span>
-                </Box>
-                {periodOption === 'current_year' && <Check size={14} className="text-zinc-800" />}
-              </MenuItem>
-            </Menu>
+                options={[
+                  { value: 'current_month', label: 'Current Month', icon: <Calendar size={14} /> },
+                  { value: 'select_month', label: 'Select Month', icon: <GridIcon size={14} /> },
+                  { value: 'last_3_months', label: 'Last 3 Months', icon: <History size={14} /> },
+                  { value: 'custom_range', label: 'Custom Range', icon: <ArrowLeftRight size={14} /> },
+                  { value: 'current_year', label: 'Current Year', icon: <CircleDot size={14} /> },
+                ]}
+              />
+            </div>
 
             {/* Dynamic Month/Range Picker Popover */}
             <Popover
@@ -1348,103 +1152,25 @@ export const Team: React.FC = () => {
         )}
 
         {/* Sorting filter */}
-        {/* Polished Sort Trigger */}
-        <Button
-          onClick={(e) => setSortAnchorEl(e.currentTarget)}
-          variant="outlined"
-          startIcon={<ArrowUpDown size={15} />}
-          endIcon={<span>▾</span>}
-          sx={{
-            textTransform: 'none',
-            fontWeight: 600,
-            borderRadius: '8px',
-            borderColor: 'divider',
-            color: 'text.primary',
-            height: '40px',
-            px: 2,
-            whiteSpace: 'nowrap',
-            '&:hover': { borderColor: 'text.primary', bgcolor: 'action.hover' }
-          }}
-        >
-          Sort: {getSortByLabel()}
-        </Button>
-
-        {/* Dropdown Menu for Sort options */}
-        <Menu
-          anchorEl={sortAnchorEl}
-          open={Boolean(sortAnchorEl)}
-          onClose={() => setSortAnchorEl(null)}
-          slotProps={{
-            paper: {
-              elevation: 1,
-              sx: {
-                border: '1px solid #e4e4e7',
-                borderRadius: '8px',
-                minWidth: 180,
-                '& .MuiMenuItem-root': {
-                  fontSize: '13px',
-                  fontWeight: 500,
-                  py: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 1.5,
-                  '&:hover': { bgcolor: '#f4f4f5' },
-                },
-              },
-            },
-          }}
-        >
-          {activeTab === 'active' && (
-            <MenuItem
-              onClick={() => {
-                setSortBy('health_low');
-                setSortAnchorEl(null);
-              }}
-            >
-              <span>Health: Low → High</span>
-              {sortBy === 'health_low' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-          )}
-          {activeTab === 'active' && (
-            <MenuItem
-              onClick={() => {
-                setSortBy('health_high');
-                setSortAnchorEl(null);
-              }}
-            >
-              <span>Health: High → Low</span>
-              {sortBy === 'health_high' && <Check size={14} className="text-zinc-800" />}
-            </MenuItem>
-          )}
-          <MenuItem
-            onClick={() => {
-              setSortBy('name');
-              setSortAnchorEl(null);
-            }}
-          >
-            <span>Name: A → Z</span>
-            {sortBy === 'name' && <Check size={14} className="text-zinc-800" />}
-          </MenuItem>
-          <MenuItem
-            onClick={() => {
-              setSortBy('pending_high');
-              setSortAnchorEl(null);
-            }}
-          >
-            <span>Pending: High → Low</span>
-            {sortBy === 'pending_high' && <Check size={14} className="text-zinc-800" />}
-          </MenuItem>
-          <MenuItem
-            onClick={() => {
-              setSortBy('overdue_high');
-              setSortAnchorEl(null);
-            }}
-          >
-            <span>Overdue: High → Low</span>
-            {sortBy === 'overdue_high' && <Check size={14} className="text-zinc-800" />}
-          </MenuItem>
-        </Menu>
+        <CustomDropdown
+          value={sortBy}
+          onChange={(val) => setSortBy(val as any)}
+          icon={<ArrowUpDown size={15} />}
+          valuePrefix="Sort: "
+          options={
+            activeTab === 'active'
+              ? [
+                  { value: 'health_low', label: 'Health: Low → High' },
+                  { value: 'health_high', label: 'Health: High → Low' },
+                  { value: 'name', label: 'Name: A → Z' },
+                  { value: 'pending_high', label: 'Pending: High → Low' },
+                ]
+              : [
+                  { value: 'name', label: 'Name: A → Z' },
+                  { value: 'pending_high', label: 'Pending: High → Low' },
+                ]
+          }
+        />
       </Box>
 
       {/* Grid of Team Member Cards */}
@@ -1503,7 +1229,7 @@ export const Team: React.FC = () => {
                           {member.name}
                         </Typography>
                         <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
-                          {member.role === 'ORG_ADMIN' ? 'Org Admin' : member.role === 'ADMIN' ? 'Admin/Manager' : 'Member'}
+                          {getRoleDisplayLabel(member.role)}
                         </Typography>
                       </Box>
                     </Box>
@@ -1555,6 +1281,32 @@ export const Team: React.FC = () => {
                     </span>
                   </Box>
 
+                  {/* Workload Progress Bar Section */}
+                  <Box sx={{ mb: 2 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', fontSize: '11px' }}>
+                        Workload
+                      </Typography>
+                      <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.primary', fontSize: '11px' }}>
+                        {member.workload_percentage ?? 0}% ({member.workload_status || 'Balanced'})
+                      </Typography>
+                    </Box>
+                    <Box className="w-full h-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+                      <Box
+                        className={`h-full transition-all duration-300 ${
+                          (member.workload_percentage || 0) < 70
+                            ? 'bg-blue-500'
+                            : (member.workload_percentage || 0) <= 100
+                            ? 'bg-emerald-500'
+                            : (member.workload_percentage || 0) <= 120
+                            ? 'bg-amber-500'
+                            : 'bg-red-500'
+                        }`}
+                        style={{ width: `${Math.min(100, member.workload_percentage || 0)}%` }}
+                      />
+                    </Box>
+                  </Box>
+
                   {/* Workload Counts */}
                   <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1, borderTop: '1px solid', borderColor: 'divider', pt: 2, mb: 2 }}>
                     <Box sx={{ textAlign: 'center' }}>
@@ -1575,18 +1327,15 @@ export const Team: React.FC = () => {
                     </Box>
                     <Box sx={{ textAlign: 'center' }}>
                       <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase' }}>
-                        OVERDUE
+                        TOMORROW
                       </Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 800, color: member.overdue_tasks && member.overdue_tasks > 0 ? 'error.main' : 'text.primary', mt: 0.5 }}>
-                        {member.overdue_tasks ?? 0}
+                      <Typography variant="body2" sx={{ fontWeight: 800, color: 'text.primary', mt: 0.5 }}>
+                        {member.tomorrow_tasks ?? 0}
                       </Typography>
                     </Box>
                   </Box>
 
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500 }}>
-                      Completed: <span className="font-bold text-text-primary">{member.completed_this_week ?? 0} (Wk)</span> · Late: <span className={`font-bold ${member.late_completions && member.late_completions > 0 ? 'text-red-500' : 'text-text-primary'}`}>{member.late_completions ?? 0}</span>
-                    </Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: 'text.primary', fontSize: '11px', fontWeight: 700 }}>
                       <span>View Details</span>
                       <span style={{ fontSize: '12px' }}>→</span>
@@ -1637,7 +1386,7 @@ export const Team: React.FC = () => {
                           {member.name}
                         </Typography>
                         <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
-                          {member.role === 'ORG_ADMIN' ? 'Org Admin' : member.role === 'ADMIN' ? 'Admin/Manager' : 'Member'}
+                          {getRoleDisplayLabel(member.role)}
                         </Typography>
                       </Box>
                     </Box>
@@ -1824,13 +1573,16 @@ export const Team: React.FC = () => {
               slotProps={{ input: { startAdornment: <InputAdornment position="start"><Mail size={14} /></InputAdornment> } }}
               sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
             />
-            <FormControl fullWidth sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}>
-              <InputLabel>Role</InputLabel>
-              <Select label="Role" value={role} onChange={(e) => setRole(e.target.value as any)}>
-                <MenuItem value="MEMBER">Member</MenuItem>
-                <MenuItem value="ADMIN">Admin/Manager</MenuItem>
-              </Select>
-            </FormControl>
+            <CustomDropdown
+              label="Role"
+              fullWidth
+              value={role}
+              onChange={(val) => setRole(val as any)}
+              options={[
+                { value: 'MEMBER', label: 'Member' },
+                { value: 'ADMIN', label: 'Admin/Manager' },
+              ]}
+            />
 
 
             {/* Avatar input */}
@@ -1933,13 +1685,16 @@ export const Team: React.FC = () => {
                   onChange={(e) => setEmail(e.target.value)}
                   sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
                 />
-                <FormControl fullWidth sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}>
-                  <InputLabel>Role</InputLabel>
-                  <Select label="Role" value={role} onChange={(e) => setRole(e.target.value as any)}>
-                    <MenuItem value="MEMBER">Member</MenuItem>
-                    <MenuItem value="ADMIN">Admin/Manager</MenuItem>
-                  </Select>
-                </FormControl>
+                <CustomDropdown
+                  label="Role"
+                  fullWidth
+                  value={role}
+                  onChange={(val) => setRole(val as any)}
+                  options={[
+                    { value: 'MEMBER', label: 'Member' },
+                    { value: 'ADMIN', label: 'Admin/Manager' },
+                  ]}
+                />
 
                 <Box>
                   <Typography variant="caption" sx={{ color: '#71717a', fontWeight: 600, display: 'block', mb: 1 }}>

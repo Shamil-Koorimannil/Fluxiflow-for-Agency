@@ -3,6 +3,7 @@ import {
   Search, LayoutGrid, List,
   BookOpen, Users, Clock, Pin, Trash2, Loader2, Download, X, File, Share2
 } from 'lucide-react';
+import { useConfirm } from '../../context/ConfirmDialogContext';
 import type { KeepItem, KeepItemType } from '../../types';
 import { api } from '../../services/api';
 import { KeepBreadcrumbs } from './KeepBreadcrumbs';
@@ -19,6 +20,7 @@ import { CreateFolderModal } from './CreateFolderModal';
 import { RenameKeepItemModal } from './RenameKeepItemModal';
 
 export const Keep: React.FC = () => {
+  const { confirm, showAlert, prompt } = useConfirm();
   const [section, setSection] = useState<'all' | 'shared' | 'recent' | 'pinned' | 'trash'>('all');
   const [currentFolder, setCurrentFolder] = useState<KeepItem | null>(null);
   const [folderPath, setFolderPath] = useState<KeepItem[]>([]);
@@ -235,7 +237,7 @@ export const Keep: React.FC = () => {
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      alert('Failed to download file.');
+      showAlert({ title: 'Download Error', message: 'Failed to download file.', variant: 'warning' });
     }
   };
 
@@ -258,7 +260,13 @@ export const Keep: React.FC = () => {
   };
 
   const handlePermanentDelete = async (item: KeepItem) => {
-    if (!window.confirm(`Are you sure you want to permanently delete '${item.name}'? This action cannot be undone.`)) return;
+    const ok = await confirm({
+      title: 'Delete Permanently?',
+      message: `Are you sure you want to permanently delete '${item.name}'? This action cannot be undone.`,
+      confirmText: 'Delete Permanently',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await api.delete(`/keep/items/${item.id}/permanent_delete/`);
       setItems(prev => prev.filter(i => i.id !== item.id));
@@ -305,7 +313,7 @@ export const Keep: React.FC = () => {
       <div className="border-b border-zinc-200 dark:border-zinc-800 bg-white/90 dark:bg-zinc-900/90 backdrop-blur sticky top-0 z-20 px-6 py-3">
         <div className="flex flex-wrap items-center justify-between gap-4">
           {/* Left: Brand Badge & Section Tabs */}
-          <div className="flex items-center gap-4 overflow-x-auto scrollbar-none py-1">
+          <div className="flex items-center gap-4 overflow-x-auto scrollbar-none no-scrollbar py-1 max-w-full">
             <div className="flex items-center gap-2 flex-shrink-0">
               <BookOpen className="h-6 w-6 text-black dark:text-white" />
               <h1 className="font-bold text-xl tracking-tight hidden sm:block">Keep</h1>
@@ -313,10 +321,10 @@ export const Keep: React.FC = () => {
 
             <div className="h-5 w-px bg-zinc-200 dark:bg-zinc-800 hidden sm:block flex-shrink-0" />
 
-            <div className="flex items-center gap-1 text-xs font-semibold">
+            <div className="flex items-center gap-1 text-xs font-semibold overflow-x-auto scrollbar-none no-scrollbar max-w-full">
               <button
                 onClick={() => handleSectionChange('all')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors flex-shrink-0 ${
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap shrink-0 w-auto ${
                   section === 'all'
                     ? 'bg-black dark:bg-white text-white dark:text-black font-bold shadow-sm'
                     : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
@@ -327,7 +335,7 @@ export const Keep: React.FC = () => {
 
               <button
                 onClick={() => handleSectionChange('shared')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors flex-shrink-0 ${
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap shrink-0 w-auto ${
                   section === 'shared'
                     ? 'bg-black dark:bg-white text-white dark:text-black font-bold shadow-sm'
                     : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
@@ -339,7 +347,7 @@ export const Keep: React.FC = () => {
 
               <button
                 onClick={() => handleSectionChange('recent')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors flex-shrink-0 ${
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap shrink-0 w-auto ${
                   section === 'recent'
                     ? 'bg-black dark:bg-white text-white dark:text-black font-bold shadow-sm'
                     : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
@@ -351,9 +359,9 @@ export const Keep: React.FC = () => {
 
               <button
                 onClick={() => handleSectionChange('pinned')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors flex-shrink-0 ${
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap shrink-0 w-auto ${
                   section === 'pinned'
-                    ? 'bg-black dark:bg-white text-white dark:text-black font-bold shadow-sm'
+                    ? 'bg-black dark:bg-white text-white dark:text-black shadow-sm'
                     : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
                 }`}
               >
@@ -363,7 +371,7 @@ export const Keep: React.FC = () => {
 
               <button
                 onClick={() => handleSectionChange('trash')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors flex-shrink-0 ${
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap shrink-0 w-auto ${
                   section === 'trash'
                     ? 'bg-black dark:bg-white text-white dark:text-black font-bold shadow-sm'
                     : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
@@ -416,7 +424,6 @@ export const Keep: React.FC = () => {
             <NewKeepItemMenu
               onCreateItem={handleCreateItem}
               onOpenUploadModal={() => setIsUploadFileModalOpen(true)}
-              onOpenSpreadsheetImportModal={() => setIsSpreadsheetImportModalOpen(true)}
               disabled={section === 'trash'}
             />
           </div>
@@ -486,8 +493,12 @@ export const Keep: React.FC = () => {
           onRename={(itemToRename) => setRenameModalItem(itemToRename)}
           onTogglePin={handleTogglePin}
           onShare={(itemToShare) => setShareModalItem(itemToShare)}
-          onMove={(itemToMove) => {
-            const targetParent = prompt('Enter destination Folder ID (leave empty for root):');
+          onMove={async (itemToMove) => {
+            const targetParent = await prompt({
+              title: 'Move Item',
+              message: 'Enter destination Folder ID (leave empty for root):',
+              placeholder: 'Folder ID',
+            });
             if (targetParent !== null) {
               api.post(`/keep/items/${itemToMove.id}/move/`, { parent_folder: targetParent || null })
                 .then(fetchKeepItems);

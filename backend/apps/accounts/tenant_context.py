@@ -57,6 +57,13 @@ def get_active_membership(user: CustomUser, request=None) -> Optional[Membership
             ).select_related('organization').first()
             if membership:
                 return membership
+            elif getattr(user, 'active_organization', None):
+                membership, _ = Membership.objects.get_or_create(
+                    user=user,
+                    organization=user.active_organization,
+                    defaults={'role': resolve_target_role(user), 'is_active': True}
+                )
+                return membership
 
         # 3. Fallback to user's first active membership
         membership = Membership.objects.filter(
@@ -71,31 +78,21 @@ def get_active_membership(user: CustomUser, request=None) -> Optional[Membership
                 user.save(update_fields=['active_organization'])
             return membership
 
-        # Auto-ensure default organization membership for legacy test user fixtures
+        # 4. Fallback to default/first organization for legacy test fixtures
         default_org = Organization.objects.filter(slug='zywo').first() or Organization.objects.first()
-        if not default_org:
-            default_org = Organization.objects.create(
-                name='Zywo',
-                slug='zywo',
-                enable_task_types=True,
-                weekly_capacity_hours=40
+        if default_org:
+            role = resolve_target_role(user)
+            membership, _ = Membership.objects.get_or_create(
+                organization=default_org,
+                user=user,
+                defaults={'role': role, 'is_active': True}
             )
-        else:
-            if default_org.name != 'Zywo' or default_org.slug != 'zywo':
-                default_org.name = 'Zywo'
-                default_org.slug = 'zywo'
-                default_org.save(update_fields=['name', 'slug'])
+            if getattr(user, 'active_organization', None) != default_org:
+                user.active_organization = default_org
+                user.save(update_fields=['active_organization'])
+            return membership
 
-        role = resolve_target_role(user)
-        membership, _ = Membership.objects.get_or_create(
-            organization=default_org,
-            user=user,
-            defaults={'role': role, 'is_active': True}
-        )
-        user.active_organization = default_org
-        user.save(update_fields=['active_organization'])
-
-        return membership
+        return None
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning("Error resolving active membership: %s", str(e))
@@ -118,7 +115,7 @@ def is_org_admin(user: CustomUser, request=None) -> bool:
 
 def is_admin_or_org_admin(user: CustomUser, request=None) -> bool:
     role = get_active_role(user, request=request)
-    return role in ('ORG_ADMIN', 'ADMIN') or getattr(user, 'role', None) == 'ADMIN'
+    return role in ('ORG_ADMIN', 'ADMIN')
 
 
 class IsTenantMember(permissions.BasePermission):

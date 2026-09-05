@@ -213,7 +213,7 @@ export const Home: React.FC = () => {
           {/* CTA Buttons */}
           <Box className="hero-cta-group" sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 2.5 }}>
             <Button 
-              onClick={() => handleNav('/login')}
+              onClick={() => handleNav('/login?mode=create_org')}
               variant="contained" 
               sx={{ 
                 bgcolor: '#0f172a', 
@@ -228,7 +228,7 @@ export const Home: React.FC = () => {
                 '&:hover': { bgcolor: '#1e293b' } 
               }}
             >
-              Get Started
+              Create an organisation
             </Button>
             <Button 
               onClick={() => handleNav('/login')}

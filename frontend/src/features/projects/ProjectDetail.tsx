@@ -6,18 +6,18 @@ import type { Project, Task } from '../../types';
 import { useAuth } from '../auth/AuthContext';
 import { TaskDetailPanel } from '../tasks/TaskDetailPanel';
 import { TaskFormModal } from '../tasks/TaskFormModal';
+import { useConfirm } from '../../context/ConfirmDialogContext';
 import { ArrowLeft, Plus, Upload, Trash2, CheckSquare, X, Pencil, Download, Loader2, Calendar, Copy } from 'lucide-react';
 import { BulkUploadModal } from './BulkUploadModal';
 import { PasteTasksModal } from '../tasks/PasteTasksModal';
 import { TaskCard } from '../tasks/TaskCard';
 import { useTaskDragSelect } from '../../hooks/useTaskDragSelect';
-import { SelectionToolbar } from '../../components/common/SelectionToolbar';
 import { classifyTask } from '../../utils/taskClassifier';
 import { formatDateOnly } from '../../utils/time';
 
 import { useOrganization } from '../../context/OrganizationContext';
 
-type ProjectFilterType = 'all' | 'incompleted' | 'today' | 'tomorrow' | 'upcoming' | 'overdue' | 'no_due_date' | 'completed' | 'assigned_to_me';
+type ProjectFilterType = 'all' | 'incompleted' | 'today' | 'tomorrow' | 'upcoming' | 'pending' | 'no_due_date' | 'completed' | 'assigned_to_me';
 
 export const ProjectDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -25,6 +25,7 @@ export const ProjectDetail: React.FC = () => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const { isAdmin } = useOrganization();
+  const { showAlert } = useConfirm();
 
   const [isDeleteProjModalOpen, setIsDeleteProjModalOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -78,7 +79,7 @@ export const ProjectDetail: React.FC = () => {
       link.parentNode?.removeChild(link);
     } catch (err) {
       console.error(err);
-      alert('Failed to generate/download project report. Please try again.');
+      showAlert({ title: 'Download Failed', message: 'Failed to generate/download project report. Please try again.', variant: 'warning' });
     } finally {
       setIsDownloadingReport(false);
     }
@@ -212,11 +213,11 @@ export const ProjectDetail: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
       queryClient.invalidateQueries({ queryKey: ['team'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      alert('Project duplicated successfully.');
+      showAlert({ title: 'Success', message: 'Project duplicated successfully.', variant: 'info' });
       navigate(`/app/projects/${newProj.id}`);
     },
     onError: (err: any) => {
-      alert(err?.response?.data?.detail || 'Failed to duplicate project.');
+      showAlert({ title: 'Error', message: err?.response?.data?.detail || 'Failed to duplicate project.', variant: 'warning' });
     },
   });
 
@@ -241,19 +242,6 @@ export const ProjectDetail: React.FC = () => {
     dragSelect.clearSelection();
   }, [activeFilter]);
 
-  const bulkDeleteMutation = useMutation({
-    mutationFn: async (taskIds: string[]) => {
-      const response = await api.post('/tasks/bulk-delete/', { task_ids: taskIds });
-      return response.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      queryClient.invalidateQueries({ queryKey: ['project', id] });
-      queryClient.invalidateQueries({ queryKey: ['team'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      dragSelect.clearSelection();
-    },
-  });
 
   if (isProjectLoading) {
     return (
@@ -319,7 +307,7 @@ export const ProjectDetail: React.FC = () => {
     { value: 'today', label: 'Today' },
     { value: 'tomorrow', label: 'Tomorrow' },
     { value: 'upcoming', label: 'Upcoming' },
-    { value: 'overdue', label: 'Overdue' },
+    { value: 'pending', label: 'Pending' },
     { value: 'no_due_date', label: 'No Due Date' },
     { value: 'completed', label: 'Completed' },
     { value: 'assigned_to_me', label: 'Assigned to Me' },
@@ -470,7 +458,7 @@ export const ProjectDetail: React.FC = () => {
               <button
                 key={f.value}
                 onClick={() => setActiveFilter(f.value)}
-                className={`rounded-full px-4 py-1.5 text-xs font-semibold tracking-wide transition-all ${
+                className={`rounded-full px-4 py-1.5 text-xs font-semibold tracking-wide transition-all whitespace-nowrap ${
                   isSelected
                     ? 'bg-black text-white dark:bg-white dark:text-black'
                     : 'bg-zinc-100 text-black border border-zinc-200/50 hover:bg-zinc-200 dark:bg-black dark:text-white dark:border-zinc-800 dark:hover:bg-white/10'
@@ -680,16 +668,6 @@ export const ProjectDetail: React.FC = () => {
           </div>
         </div>
       )}
-      {/* Floating Selection & Bulk Delete Toolbar */}
-      <SelectionToolbar
-        selectedCount={dragSelect.selectedTaskIds.length}
-        totalVisibleCount={filteredTasks.length}
-        onClearSelection={dragSelect.clearSelection}
-        onSelectAll={() => dragSelect.selectAll()}
-        areAllSelected={filteredTasks.length > 0 && filteredTasks.every((t) => dragSelect.isSelected(t.id))}
-        onConfirmDelete={() => bulkDeleteMutation.mutateAsync(dragSelect.selectedTaskIds)}
-        isDeleting={bulkDeleteMutation.isPending}
-      />
 
       {/* Paste Tasks Modal */}
       <PasteTasksModal

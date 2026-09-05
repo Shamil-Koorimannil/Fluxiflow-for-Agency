@@ -1,193 +1,196 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown, Check } from 'lucide-react';
 
-export interface DropdownOption<T = string> {
+export interface DropdownOption<T extends string | number = string> {
   value: T;
-  label: string | React.ReactNode;
+  label: string;
   icon?: React.ReactNode;
+  description?: string;
   disabled?: boolean;
 }
 
-export interface CustomDropdownProps<T = string> {
+export interface CustomDropdownProps<T extends string | number = string> {
   options: DropdownOption<T>[];
-  value?: T;
+  value: T;
   onChange: (value: T) => void;
+  label?: string;
   placeholder?: string;
-  labelPrefix?: string;
-  startIcon?: React.ReactNode;
+  valuePrefix?: string;
+  buttonText?: string;
+  icon?: React.ReactNode;
+  size?: 'sm' | 'md' | 'lg';
+  fullWidth?: boolean;
   disabled?: boolean;
   className?: string;
-  triggerClassName?: string;
-  menuClassName?: string;
   align?: 'left' | 'right';
-  size?: 'sm' | 'md';
+  error?: boolean;
+  minWidth?: string;
 }
 
-export function CustomDropdown<T = string>({
+export function CustomDropdown<T extends string | number = string>({
   options,
   value,
   onChange,
-  placeholder = 'Select option',
-  labelPrefix,
-  startIcon,
+  label,
+  placeholder = 'Select option...',
+  valuePrefix,
+  buttonText,
+  icon,
+  size = 'md',
+  fullWidth = false,
   disabled = false,
   className = '',
-  triggerClassName = '',
-  menuClassName = '',
   align = 'left',
-  size = 'md',
+  error = false,
+  minWidth,
 }: CustomDropdownProps<T>) {
   const [isOpen, setIsOpen] = useState(false);
-  const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const [focusedIndex, setFocusedIndex] = useState<number>(-1);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const selectedOption = options.find((opt) => opt.value === value);
 
-  const toggleDropdown = () => {
-    if (disabled) return;
-    setIsOpen((prev) => !prev);
-  };
-
-  const handleSelect = (option: DropdownOption<T>) => {
-    if (option.disabled) return;
-    onChange(option.value);
-    setIsOpen(false);
-  };
-
-  // Close on click outside
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        triggerRef.current &&
-        !triggerRef.current.contains(event.target as Node) &&
-        menuRef.current &&
-        !menuRef.current.contains(event.target as Node)
-      ) {
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setIsOpen(false);
       }
     };
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [isOpen]);
-
-  // Keyboard navigation & Escape
-  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isOpen) return;
 
       if (e.key === 'Escape') {
-        e.preventDefault();
         setIsOpen(false);
-        triggerRef.current?.focus();
       } else if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setHighlightedIndex((prev) =>
-          prev < options.length - 1 ? prev + 1 : 0
-        );
+        setFocusedIndex((prev) => (prev < options.length - 1 ? prev + 1 : 0));
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setHighlightedIndex((prev) =>
-          prev > 0 ? prev - 1 : options.length - 1
-        );
+        setFocusedIndex((prev) => (prev > 0 ? prev - 1 : options.length - 1));
       } else if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
-        if (highlightedIndex >= 0 && highlightedIndex < options.length) {
-          handleSelect(options[highlightedIndex]);
+        if (focusedIndex >= 0 && focusedIndex < options.length) {
+          const opt = options[focusedIndex];
+          if (!opt.disabled) {
+            onChange(opt.value);
+            setIsOpen(false);
+          }
         }
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, highlightedIndex, options]);
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('touchstart', handleClickOutside);
+      document.addEventListener('keydown', handleKeyDown);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, focusedIndex, options, onChange]);
 
-  const heightClass = size === 'sm' ? 'h-9 text-xs px-3' : 'h-10 text-xs md:text-sm px-4';
+  useEffect(() => {
+    if (isOpen) {
+      const idx = options.findIndex((opt) => opt.value === value);
+      setFocusedIndex(idx >= 0 ? idx : 0);
+    }
+  }, [isOpen, options, value]);
+
+  const sizeClasses = {
+    sm: 'px-2.5 py-1 text-xs h-8 rounded-lg',
+    md: 'px-3.5 py-2 text-xs h-10 rounded-xl',
+    lg: 'px-4 py-2.5 text-sm h-11 rounded-xl',
+  };
+
+  const displayText = buttonText || (selectedOption ? `${valuePrefix || ''}${selectedOption.label}` : placeholder);
 
   return (
-    <div className={`relative inline-block text-left ${className}`}>
+    <div
+      ref={dropdownRef}
+      data-no-deselect="true"
+      className={`relative inline-block text-left ${fullWidth ? 'w-full' : ''} ${className}`}
+    >
+      {label && (
+        <label className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-1">
+          {label}
+        </label>
+      )}
+
+      {/* Trigger Button */}
       <button
-        ref={triggerRef}
         type="button"
         disabled={disabled}
-        onClick={toggleDropdown}
-        aria-expanded={isOpen}
-        aria-haspopup="listbox"
-        className={`flex items-center justify-between gap-2 w-full ${heightClass} bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg font-semibold text-zinc-900 dark:text-zinc-100 shadow-sm transition-all duration-150 ease-out hover:border-zinc-400 dark:hover:border-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 ${
-          disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-        } ${triggerClassName}`}
+        onClick={() => setIsOpen((prev) => !prev)}
+        className={`flex items-center justify-between gap-2 border bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 hover:border-zinc-400 dark:hover:border-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-800/80 font-semibold transition-all shadow-xs disabled:opacity-50 disabled:cursor-not-allowed ${
+          error ? 'border-red-500 dark:border-red-500' : 'border-zinc-200 dark:border-zinc-800'
+        } ${fullWidth ? 'w-full' : ''} ${sizeClasses[size]}`}
       >
-        <span className="flex items-center gap-2 truncate">
-          {startIcon && <span className="text-zinc-500">{startIcon}</span>}
-          <span>
-            {labelPrefix ? `${labelPrefix}: ` : ''}
-            {selectedOption ? selectedOption.label : placeholder}
-          </span>
-        </span>
+        <div className="flex items-center gap-2 truncate min-w-0">
+          {icon && <span className="text-zinc-500 dark:text-zinc-400 shrink-0">{icon}</span>}
+          <span className="truncate whitespace-nowrap">{displayText}</span>
+        </div>
         <ChevronDown
-          className={`h-4 w-4 text-zinc-500 transition-transform duration-150 ease-out ${
-            isOpen ? 'rotate-180 text-zinc-800 dark:text-zinc-200' : ''
+          className={`h-4 w-4 text-zinc-400 shrink-0 transition-transform duration-200 ${
+            isOpen ? 'rotate-180 text-black dark:text-white' : ''
           }`}
         />
       </button>
 
+      {/* Dropdown Menu Popup */}
       {isOpen && (
         <div
-          ref={menuRef}
-          role="listbox"
-          className={`absolute ${
-            align === 'right' ? 'right-0' : 'left-0'
-          } mt-1.5 min-w-[180px] max-w-xs bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xl p-1.5 z-[9999] transition-all duration-150 ease-out transform animate-in fade-in-0 zoom-in-95 ${menuClassName}`}
-          style={{
-            boxShadow:
-              '0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -2px rgba(0,0,0,0.03)',
-          }}
+          className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} top-full mt-1.5 min-w-[180px] max-w-[calc(100vw-2rem)] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 overflow-hidden max-h-60 overflow-y-auto`}
+          style={minWidth ? { minWidth } : undefined}
         >
-          {options.map((option, index) => {
-            const isSelected = option.value === value;
-            const isHighlighted = index === highlightedIndex;
-
-            return (
-              <button
-                key={String(option.value)}
-                type="button"
-                role="option"
-                aria-selected={isSelected}
-                disabled={option.disabled}
-                onClick={() => handleSelect(option)}
-                onMouseEnter={() => setHighlightedIndex(index)}
-                className={`flex items-center justify-between gap-3 w-full px-3.5 py-2 text-xs md:text-sm font-medium rounded-lg text-left transition-colors duration-100 ${
-                  isSelected
-                    ? 'font-semibold text-zinc-900 dark:text-zinc-100 bg-zinc-100 dark:bg-zinc-800'
-                    : 'text-zinc-700 dark:text-zinc-300'
-                } ${
-                  isHighlighted && !isSelected
-                    ? 'bg-zinc-50 dark:bg-zinc-800/60'
-                    : ''
-                } ${
-                  option.disabled
-                    ? 'opacity-40 cursor-not-allowed'
-                    : 'cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                }`}
-              >
-                <span className="flex items-center gap-2 truncate">
-                  {option.icon && (
-                    <span className="text-zinc-500">{option.icon}</span>
+          {options.length === 0 ? (
+            <div className="px-3.5 py-2 text-xs font-medium text-zinc-400 dark:text-zinc-500 italic">
+              No options available
+            </div>
+          ) : (
+            options.map((option, index) => {
+              const isSelected = option.value === value;
+              const isFocused = index === focusedIndex;
+              return (
+                <button
+                  key={String(option.value)}
+                  type="button"
+                  disabled={option.disabled}
+                  onClick={() => {
+                    onChange(option.value);
+                    setIsOpen(false);
+                  }}
+                  onMouseEnter={() => setFocusedIndex(index)}
+                  className={`w-full flex items-center justify-between px-3.5 py-2 text-xs font-semibold text-left transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                    isSelected
+                      ? 'bg-zinc-100 dark:bg-zinc-800 text-black dark:text-white font-bold'
+                      : isFocused
+                      ? 'bg-zinc-50 dark:bg-zinc-800/60 text-black dark:text-white'
+                      : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 hover:text-black dark:hover:text-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 truncate">
+                    {option.icon && <span className="shrink-0">{option.icon}</span>}
+                    <div className="truncate">
+                      <span>{option.label}</span>
+                      {option.description && (
+                        <p className="text-[10px] font-normal text-zinc-400 dark:text-zinc-500 truncate">
+                          {option.description}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  {isSelected && (
+                    <Check className="h-4 w-4 text-black dark:text-white shrink-0 ml-2" />
                   )}
-                  <span className="truncate">{option.label}</span>
-                </span>
-                {isSelected && (
-                  <Check className="h-4 w-4 text-zinc-900 dark:text-zinc-100 flex-shrink-0" />
-                )}
-              </button>
-            );
-          })}
+                </button>
+              );
+            })
+          )}
         </div>
       )}
     </div>
   );
 }
+

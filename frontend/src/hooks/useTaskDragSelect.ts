@@ -54,7 +54,10 @@ export function useTaskDragSelect({
         }
         return Array.from(next);
       });
-      setLastSelectedId(taskId);
+
+      if (!isShiftKey) {
+        setLastSelectedId(taskId);
+      }
     },
     [lastSelectedId, visibleTasks]
   );
@@ -97,6 +100,8 @@ export function useTaskDragSelect({
 
       if (isSelectionActive) {
         isDraggingRef.current = true;
+        document.body.style.userSelect = 'none';
+        (document.body.style as any).webkitUserSelect = 'none';
         selectTask(taskId);
       } else if (e.pointerType === 'touch' || e.pointerType === 'pen') {
         clearLongPressTimer();
@@ -104,6 +109,8 @@ export function useTaskDragSelect({
           selectTask(taskId);
           suppressClickTaskIdRef.current = taskId;
           isDraggingRef.current = true;
+          document.body.style.userSelect = 'none';
+          (document.body.style as any).webkitUserSelect = 'none';
 
           if (typeof window !== 'undefined' && 'vibrate' in navigator) {
             try {
@@ -115,6 +122,8 @@ export function useTaskDragSelect({
         }, longPressThresholdMs);
       } else if (e.pointerType === 'mouse') {
         isDraggingRef.current = true;
+        document.body.style.userSelect = 'none';
+        (document.body.style as any).webkitUserSelect = 'none';
       }
     },
     [selectedTaskIds.length, selectTask, clearLongPressTimer, longPressThresholdMs]
@@ -135,6 +144,8 @@ export function useTaskDragSelect({
 
       if (isDraggingRef.current || selectedTaskIds.length > 0) {
         if (e.buttons === 1 || e.pointerType === 'touch' || e.pointerType === 'pen') {
+          document.body.style.userSelect = 'none';
+          (document.body.style as any).webkitUserSelect = 'none';
           const targetEl = document.elementFromPoint(e.clientX, e.clientY);
           if (targetEl) {
             const taskTile = targetEl.closest('[data-task-id]');
@@ -154,6 +165,8 @@ export function useTaskDragSelect({
   const handlePointerUpOrCancel = useCallback(() => {
     isPointerDownRef.current = false;
     isDraggingRef.current = false;
+    document.body.style.userSelect = '';
+    (document.body.style as any).webkitUserSelect = '';
     clearLongPressTimer();
     startPosRef.current = null;
 
@@ -172,12 +185,19 @@ export function useTaskDragSelect({
         return;
       }
 
-      if (selectedTaskIds.length > 0) {
+      if (e.shiftKey) {
         e.preventDefault();
         e.stopPropagation();
-        toggleSelect(taskId, e.shiftKey);
-      } else if (onOpenDetail) {
-        onOpenDetail(defaultOpenId || taskId);
+        toggleSelect(taskId, true);
+      } else {
+        setLastSelectedId(taskId);
+        if (selectedTaskIds.length > 0) {
+          e.preventDefault();
+          e.stopPropagation();
+          toggleSelect(taskId, false);
+        } else if (onOpenDetail) {
+          onOpenDetail(defaultOpenId || taskId);
+        }
       }
     },
     [selectedTaskIds.length, toggleSelect, onOpenDetail]
@@ -192,6 +212,34 @@ export function useTaskDragSelect({
       window.removeEventListener('pointercancel', globalUp);
     };
   }, [handlePointerUpOrCancel]);
+
+  // Click outside to clear task selection
+  useEffect(() => {
+    if (selectedTaskIds.length === 0) return;
+
+    const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+
+      const isInsideTaskUI = target.closest(
+        '[data-task-id], [data-selection-control], [data-no-deselect], .MuiPopover-root, .MuiDialog-root, .MuiMenu-root'
+      );
+      if (!isInsideTaskUI) {
+        clearSelection();
+      }
+    };
+
+    const timer = setTimeout(() => {
+      document.addEventListener('mousedown', handleOutsideClick);
+      document.addEventListener('touchstart', handleOutsideClick);
+    }, 10);
+
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('touchstart', handleOutsideClick);
+    };
+  }, [selectedTaskIds.length, clearSelection]);
 
   return {
     selectedTaskIds,

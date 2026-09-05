@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom';
 import { X, Upload, AlertCircle, RefreshCw } from 'lucide-react';
 import type { ClientBrandAsset, AssetType } from '../../types';
 import { api } from '../../services/api';
+import { CustomDropdown } from '../../components/common/CustomDropdown';
 
 interface BrandAssetUploadModalProps {
   isOpen: boolean;
@@ -140,18 +141,16 @@ export const BrandAssetUploadModal: React.FC<BrandAssetUploadModalProps> = ({
 
           {/* Asset Category / Type */}
           <div>
-            <label className="block font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-              Asset Category
-            </label>
-            <select
+            <CustomDropdown
+              label="Asset Category"
+              fullWidth
               value={assetType}
-              onChange={(e) => setAssetType(e.target.value as AssetType)}
-              className="w-full px-3.5 py-2.5 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs outline-none focus:border-black dark:focus:border-white"
-            >
-              {ASSET_TYPES.map(t => (
-                <option key={t.value} value={t.value}>{t.label}</option>
-              ))}
-            </select>
+              onChange={(val) => setAssetType(val as AssetType)}
+              options={ASSET_TYPES.map((t) => ({
+                value: t.value,
+                label: t.label,
+              }))}
+            />
           </div>
 
           {/* Description */}

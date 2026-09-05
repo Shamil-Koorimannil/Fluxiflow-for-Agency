@@ -190,6 +190,28 @@ class TaskTypeSerializer(serializers.ModelSerializer):
             return 0
         return round(obj.allocated_seconds / 3600, 2)
 
+    def validate_name(self, value):
+        if not value or not str(value).strip():
+            raise serializers.ValidationError("Task type name cannot be blank.")
+        return str(value).strip()
+
+    def validate(self, attrs):
+        name = attrs.get('name')
+        if name:
+            name = name.strip()
+            attrs['name'] = name
+            request = self.context.get('request')
+            if request and request.user and request.user.is_authenticated:
+                from apps.accounts.tenant_context import get_active_organization
+                org = get_active_organization(request.user, request=request)
+                if org:
+                    qs = TaskType.objects.filter(organization=org, name__iexact=name)
+                    if self.instance:
+                        qs = qs.exclude(id=self.instance.id)
+                    if qs.exists():
+                        raise serializers.ValidationError({"name": "A task type with this name already exists in this organization."})
+        return attrs
+
 class TaskTimeLogSerializer(serializers.ModelSerializer):
     user_detail = UserSerializer(source='user', read_only=True)
 

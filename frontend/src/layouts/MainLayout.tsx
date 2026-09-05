@@ -7,12 +7,15 @@ import { NotificationBell } from '../features/notifications/NotificationBell';
 import { OrganizationSwitcher } from '../components/common/OrganizationSwitcher';
 import { OrganizationOnboarding } from '../components/common/OrganizationOnboarding';
 import { useOrganization } from '../context/OrganizationContext';
+import { getRoleDisplayLabel } from '../utils/roleUtils';
 import { Drawer } from '@mui/material';
 import { useWebSockets } from '../hooks/useWebSockets';
+import { useConfirm } from '../context/ConfirmDialogContext';
 
 
 export const MainLayout: React.FC = () => {
   const { user, logout } = useAuth();
+  const { confirm } = useConfirm();
   const { activeOrganization, isLoading: isOrgLoading } = useOrganization();
   const navigate = useNavigate();
   useWebSockets(); // Initialize real-time updates for authenticated session
@@ -20,6 +23,16 @@ export const MainLayout: React.FC = () => {
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = React.useState(false);
 
   const handleLogout = async () => {
+    const confirmed = await confirm({
+      title: 'Sign Out',
+      message: 'Are you sure you want to sign out of your account?',
+      confirmText: 'Sign Out',
+      cancelText: 'Cancel',
+      variant: 'danger',
+    });
+
+    if (!confirmed) return;
+
     setIsExiting(true);
     setTimeout(async () => {
       try {
@@ -71,7 +84,7 @@ export const MainLayout: React.FC = () => {
             <div className="overflow-hidden">
               <h2 className="font-semibold text-sm truncate leading-tight">{user.name}</h2>
               <span className="text-[11px] text-zinc-400 dark:text-zinc-500 font-medium tracking-wide uppercase">
-                {activeRole === 'ORG_ADMIN' ? 'Org Admin' : activeRole === 'ADMIN' ? 'Admin/Manager' : 'Member'}
+                {getRoleDisplayLabel(activeRole)}
               </span>
             </div>
           </Link>
@@ -225,7 +238,7 @@ export const MainLayout: React.FC = () => {
       {/* MAIN CONTAINER */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header Bar */}
-        <header className="flex h-16 items-center justify-between px-6 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black shrink-0 z-10">
+        <header className="flex h-16 items-center justify-between px-4 sm:px-6 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black shrink-0 z-10">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setIsMobileDrawerOpen(true)}
@@ -358,7 +371,7 @@ export const MainLayout: React.FC = () => {
                 <div className="overflow-hidden">
                   <h2 className="font-semibold text-sm truncate leading-tight">{user.name}</h2>
                   <span className="text-[11px] text-zinc-400 dark:text-zinc-500 font-medium tracking-wide uppercase">
-                    {activeRole === 'ORG_ADMIN' ? 'Org Admin' : activeRole === 'ADMIN' ? 'Admin' : 'Member'}
+                    {getRoleDisplayLabel(activeRole)}
                   </span>
                 </div>
               </Link>
