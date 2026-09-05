@@ -1141,6 +1141,128 @@ class TeamWorkloadView(views.APIView):
         })
 
 
+class TeamMemberPerformanceReportDownloadView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, pk=None):
+        active_org = get_active_organization(request.user, request=request)
+        active_role = get_active_role(request.user, request=request)
+        if not active_org or not active_role:
+            return Response({"detail": "Active organization membership required."}, status=status.HTTP_403_FORBIDDEN)
+
+        if active_role == 'MEMBER':
+            if str(pk) != str(request.user.id):
+                return Response({"detail": "You do not have permission to view another member's health or workload information."}, status=status.HTTP_403_FORBIDDEN)
+        else:
+            if not Membership.objects.filter(organization=active_org, user_id=pk, is_active=True).exists():
+                return Response({"detail": "User not found in active organization."}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            user: CustomUser = User.objects.get(id=pk)  # type: ignore
+        except User.DoesNotExist:
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        import calendar
+        import django.utils.dateparse
+
+        start_date_str = request.query_params.get('start_date')
+        end_date_str = request.query_params.get('end_date')
+        start_month_str = request.query_params.get('start_month')
+        start_year_str = request.query_params.get('start_year')
+        end_month_str = request.query_params.get('end_month')
+        end_year_str = request.query_params.get('end_year')
+
+        start_date = None
+        end_date = None
+        period_label = "All Time"
+
+        MONTH_NAMES = [
+            'January', 'February', 'March', 'April', 'May', 'June',
+            'July', 'August', 'September', 'October', 'November', 'December'
+        ]
+
+        if start_month_str and start_year_str:
+            try:
+                sm = int(start_month_str)
+                sy = int(start_year_str)
+                if not (1 <= sm <= 12 and 1900 <= sy <= 2100):
+                    return Response({"detail": "Invalid month or year values."}, status=status.HTTP_400_BAD_REQUEST)
+
+                em = int(end_month_str) if end_month_str else sm
+                ey = int(end_year_str) if end_year_str else sy
+                if not (1 <= em <= 12 and 1900 <= ey <= 2100):
+                    return Response({"detail": "Invalid month or year values."}, status=status.HTTP_400_BAD_REQUEST)
+
+                if (sy, sm) > (ey, em):
+                    return Response({"detail": "Invalid month range: start period cannot be after end period."}, status=status.HTTP_400_BAD_REQUEST)
+
+                start_date = timezone.make_aware(datetime.datetime(sy, sm, 1, 0, 0, 0))
+                last_day = calendar.monthrange(ey, em)[1]
+                end_date = timezone.make_aware(datetime.datetime(ey, em, last_day, 23, 59, 59, 999999))
+
+                if sm == em and sy == ey:
+                    period_label = f"{MONTH_NAMES[sm - 1]} {sy}"
+                else:
+                    period_label = f"{MONTH_NAMES[sm - 1]} {sy} – {MONTH_NAMES[em - 1]} {ey}"
+            except ValueError:
+                return Response({"detail": "Invalid month or year values."}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            if start_date_str:
+                try:
+                    start_date = django.utils.dateparse.parse_datetime(start_date_str)
+                    if not start_date:
+                        d = django.utils.dateparse.parse_date(start_date_str)
+                        if d:
+                            start_date = datetime.datetime.combine(d, datetime.time.min)
+                    if start_date and timezone.is_naive(start_date):
+                        start_date = timezone.make_aware(start_date)
+                except Exception:
+                    pass
+            if end_date_str:
+                try:
+                    end_date = django.utils.dateparse.parse_datetime(end_date_str)
+                    if not end_date:
+                        d = django.utils.dateparse.parse_date(end_date_str)
+                        if d:
+                            end_date = datetime.datetime.combine(d, datetime.time.max)
+                    if end_date and timezone.is_naive(end_date):
+                        end_date = timezone.make_aware(end_date)
+                except Exception:
+                    pass
+
+            if start_date and end_date:
+                period_label = f"{start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
+
+        if start_date and end_date and start_date > end_date:
+            return Response({"detail": "Invalid date range: start date cannot be after end date."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Canonical calculation metrics
+        metrics = calculate_user_health_metrics(user, start_date=start_date, end_date=end_date, organization=active_org)
+
+        # Query user tasks for active organization
+        if active_org:
+            task_ids = Task.objects.filter(organization=active_org, assignee_relationships__user=user).values_list('id', flat=True).distinct()
+        else:
+            task_ids = Task.objects.none()
+        user_tasks = Task.objects.filter(id__in=task_ids).order_by('due_date', 'due_time')
+
+        # Generate PDF using reportlab service
+        from .services import generate_member_performance_report_pdf
+        pdf_bytes = generate_member_performance_report_pdf(user, active_org, period_label, metrics, user_tasks)
+
+        # Generate clean, sanitized filename
+        import re
+        safe_name = re.sub(r'[^a-zA-Z0-9]+', '-', (user.name or 'member').lower()).strip('-')
+        normalized_period = re.sub(r'\s*[–—\-]\s*|\s+to\s+', '-to-', period_label.lower())
+        safe_period = re.sub(r'[^a-zA-Z0-9]+', '-', normalized_period).strip('-')
+        filename = f"performance-report-{safe_name}-{safe_period}.pdf"
+
+        from django.http import HttpResponse
+        response = HttpResponse(pdf_bytes, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
+
 class TeamTasksView(views.APIView):
     permission_classes = [permissions.IsAuthenticated]
 

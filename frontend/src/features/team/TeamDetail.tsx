@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Mail, Shield, CheckCircle2,
-  AlertCircle, RefreshCw, Heart
+  AlertCircle, RefreshCw, Heart, Download
 } from 'lucide-react';
 import type { Task, MemberWorkload } from '../../types';
 import { api } from '../../services/api';
@@ -168,6 +168,45 @@ export const TeamDetail: React.FC = () => {
   const memberSummary = data?.summary;
   const workloadStats = data?.workload_stats;
   const tasks = data?.tasks || [];
+
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownloadReport = async () => {
+    if (!id || validationError) return;
+    setIsDownloading(true);
+    try {
+      const response = await api.get(`/team/${id}/performance-report/download/`, {
+        params: periodQueryParams,
+        responseType: 'blob',
+      });
+
+      let fileName = `performance-report-${memberSummary?.name || 'member'}.pdf`;
+      const disposition = response.headers['content-disposition'];
+      if (disposition && disposition.includes('filename=')) {
+        const matches = /filename="?([^";]+)"?/.exec(disposition);
+        if (matches && matches[1]) {
+          fileName = matches[1];
+        }
+      }
+
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      showAlert({
+        title: 'Download Failed',
+        message: err.response?.data?.detail || 'Failed to download performance report. Please try again.',
+        variant: 'warning',
+      });
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   const dragSelect = useTaskDragSelect({
     visibleTasks: tasks,
@@ -563,6 +602,20 @@ export const TeamDetail: React.FC = () => {
                     />
                   </div>
                 )}
+                {/* Download Report Button */}
+                <button
+                  type="button"
+                  onClick={handleDownloadReport}
+                  disabled={isDownloading || Boolean(validationError)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-xs font-semibold rounded-xl transition-all shadow-xs shrink-0 cursor-pointer ml-auto sm:ml-0"
+                >
+                  {isDownloading ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                  <span>{isDownloading ? 'Generating...' : 'Download Report'}</span>
+                </button>
               </div>
             </div>
 

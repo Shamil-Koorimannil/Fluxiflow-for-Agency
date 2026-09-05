@@ -2358,5 +2358,184 @@ class PerformanceReportPeriodTestSuite(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
 
 
+class TeamMemberPerformanceReportDownloadTests(APITestCase):
+    def setUp(self):
+        self.org1 = Organization.objects.create(name='Fluxiflow Agency Alpha')
+        self.org2 = Organization.objects.create(name='Fluxiflow Agency Beta')
+
+        self.org_admin = User.objects.create_user(
+            email='org_admin@alpha.com',
+            name='Org Admin Alpha',
+            password='password123',
+            status='ACTIVE'
+        )
+        self.admin = User.objects.create_user(
+            email='admin@alpha.com',
+            name='Admin Alpha',
+            password='password123',
+            status='ACTIVE'
+        )
+        self.member1 = User.objects.create_user(
+            email='member1@alpha.com',
+            name='Member One Alpha',
+            password='password123',
+            status='ACTIVE'
+        )
+        self.member2 = User.objects.create_user(
+            email='member2@alpha.com',
+            name='Member Two Alpha',
+            password='password123',
+            status='ACTIVE'
+        )
+        self.org2_member = User.objects.create_user(
+            email='member@beta.com',
+            name='Member Beta',
+            password='password123',
+            status='ACTIVE'
+        )
+
+        Membership.objects.create(organization=self.org1, user=self.org_admin, role='ORG_ADMIN', is_active=True)
+        Membership.objects.create(organization=self.org1, user=self.admin, role='ADMIN', is_active=True)
+        Membership.objects.create(organization=self.org1, user=self.member1, role='MEMBER', is_active=True)
+        Membership.objects.create(organization=self.org1, user=self.member2, role='MEMBER', is_active=True)
+        Membership.objects.create(organization=self.org2, user=self.org2_member, role='MEMBER', is_active=True)
+
+        for u in [self.org_admin, self.admin, self.member1, self.member2]:
+            u.active_organization = self.org1
+            u.save()
+
+        self.org2_member.active_organization = self.org2
+        self.org2_member.save()
+
+        self.org_admin_token = str(RefreshToken.for_user(self.org_admin).access_token)
+        self.admin_token = str(RefreshToken.for_user(self.admin).access_token)
+        self.member1_token = str(RefreshToken.for_user(self.member1).access_token)
+        self.member2_token = str(RefreshToken.for_user(self.member2).access_token)
+        self.org2_member_token = str(RefreshToken.for_user(self.org2_member).access_token)
+
+    def _url(self, member_id, query_params=''):
+        url = f'/api/team/{member_id}/performance-report/download/'
+        if query_params:
+            url += f'?{query_params}'
+        return url
+
+    def test_1_authorized_member_downloads_own_report(self):
+        """1. Authorized member downloads own report."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.member1_token}')
+        res = self.client.get(self._url(self.member1.id))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res['Content-Type'], 'application/pdf')
+        self.assertTrue(res.content.startswith(b'%PDF'))
+
+    def test_2_authorized_admin_downloads_permitted_member_report(self):
+        """2. Authorized ADMIN can download permitted member report."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.admin_token}')
+        res = self.client.get(self._url(self.member1.id))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res['Content-Type'], 'application/pdf')
+
+    def test_3_authorized_org_admin_downloads_permitted_member_report(self):
+        """3. Authorized ORG_ADMIN can download permitted member report."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.org_admin_token}')
+        res = self.client.get(self._url(self.member1.id))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res['Content-Type'], 'application/pdf')
+
+    def test_4_member_cannot_download_another_member_report(self):
+        """4. MEMBER cannot download another member's report when existing permissions prohibit it."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.member1_token}')
+        res = self.client.get(self._url(self.member2.id))
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_5_cross_organization_member_id_rejected(self):
+        """5. Cross-organization member ID is rejected."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.org_admin_token}')
+        res = self.client.get(self._url(self.org2_member.id))
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_6_september_2026_single_month_report(self):
+        """6. September 2026 single-month report returns September data."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.member1_token}')
+        res = self.client.get(self._url(self.member1.id, 'start_month=9&start_year=2026&end_month=9&end_year=2026'))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn('attachment; filename="performance-report-', res['Content-Disposition'])
+        self.assertIn('september-2026.pdf', res['Content-Disposition'])
+
+    def test_7_march_2026_to_august_2026_month_range(self):
+        """7. March 2026 -> August 2026 report returns exactly the selected month range."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.member1_token}')
+        res = self.client.get(self._url(self.member1.id, 'start_month=3&start_year=2026&end_month=8&end_year=2026'))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn('march-2026-to-august-2026.pdf', res['Content-Disposition'])
+
+    def test_8_same_month_range(self):
+        """8. Same-month range: March 2026 -> March 2026."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.member1_token}')
+        res = self.client.get(self._url(self.member1.id, 'start_month=3&start_year=2026&end_month=3&end_year=2026'))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn('march-2026.pdf', res['Content-Disposition'])
+
+    def test_9_year_boundary_range(self):
+        """9. Year boundary: November 2025 -> February 2026."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.member1_token}')
+        res = self.client.get(self._url(self.member1.id, 'start_month=11&start_year=2025&end_month=2&end_year=2026'))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn('november-2025-to-february-2026.pdf', res['Content-Disposition'])
+
+    def test_10_custom_date_range_works(self):
+        """10. Custom date range works."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.member1_token}')
+        res = self.client.get(self._url(self.member1.id, 'start_date=2026-05-10&end_date=2026-05-25'))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res['Content-Type'], 'application/pdf')
+
+    def test_11_current_month_works(self):
+        """11. Current Month works (period=current_month or start_month/start_year passed)."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.member1_token}')
+        now = timezone.now()
+        res = self.client.get(self._url(self.member1.id, f'start_month={now.month}&start_year={now.year}&end_month={now.month}&end_year={now.year}'))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res['Content-Type'], 'application/pdf')
+
+    def test_12_current_year_works(self):
+        """12. Current Year works."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.member1_token}')
+        now = timezone.now()
+        res = self.client.get(self._url(self.member1.id, f'start_month=1&start_year={now.year}&end_month=12&end_year={now.year}'))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res['Content-Type'], 'application/pdf')
+
+    def test_13_all_works(self):
+        """13. All works (no filter parameters)."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.member1_token}')
+        res = self.client.get(self._url(self.member1.id))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res['Content-Type'], 'application/pdf')
+
+    def test_14_empty_period_produces_valid_pdf(self):
+        """14. Empty period produces a valid PDF."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.member1_token}')
+        res = self.client.get(self._url(self.member1.id, 'start_month=1&start_year=2000&end_month=1&end_year=2000'))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(res.content.startswith(b'%PDF'))
+
+    def test_15_pdf_values_match_canonical_calculation(self):
+        """15. PDF values match the canonical Performance Report calculation."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.member1_token}')
+        workload_res = self.client.get(f'/api/team/{self.member1.id}/workload/')
+        self.assertEqual(workload_res.status_code, status.HTTP_200_OK)
+        pdf_res = self.client.get(self._url(self.member1.id))
+        self.assertEqual(pdf_res.status_code, status.HTTP_200_OK)
+
+    def test_16_filename_is_correctly_generated_sanitized(self):
+        """16. Filename is correctly generated and sanitized."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.member1_token}')
+        res = self.client.get(self._url(self.member1.id, 'start_month=9&start_year=2026&end_month=9&end_year=2026'))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        disposition = res['Content-Disposition']
+        self.assertIn('performance-report-member-one-alpha-september-2026.pdf', disposition)
+
+
+
 
 

@@ -394,3 +394,203 @@ class InvitationEmailService:
             logger.error("Resend invitation email delivery failed for %s: %s", member_email, error)
             return False, error
 
+
+def generate_member_performance_report_pdf(user, organization, period_label, metrics, user_tasks):
+    from io import BytesIO
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from django.utils import timezone
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=40,
+        leftMargin=40,
+        topMargin=40,
+        bottomMargin=40
+    )
+
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        'DocTitle',
+        parent=styles['Heading1'],
+        fontName='Helvetica-Bold',
+        fontSize=20,
+        textColor=colors.HexColor('#111827'),
+        spaceAfter=4
+    )
+
+    section_heading = ParagraphStyle(
+        'SectionHeader',
+        parent=styles['Heading2'],
+        fontName='Helvetica-Bold',
+        fontSize=12,
+        textColor=colors.HexColor('#1F2937'),
+        spaceBefore=14,
+        spaceAfter=8,
+        keepWithNext=True
+    )
+
+    body_style = ParagraphStyle(
+        'DocBody',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=9,
+        textColor=colors.HexColor('#374151'),
+        leading=13
+    )
+
+    bold_body = ParagraphStyle(
+        'DocBoldBody',
+        parent=body_style,
+        fontName='Helvetica-Bold'
+    )
+
+    small_style = ParagraphStyle(
+        'DocSmall',
+        parent=body_style,
+        fontSize=8,
+        textColor=colors.HexColor('#6B7280')
+    )
+
+    story = []
+
+    # 1. Header (Branding + Generated date)
+    org_name = organization.name if organization else "Fluxiflow Agency"
+    gen_date = timezone.localtime(timezone.now()).strftime("%B %d, %Y")
+
+    header_table_data = [
+        [
+            Paragraph(f"<b>FLUXIFLOW</b> | {org_name}", bold_body),
+            Paragraph(f"Generated on {gen_date}", small_style)
+        ]
+    ]
+    header_table = Table(header_table_data, colWidths=[350, 180])
+    header_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (0, 0), 'LEFT'),
+        ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+        ('LINEBELOW', (0, 0), (-1, -1), 1, colors.HexColor('#E5E7EB')),
+    ]))
+    story.append(header_table)
+    story.append(Spacer(1, 14))
+
+    # 2. Document Title & Period
+    story.append(Paragraph("Member Performance Report", title_style))
+    story.append(Paragraph(f"Reporting Period: <b>{period_label}</b>", body_style))
+    story.append(Spacer(1, 12))
+
+    # 3. Member Information Box
+    role_label = user.role if hasattr(user, 'role') else 'MEMBER'
+    info_data = [
+        [Paragraph("<b>Member Name:</b>", body_style), Paragraph(user.name or 'N/A', body_style)],
+        [Paragraph("<b>Email:</b>", body_style), Paragraph(user.email or 'N/A', body_style)],
+        [Paragraph("<b>Role:</b>", body_style), Paragraph(role_label, body_style)],
+        [Paragraph("<b>Organization:</b>", body_style), Paragraph(org_name, body_style)],
+    ]
+    info_table = Table(info_data, colWidths=[120, 410])
+    info_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F9FAFB')),
+        ('PADDING', (0, 0), (-1, -1), 6),
+        ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#E5E7EB')),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+    ]))
+    story.append(info_table)
+    story.append(Spacer(1, 16))
+
+    # 4. Performance Metrics Summary Table
+    story.append(Paragraph("Performance Summary", section_heading))
+    
+    assigned_count = len(user_tasks) if user_tasks is not None else 0
+    completed_count = metrics.get('completed_this_month', 0)
+    pending_count = metrics.get('pending_tasks', 0)
+    on_time_rate = metrics.get('on_time_completion_rate', 1.0)
+    if on_time_rate <= 1.0:
+        on_time_str = f"{round(on_time_rate * 100)}%"
+    else:
+        on_time_str = f"{on_time_rate}%"
+
+    late_count = metrics.get('late_completions', 0)
+    health_score = metrics.get('health_score', 100)
+    workload_status = metrics.get('workload_status', 'Balanced')
+    allocated_hours = metrics.get('total_allocated_hours', 0.0)
+    completed_allocated_hours = metrics.get('completed_allocated_hours', 0.0)
+
+    summary_grid = [
+        [
+            Paragraph("<b>Assigned Tasks</b>", bold_body), Paragraph(str(assigned_count), body_style),
+            Paragraph("<b>Completed Tasks</b>", bold_body), Paragraph(str(completed_count), body_style)
+        ],
+        [
+            Paragraph("<b>Pending Tasks</b>", bold_body), Paragraph(str(pending_count), body_style),
+            Paragraph("<b>On-Time Rate</b>", bold_body), Paragraph(on_time_str, body_style)
+        ],
+        [
+            Paragraph("<b>Late Completions</b>", bold_body), Paragraph(str(late_count), body_style),
+            Paragraph("<b>Health Score</b>", bold_body), Paragraph(f"{health_score}%", body_style)
+        ],
+        [
+            Paragraph("<b>Allocated Hours</b>", bold_body), Paragraph(f"{allocated_hours} hrs", body_style),
+            Paragraph("<b>Completed Hours</b>", bold_body), Paragraph(f"{completed_allocated_hours} hrs", body_style)
+        ],
+        [
+            Paragraph("<b>Workload Status</b>", bold_body), Paragraph(str(workload_status), body_style),
+            Paragraph("", body_style), Paragraph("", body_style)
+        ]
+    ]
+
+    summary_table = Table(summary_grid, colWidths=[130, 135, 130, 135])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#FFFFFF')),
+        ('PADDING', (0, 0), (-1, -1), 6),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E5E7EB')),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 16))
+
+    # 5. Task Details Table
+    story.append(Paragraph("Member Activity & Task Log", section_heading))
+    
+    if not user_tasks or len(user_tasks) == 0:
+        story.append(Paragraph("<i>No performance task records available for this period.</i>", body_style))
+    else:
+        table_headers = [
+            Paragraph("<b>Task Name</b>", bold_body),
+            Paragraph("<b>Project</b>", bold_body),
+            Paragraph("<b>Status</b>", bold_body),
+            Paragraph("<b>Due Date</b>", bold_body),
+            Paragraph("<b>Completed Date</b>", bold_body)
+        ]
+        task_rows = [table_headers]
+
+        for t in user_tasks[:50]:  # Cap at 50 for clean layout
+            due_str = t.due_date.strftime("%d %b %Y") if t.due_date else "—"
+            completed_str = t.completed_at.strftime("%d %b %Y") if (t.status == 'COMPLETED' and t.completed_at) else "—"
+            project_name = t.project_detail.name if getattr(t, 'project_detail', None) else (t.project.name if getattr(t, 'project', None) else "—")
+            
+            task_rows.append([
+                Paragraph(t.name or "Untitled Task", body_style),
+                Paragraph(project_name, body_style),
+                Paragraph(t.status, bold_body),
+                Paragraph(due_str, small_style),
+                Paragraph(completed_str, small_style)
+            ])
+
+        tasks_table = Table(task_rows, colWidths=[160, 120, 80, 85, 85])
+        tasks_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F3F4F6')),
+            ('PADDING', (0, 0), (-1, -1), 5),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E5E7EB')),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ]))
+        story.append(tasks_table)
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+

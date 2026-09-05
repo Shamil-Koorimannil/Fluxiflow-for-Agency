@@ -6,6 +6,7 @@ from .views import (
     RequestOTPView, VerifyOTPView, MeView, LogoutView, ProfileView,
     TeamListView, TeamDetailView, TeamWorkloadView,
     TeamDeactivateView, TeamReactivateView, TeamResendInvitationView, TeamTasksView,
+    TeamMemberPerformanceReportDownloadView,
     RequestEmailChangeOTPView, VerifyEmailChangeView, PasswordLoginView, GoogleAuthView,
     RequestPasswordChangeOTPView, SetPasswordWithOTPView, OrganizationViewSet
 )
@@ -39,6 +40,7 @@ urlpatterns = [
     path('team/<uuid:pk>/reactivate/', TeamReactivateView.as_view(), name='team_reactivate'),
     path('team/<uuid:pk>/resend/', TeamResendInvitationView.as_view(), name='team_resend'),
     path('team/<uuid:pk>/workload/', TeamWorkloadView.as_view(), name='team_workload'),
+    path('team/<uuid:pk>/performance-report/download/', TeamMemberPerformanceReportDownloadView.as_view(), name='team_member_performance_report_download'),
     path('team/<uuid:pk>/tasks/', TeamTasksView.as_view(), name='team_tasks'),
     
     # Organization router endpoints
