@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../services/api';
 import type { Project } from '../../types';
 import { Folder, Plus, ArrowUpDown, Calendar, MoreVertical, ExternalLink, Copy, Download, Trash2 } from 'lucide-react';
+import { useConfirm } from '../../context/ConfirmDialogContext';
 import { Menu, MenuItem } from '@mui/material';
 import { formatDateOnly } from '../../utils/time';
 import { ProjectMonthPickerModal } from './ProjectMonthPickerModal';
@@ -13,6 +14,7 @@ import { CustomDropdown } from '../../components/common/CustomDropdown';
 import { useOrganization } from '../../context/OrganizationContext';
 
 export const Projects: React.FC = () => {
+  const { confirm, showAlert } = useConfirm();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -170,7 +172,7 @@ export const Projects: React.FC = () => {
       await api.post(`/projects/${projId}/duplicate/`);
       await queryClient.invalidateQueries({ queryKey: ['projects'] });
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to duplicate project.');
+      showAlert({ title: 'Error', message: err.response?.data?.detail || 'Failed to duplicate project.', variant: 'warning' });
     }
   };
 
@@ -189,7 +191,7 @@ export const Projects: React.FC = () => {
       link.click();
       link.remove();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to download project data.');
+      showAlert({ title: 'Error', message: err.response?.data?.detail || 'Failed to download project data.', variant: 'warning' });
     }
   };
 
@@ -197,12 +199,18 @@ export const Projects: React.FC = () => {
     if (!projectMenuState.project) return;
     const proj = projectMenuState.project;
     handleCloseProjectMenu();
-    if (!window.confirm(`Are you sure you want to delete project "${proj.name}"? This action cannot be undone.`)) return;
+    const ok = await confirm({
+      title: 'Delete Project?',
+      message: `Are you sure you want to delete project "${proj.name}"? This action cannot be undone.`,
+      confirmText: 'Delete',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await api.delete(`/projects/${proj.id}/`);
       await queryClient.invalidateQueries({ queryKey: ['projects'] });
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to delete project.');
+      showAlert({ title: 'Error', message: err.response?.data?.detail || 'Failed to delete project.', variant: 'warning' });
     }
   };
 

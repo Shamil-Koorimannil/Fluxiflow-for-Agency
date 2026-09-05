@@ -4,6 +4,7 @@ import { api } from '../../services/api';
 import type { TaskComment } from '../../types';
 import { useAuth } from '../auth/AuthContext';
 import { MessageSquare, Edit2, Trash2, Send, X } from 'lucide-react';
+import { useConfirm } from '../../context/ConfirmDialogContext';
 
 interface CommentsSectionProps {
   taskId: string;
@@ -21,6 +22,7 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
   const { isAdmin } = useOrganization();
+  const { confirm } = useConfirm();
 
   const [newComment, setNewComment] = useState('');
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
@@ -197,8 +199,14 @@ export const CommentsSection: React.FC<CommentsSectionProps> = ({
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          if (window.confirm("Are you sure you want to delete this comment?")) {
+                        onClick={async () => {
+                          const ok = await confirm({
+                            title: 'Delete Comment?',
+                            message: 'Are you sure you want to delete this comment?',
+                            confirmText: 'Delete',
+                            variant: 'danger',
+                          });
+                          if (ok) {
                             deleteCommentMutation.mutate(comment.id);
                           }
                         }}

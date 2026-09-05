@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Edit, Trash2, Tag, RefreshCw, AlertCircle, Check } from 'lucide-react';
+import { useConfirm } from '../../context/ConfirmDialogContext';
 import type { TaskType, OrganizationSettings } from '../../types';
 import { api } from '../../services/api';
 import { useOrganization } from '../../context/OrganizationContext';
 import { TaskTypeModal } from './TaskTypeModal';
 
 export const TaskTypeSettings: React.FC = () => {
+  const { confirm } = useConfirm();
   const [taskTypes, setTaskTypes] = useState<TaskType[]>([]);
   const [settings, setSettings] = useState<OrganizationSettings>({
     enable_task_types: true,
@@ -87,7 +89,13 @@ export const TaskTypeSettings: React.FC = () => {
   };
 
   const handleDeleteTaskType = async (taskType: TaskType) => {
-    if (!confirm(`Are you sure you want to delete Task Type "${taskType.name}"? Existing tasks will retain their snapshotted duration.`)) return;
+    const ok = await confirm({
+      title: 'Delete Task Type?',
+      message: `Are you sure you want to delete Task Type "${taskType.name}"? Existing tasks will retain their snapshotted duration.`,
+      confirmText: 'Delete',
+      variant: 'danger',
+    });
+    if (!ok) return;
     setError(null);
     try {
       await api.delete(`/task-types/${taskType.id}/`);

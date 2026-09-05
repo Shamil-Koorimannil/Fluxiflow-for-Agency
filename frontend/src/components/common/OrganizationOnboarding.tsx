@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { Building2, Plus, Mail, AlertCircle } from 'lucide-react';
+import { useConfirm } from '../../context/ConfirmDialogContext';
 import { useOrganization } from '../../context/OrganizationContext';
 
 export const OrganizationOnboarding: React.FC = () => {
+  const { showAlert } = useConfirm();
   const { createOrganization, refreshOrganizations, errorState } = useOrganization();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newOrgName, setNewOrgName] = useState('');
@@ -62,7 +64,7 @@ export const OrganizationOnboarding: React.FC = () => {
           </button>
 
           <button
-            onClick={() => alert('Please check your email inbox for an invitation link, or contact your Organisation admin.')}
+            onClick={() => showAlert({ title: 'Invitation Info', message: 'Please check your email inbox for an invitation link, or contact your Organisation admin.', variant: 'info' })}
             className="w-full flex items-center justify-center gap-2 py-3 px-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-700 dark:text-zinc-300 font-semibold text-xs hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-all"
           >
             <Mail className="h-4 w-4" /> Accept Invitation

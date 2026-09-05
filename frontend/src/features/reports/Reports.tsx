@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { CircularProgress } from '@mui/material';
 import { ChevronLeft, ChevronRight, Download, Search as SearchIcon, Briefcase, Folder } from 'lucide-react';
+import { useConfirm } from '../../context/ConfirmDialogContext';
 import { api } from '../../services/api';
 import type { Project, Client } from '../../types';
 import { formatDateOnly, formatTimeOnly } from '../../utils/time';
@@ -46,6 +47,7 @@ interface ReportData {
 }
 
 export const Reports: React.FC = () => {
+  const { showAlert } = useConfirm();
   const { isAdmin } = useOrganization();
 
   // Top Level Tab: 'client' vs 'project'
@@ -184,7 +186,7 @@ export const Reports: React.FC = () => {
       link.remove();
       window.URL.revokeObjectURL(downloadUrl);
     } catch (err: any) {
-      alert("Failed to export report.");
+      showAlert({ title: 'Export Failed', message: 'Failed to export report.', variant: 'warning' });
     }
   };
 

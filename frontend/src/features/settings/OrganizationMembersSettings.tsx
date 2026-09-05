@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Mail, UserPlus, Trash2, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
+import { useConfirm } from '../../context/ConfirmDialogContext';
 import type { OrganizationMembership, UserRole } from '../../types';
 import { api } from '../../services/api';
 import { useOrganization } from '../../context/OrganizationContext';
 import { CustomDropdown } from '../../components/common/CustomDropdown';
 
 export const OrganizationMembersSettings: React.FC = () => {
+  const { confirm } = useConfirm();
   const { isOrgAdmin, activeOrganization, refreshOrganizations } = useOrganization();
   const queryClient = useQueryClient();
   const [memberships, setMemberships] = useState<OrganizationMembership[]>([]);
@@ -63,17 +65,23 @@ export const OrganizationMembersSettings: React.FC = () => {
       await refreshOrganizations();
       fetchMembers();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to update member role.');
+      setError(err.response?.data?.detail || 'Failed to update member role.');
     }
   };
 
   const handleRemoveMember = async (userId: string, name: string) => {
-    if (!window.confirm(`Are you sure you want to remove ${name} from this organization?`)) return;
+    const ok = await confirm({
+      title: 'Remove Member?',
+      message: `Are you sure you want to remove ${name} from this organization?`,
+      confirmText: 'Remove',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await api.delete(`/organizations/members/${userId}/`);
       fetchMembers();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to remove member.');
+      setError(err.response?.data?.detail || 'Failed to remove member.');
     }
   };
 

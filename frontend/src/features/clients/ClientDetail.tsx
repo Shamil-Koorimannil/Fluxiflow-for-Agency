@@ -6,6 +6,7 @@ import {
   Filter, MoreVertical, ChevronRight, FolderPlus, Edit2, MoveRight, Eye
 } from 'lucide-react';
 import { Menu, MenuItem } from '@mui/material';
+import { useConfirm } from '../../context/ConfirmDialogContext';
 import type { Client, Project, ClientBrandAsset, ClientBrandAssetFolder } from '../../types';
 import { api } from '../../services/api';
 import { formatDateOnly } from '../../utils/time';
@@ -24,6 +25,7 @@ interface ClientDetailProps {
 }
 
 export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMode }) => {
+  const { confirm, showAlert } = useConfirm();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -212,7 +214,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
       const res = await api.patch<Client>(`/clients/${client.id}/`, { status: newStatus });
       setClient(res.data);
     } catch (err) {
-      alert('Failed to update client status.');
+      showAlert({ title: 'Error', message: 'Failed to update client status.', variant: 'warning' });
     }
   };
 
@@ -220,13 +222,19 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
   const handleRemoveProject = async (project: Project, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!client) return;
-    if (!confirm(`Remove this project from ${client.name}? The project will not be deleted.`)) return;
+    const ok = await confirm({
+      title: 'Remove Project?',
+      message: `Remove this project from ${client.name}? The project will not be deleted.`,
+      confirmText: 'Remove',
+      variant: 'danger',
+    });
+    if (!ok) return;
 
     try {
       await api.delete(`/clients/${client.id}/projects/${project.id}/`);
       fetchClientDetails();
     } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to remove project from client.');
+      showAlert({ title: 'Error', message: err?.response?.data?.detail || 'Failed to remove project from client.', variant: 'warning' });
     }
   };
 
@@ -237,11 +245,21 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
     const hasSubfolders = folders.some((f) => f.parent === folder.id);
 
     if (hasAssets || hasSubfolders) {
-      alert(`Cannot delete folder "${folder.name}": Folder is not empty. Please move or remove all files and subfolders first.`);
+      showAlert({
+        title: 'Cannot Delete Folder',
+        message: `Cannot delete folder "${folder.name}": Folder is not empty. Please move or remove all files and subfolders first.`,
+        variant: 'warning',
+      });
       return;
     }
 
-    if (!confirm(`Are you sure you want to delete folder "${folder.name}"?`)) return;
+    const ok = await confirm({
+      title: 'Delete Folder?',
+      message: `Are you sure you want to delete folder "${folder.name}"?`,
+      confirmText: 'Delete',
+      variant: 'danger',
+    });
+    if (!ok) return;
 
     try {
       await api.delete(`/client-brand-asset-folders/${folder.id}/`);
@@ -250,18 +268,24 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
       }
       fetchClientDetails();
     } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to delete folder.');
+      showAlert({ title: 'Error', message: err?.response?.data?.detail || 'Failed to delete folder.', variant: 'warning' });
     }
   };
 
   const handleDeleteAsset = async (assetId: string, assetName: string) => {
     setAssetMenuState({ anchorEl: null, asset: null });
-    if (!confirm(`Are you sure you want to delete brand asset "${assetName}"?`)) return;
+    const ok = await confirm({
+      title: 'Delete Brand Asset?',
+      message: `Are you sure you want to delete brand asset "${assetName}"?`,
+      confirmText: 'Delete',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await api.delete(`/client-brand-assets/${assetId}/`);
       fetchClientDetails();
     } catch (err) {
-      alert('Failed to delete brand asset.');
+      showAlert({ title: 'Error', message: 'Failed to delete brand asset.', variant: 'warning' });
     }
   };
 
@@ -294,7 +318,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      alert('Failed to download asset.');
+      showAlert({ title: 'Download Failed', message: 'Failed to download asset.', variant: 'warning' });
     }
   };
 

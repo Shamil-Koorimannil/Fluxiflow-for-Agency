@@ -4,6 +4,7 @@ import { api } from '../../services/api';
 import type { TaskAttachment } from '../../types';
 import { useAuth } from '../auth/AuthContext';
 import { Paperclip, Plus, Trash2, Eye, Download, FileText, Image as ImageIcon, Archive, File, X, Loader2 } from 'lucide-react';
+import { useConfirm } from '../../context/ConfirmDialogContext';
 
 interface AttachmentsSectionProps {
   taskId: string;
@@ -21,6 +22,7 @@ export const AttachmentsSection: React.FC<AttachmentsSectionProps> = ({
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
   const { isAdmin } = useOrganization();
+  const { confirm } = useConfirm();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -263,8 +265,14 @@ export const AttachmentsSection: React.FC<AttachmentsSectionProps> = ({
                     <button
                       type="button"
                       disabled={deleteMutation.isPending}
-                      onClick={() => {
-                        if (window.confirm("Are you sure you want to delete this file attachment?")) {
+                      onClick={async () => {
+                        const ok = await confirm({
+                          title: 'Delete Attachment?',
+                          message: 'Are you sure you want to delete this file attachment?',
+                          confirmText: 'Delete',
+                          variant: 'danger',
+                        });
+                        if (ok) {
                           deleteMutation.mutate(attachment.id);
                         }
                       }}

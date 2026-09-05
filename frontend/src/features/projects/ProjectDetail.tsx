@@ -6,6 +6,7 @@ import type { Project, Task } from '../../types';
 import { useAuth } from '../auth/AuthContext';
 import { TaskDetailPanel } from '../tasks/TaskDetailPanel';
 import { TaskFormModal } from '../tasks/TaskFormModal';
+import { useConfirm } from '../../context/ConfirmDialogContext';
 import { ArrowLeft, Plus, Upload, Trash2, CheckSquare, X, Pencil, Download, Loader2, Calendar, Copy } from 'lucide-react';
 import { BulkUploadModal } from './BulkUploadModal';
 import { PasteTasksModal } from '../tasks/PasteTasksModal';
@@ -24,6 +25,7 @@ export const ProjectDetail: React.FC = () => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const { isAdmin } = useOrganization();
+  const { showAlert } = useConfirm();
 
   const [isDeleteProjModalOpen, setIsDeleteProjModalOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -77,7 +79,7 @@ export const ProjectDetail: React.FC = () => {
       link.parentNode?.removeChild(link);
     } catch (err) {
       console.error(err);
-      alert('Failed to generate/download project report. Please try again.');
+      showAlert({ title: 'Download Failed', message: 'Failed to generate/download project report. Please try again.', variant: 'warning' });
     } finally {
       setIsDownloadingReport(false);
     }
@@ -211,11 +213,11 @@ export const ProjectDetail: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
       queryClient.invalidateQueries({ queryKey: ['team'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      alert('Project duplicated successfully.');
+      showAlert({ title: 'Success', message: 'Project duplicated successfully.', variant: 'info' });
       navigate(`/app/projects/${newProj.id}`);
     },
     onError: (err: any) => {
-      alert(err?.response?.data?.detail || 'Failed to duplicate project.');
+      showAlert({ title: 'Error', message: err?.response?.data?.detail || 'Failed to duplicate project.', variant: 'warning' });
     },
   });
 

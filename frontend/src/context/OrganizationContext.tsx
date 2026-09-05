@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { Organization, UserRole } from '../types';
 import { api } from '../services/api';
 import { useAuth } from '../features/auth/AuthContext';
+import { useConfirm } from './ConfirmDialogContext';
 
 interface OrganizationContextType {
   organizations: Organization[];
@@ -21,6 +22,7 @@ interface OrganizationContextType {
 const OrganizationContext = createContext<OrganizationContextType | undefined>(undefined);
 
 export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { showAlert } = useConfirm();
   const queryClient = useQueryClient();
   const { isAuthenticated, isInitializing } = useAuth();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
@@ -85,7 +87,7 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       setActiveRole(response.data.role);
       await fetchOrganizations();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to switch workspace.');
+      showAlert({ title: 'Workspace Switch Error', message: err.response?.data?.detail || 'Failed to switch workspace.', variant: 'warning' });
     } finally {
       setIsLoading(false);
     }
@@ -104,7 +106,7 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       await fetchOrganizations();
       return response.data;
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to create organization.');
+      showAlert({ title: 'Workspace Creation Error', message: err.response?.data?.detail || 'Failed to create organization.', variant: 'warning' });
       throw err;
     } finally {
       setIsLoading(false);

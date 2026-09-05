@@ -15,6 +15,7 @@ import { getLocalDateString, formatDateOnly } from '../../utils/time';
 import { useAuth } from '../auth/AuthContext';
 import { useOrganization } from '../../context/OrganizationContext';
 import { getRoleDisplayLabel } from '../../utils/roleUtils';
+import { useConfirm } from '../../context/ConfirmDialogContext';
 
 interface TeamMemberDetailResponse {
   summary: {
@@ -60,6 +61,7 @@ export const TeamDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { showAlert } = useConfirm();
   const { user: currentUser } = useAuth();
   const { isAdmin } = useOrganization();
 
@@ -115,7 +117,11 @@ export const TeamDetail: React.FC = () => {
       }
       invalidateMemberQueries();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to update task completion status.');
+      showAlert({
+        title: 'Error',
+        message: err.response?.data?.detail || 'Failed to update task completion status.',
+        variant: 'warning',
+      });
     }
   };
 

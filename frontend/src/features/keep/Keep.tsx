@@ -3,6 +3,7 @@ import {
   Search, LayoutGrid, List,
   BookOpen, Users, Clock, Pin, Trash2, Loader2, Download, X, File, Share2
 } from 'lucide-react';
+import { useConfirm } from '../../context/ConfirmDialogContext';
 import type { KeepItem, KeepItemType } from '../../types';
 import { api } from '../../services/api';
 import { KeepBreadcrumbs } from './KeepBreadcrumbs';
@@ -19,6 +20,7 @@ import { CreateFolderModal } from './CreateFolderModal';
 import { RenameKeepItemModal } from './RenameKeepItemModal';
 
 export const Keep: React.FC = () => {
+  const { confirm, showAlert, prompt } = useConfirm();
   const [section, setSection] = useState<'all' | 'shared' | 'recent' | 'pinned' | 'trash'>('all');
   const [currentFolder, setCurrentFolder] = useState<KeepItem | null>(null);
   const [folderPath, setFolderPath] = useState<KeepItem[]>([]);
@@ -235,7 +237,7 @@ export const Keep: React.FC = () => {
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      alert('Failed to download file.');
+      showAlert({ title: 'Download Error', message: 'Failed to download file.', variant: 'warning' });
     }
   };
 
@@ -258,7 +260,13 @@ export const Keep: React.FC = () => {
   };
 
   const handlePermanentDelete = async (item: KeepItem) => {
-    if (!window.confirm(`Are you sure you want to permanently delete '${item.name}'? This action cannot be undone.`)) return;
+    const ok = await confirm({
+      title: 'Delete Permanently?',
+      message: `Are you sure you want to permanently delete '${item.name}'? This action cannot be undone.`,
+      confirmText: 'Delete Permanently',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await api.delete(`/keep/items/${item.id}/permanent_delete/`);
       setItems(prev => prev.filter(i => i.id !== item.id));
@@ -485,8 +493,12 @@ export const Keep: React.FC = () => {
           onRename={(itemToRename) => setRenameModalItem(itemToRename)}
           onTogglePin={handleTogglePin}
           onShare={(itemToShare) => setShareModalItem(itemToShare)}
-          onMove={(itemToMove) => {
-            const targetParent = prompt('Enter destination Folder ID (leave empty for root):');
+          onMove={async (itemToMove) => {
+            const targetParent = await prompt({
+              title: 'Move Item',
+              message: 'Enter destination Folder ID (leave empty for root):',
+              placeholder: 'Folder ID',
+            });
             if (targetParent !== null) {
               api.post(`/keep/items/${itemToMove.id}/move/`, { parent_folder: targetParent || null })
                 .then(fetchKeepItems);
