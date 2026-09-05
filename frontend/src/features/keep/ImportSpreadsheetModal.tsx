@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import ReactDOM from 'react-dom';
-import { Upload, X, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
+import { Upload, X, Table, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
 import type { KeepItem } from '../../types';
 import { api } from '../../services/api';
 
@@ -91,7 +91,7 @@ export const ImportSpreadsheetModal: React.FC<ImportSpreadsheetModalProps> = ({
         {/* Modal Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-800">
           <div className="flex items-center gap-2.5">
-            <FileSpreadsheet className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+            <Table className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
             <h3 className="font-semibold text-lg text-zinc-900 dark:text-zinc-100">
               Upload & Convert Spreadsheet
             </h3>

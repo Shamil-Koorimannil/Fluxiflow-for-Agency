@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import ReactDOM from 'react-dom';
-import { Upload, X, CheckCircle2, AlertTriangle, Loader2, FileSpreadsheet } from 'lucide-react';
+import { Upload, X, CheckCircle2, AlertTriangle, Loader2, Table } from 'lucide-react';
 import type { KeepItem } from '../../types';
 import { api } from '../../services/api';
 
@@ -166,7 +166,7 @@ export const UploadFileModal: React.FC<UploadFileModalProps> = ({
               {isSpreadsheetFile && (
                 <div className="p-3.5 bg-emerald-50/50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 rounded-xl flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
-                    <FileSpreadsheet className="h-5 w-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+                    <Table className="h-5 w-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
                     <div>
                       <div className="font-semibold text-zinc-900 dark:text-zinc-100">
                         Convert to Interactive Spreadsheet
