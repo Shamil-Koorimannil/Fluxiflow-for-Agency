@@ -11,17 +11,28 @@ export const OrganizationOnboarding: React.FC = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setNewOrgName('');
+    setCreateError(null);
+  };
+
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newOrgName.trim()) return;
+    if (isCreating) return;
+    const trimmed = newOrgName.trim();
+    if (!trimmed) {
+      setCreateError('Organisation name is required.');
+      return;
+    }
     setIsCreating(true);
     setCreateError(null);
     try {
-      await createOrganization(newOrgName.trim());
+      await createOrganization(trimmed);
       setNewOrgName('');
       setIsModalOpen(false);
     } catch (err: any) {
-      setCreateError(err.response?.data?.detail || 'Failed to create workspace.');
+      setCreateError(err.message || err.response?.data?.detail || 'Something went wrong while creating the organisation. Please try again.');
     } finally {
       setIsCreating(false);
     }
@@ -107,7 +118,7 @@ export const OrganizationOnboarding: React.FC = () => {
               <div className="flex items-center justify-end gap-2 pt-4">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={handleCloseModal}
                   className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
                   Cancel

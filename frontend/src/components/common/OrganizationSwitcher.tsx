@@ -16,6 +16,7 @@ export const OrganizationSwitcher: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newOrgName, setNewOrgName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -28,6 +29,12 @@ export const OrganizationSwitcher: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setNewOrgName('');
+    setCreateError(null);
+  };
+
   const handleSelectOrg = async (orgId: string) => {
     setIsOpen(false);
     if (activeOrganization?.id !== orgId) {
@@ -37,14 +44,20 @@ export const OrganizationSwitcher: React.FC = () => {
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newOrgName.trim()) return;
+    if (isCreating) return;
+    const trimmed = newOrgName.trim();
+    if (!trimmed) {
+      setCreateError('Organisation name is required.');
+      return;
+    }
     setIsCreating(true);
+    setCreateError(null);
     try {
-      await createOrganization(newOrgName.trim());
+      await createOrganization(trimmed);
       setNewOrgName('');
       setIsModalOpen(false);
-    } catch (err) {
-      // Error handled in context
+    } catch (err: any) {
+      setCreateError(err.message || err.response?.data?.detail || 'Failed to create organisation. Please try again.');
     } finally {
       setIsCreating(false);
     }
@@ -110,7 +123,7 @@ export const OrganizationSwitcher: React.FC = () => {
                 <div className="flex items-center justify-end gap-2 pt-4">
                   <button
                     type="button"
-                    onClick={() => setIsModalOpen(false)}
+                    onClick={handleCloseModal}
                     className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
                   >
                     Cancel
@@ -223,6 +236,12 @@ export const OrganizationSwitcher: React.FC = () => {
               Create a separate, isolated organisation for your team or agency.
             </p>
 
+            {createError && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 rounded-xl text-xs font-medium">
+                {createError}
+              </div>
+            )}
+
             <form onSubmit={handleCreateSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
@@ -241,7 +260,7 @@ export const OrganizationSwitcher: React.FC = () => {
               <div className="flex items-center justify-end gap-2 pt-4">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={handleCloseModal}
                   className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
                   Cancel

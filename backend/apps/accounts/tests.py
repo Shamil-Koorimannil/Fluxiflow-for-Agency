@@ -2213,5 +2213,77 @@ class GoogleAuthTests(APITestCase):
         """M. Cancellation / empty submission does not create an orphan account."""
         count_before = User.objects.count()
         self.client.post('/api/auth/google/', {'token': ''}, format='json')
+        self.assertEqual(User.objects.count(), count_before)
+
+
+class OrganizationCreationPolishTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='polish_user@example.com',
+            password='Password123!',
+            name='Polish User',
+            status='ACTIVE'
+        )
+
+    def test_zero_organization_user_payload(self):
+        """Authenticated user with 0 organizations receives empty list and active_organization=None."""
+        self.client.force_authenticate(user=self.user)
+        res = self.client.get('/api/organizations/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['organizations'], [])
+        self.assertIsNone(res.data['active_organization'])
+
+    def test_one_organization_user(self):
+        """User with 1 organization automatically gets that organization as active_organization."""
+        org = Organization.objects.create(name="Single Org", slug="single-org")
+        Membership.objects.create(organization=org, user=self.user, role='ORG_ADMIN', is_active=True)
+
+        self.client.force_authenticate(user=self.user)
+        res = self.client.get('/api/organizations/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data['organizations']), 1)
+        self.assertEqual(res.data['active_organization']['id'], str(org.id))
+
+    def test_multi_organization_user_creating_second_organization(self):
+        """User MEMBER in Org A creates Org B: Org A remains MEMBER, Org B becomes ORG_ADMIN & active."""
+        creator = User.objects.create_user(email='creator_p@example.com', password='Password123!')
+        org_a = Organization.objects.create(name="Org Alpha", slug="org-alpha")
+        mem_a = Membership.objects.create(organization=org_a, user=self.user, role='MEMBER', is_active=True)
+
+        self.client.force_authenticate(user=self.user)
+
+        # Create Org B
+        res = self.client.post('/api/organizations/', {'name': 'Org Beta'}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        org_b_id = res.data['id']
+
+        # Verify role in Org A is still MEMBER
+        mem_a.refresh_from_db()
+        self.assertEqual(mem_a.role, 'MEMBER')
+
+        # Verify role in Org B is ORG_ADMIN
+        mem_b = Membership.objects.get(organization_id=org_b_id, user=self.user)
+        self.assertEqual(mem_b.role, 'ORG_ADMIN')
+
+        # Verify active organization is Org B
+        orgs_res = self.client.get('/api/organizations/')
+        self.assertEqual(orgs_res.data['active_organization']['id'], org_b_id)
+
+    def test_organization_creation_empty_name_rejected(self):
+        """Whitespace or empty organization name is rejected by backend."""
+        self.client.force_authenticate(user=self.user)
+        res = self.client.post('/api/organizations/', {'name': '   '}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_tenant_isolation(self):
+        """User cannot switch to or access an organization they do not belong to."""
+        other_user = User.objects.create_user(email='other_p@example.com', password='Password123!')
+        unrelated_org = Organization.objects.create(name="Unrelated Org", slug="unrelated-org")
+        Membership.objects.create(organization=unrelated_org, user=other_user, role='ORG_ADMIN', is_active=True)
+
+        self.client.force_authenticate(user=self.user)
+        res = self.client.post('/api/organizations/switch/', {'organization_id': str(unrelated_org.id)}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
 
 
