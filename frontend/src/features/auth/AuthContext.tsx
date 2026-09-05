@@ -11,6 +11,7 @@ interface AuthContextType {
   requestOtp: (email: string, options?: { name?: string; createAccount?: boolean }) => Promise<void>;
   login: (email: string, otp: string, rememberMe?: boolean) => Promise<User>;
   loginWithPassword: (email: string, password: string, rememberMe?: boolean) => Promise<User>;
+  loginWithGoogle: (token: string, rememberMe?: boolean) => Promise<User>;
   logout: () => Promise<void>;
   updateUser: (user: User) => void;
 }
@@ -152,6 +153,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const loginWithGoogle = async (googleToken: string, rememberMe?: boolean): Promise<User> => {
+    try {
+      const response = await api.post('/auth/google/', { token: googleToken, remember_me: rememberMe });
+      const { access, refresh, user: userData } = response.data;
+      setTokens(access, refresh, rememberMe);
+      setUser(userData);
+      localStorage.setItem('userRole', userData.role);
+      return userData;
+    } catch (error) {
+      throw error;
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -162,6 +176,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         requestOtp,
         login,
         loginWithPassword,
+        loginWithGoogle,
         logout,
         updateUser,
       }}

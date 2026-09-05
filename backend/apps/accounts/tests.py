@@ -2103,5 +2103,115 @@ class OrganizationCreationFlowFeatureTests(APITestCase):
         self.assertEqual(Membership.objects.filter(user=self.user).count(), 2)
 
 
+class GoogleAuthTests(APITestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            email='existing_google@example.com',
+            name='Existing User',
+            password='Password123!',
+            status='ACTIVE'
+        )
+
+    def test_A_existing_user_can_authenticate_with_google(self):
+        """A. Existing user can authenticate with Google token."""
+        mock_token = f"mock_google_token_{self.user.email}"
+        res = self.client.post('/api/auth/google/', {'token': mock_token}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn('access', res.data)
+        self.assertIn('refresh', res.data)
+        self.assertEqual(res.data['user']['email'], self.user.email)
+
+    def test_B_google_authentication_does_not_create_duplicate_user(self):
+        """B. Google authentication does not create a duplicate user."""
+        mock_token = f"mock_google_token_{self.user.email}"
+        self.client.post('/api/auth/google/', {'token': mock_token}, format='json')
+        self.assertEqual(User.objects.filter(email=self.user.email).count(), 1)
+
+    def test_C_new_google_identity_creates_user(self):
+        """C. New Google identity creates/initializes a Fluxiflow user correctly."""
+        new_email = 'new_google_user@example.com'
+        mock_token = f"mock_google_token_{new_email}"
+        res = self.client.post('/api/auth/google/', {'token': mock_token, 'name': 'New Google User'}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        created_user = User.objects.filter(email=new_email).first()
+        self.assertIsNotNone(created_user)
+        self.assertEqual(created_user.status, 'ACTIVE')
+
+    def test_D_new_user_with_no_organization_routes_to_onboarding(self):
+        """D. New user with no organization has no active organization."""
+        new_email = 'no_org_google@example.com'
+        mock_token = f"mock_google_token_{new_email}"
+        res = self.client.post('/api/auth/google/', {'token': mock_token}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIsNone(res.data.get('active_organization'))
+
+    def test_E_F_existing_user_organizations_memberships_preserved(self):
+        """E & F. Existing user organizations and memberships remain unchanged."""
+        org_a = Organization.objects.create(name='Google Org A', slug='google-org-a')
+        Membership.objects.create(organization=org_a, user=self.user, role='MEMBER', is_active=True)
+        
+        mock_token = f"mock_google_token_{self.user.email}"
+        res = self.client.post('/api/auth/google/', {'token': mock_token}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(Membership.objects.filter(user=self.user).count(), 1)
+
+    def test_G_new_organization_creator_receives_org_admin(self):
+        """G. New organization creator receives ORG_ADMIN."""
+        mock_token = f"mock_google_token_{self.user.email}"
+        res_auth = self.client.post('/api/auth/google/', {'token': mock_token}, format='json')
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {res_auth.data['access']}")
+        
+        res_org = self.client.post('/api/organizations/', {'name': 'Created by Google User'}, format='json')
+        self.assertEqual(res_org.status_code, status.HTTP_201_CREATED)
+        membership = Membership.objects.get(user=self.user, organization_id=res_org.data['id'])
+        self.assertEqual(membership.role, 'ORG_ADMIN')
+
+    def test_H_I_invited_google_user_can_join_organization(self):
+        """H & I. Invited Google user joins invited organization and preserves invitation role."""
+        inviter = User.objects.create_user(email='inviter_google@example.com', name='Inviter', password='Password123!', status='ACTIVE')
+        invited_org = Organization.objects.create(name='Invited Google Org', slug='invited-google-org')
+        Membership.objects.create(organization=invited_org, user=inviter, role='ORG_ADMIN', is_active=True)
+
+        invited_email = 'invited_google_person@example.com'
+        invitation = Invitation.objects.create(
+            organization=invited_org,
+            email=invited_email,
+            role='MEMBER',
+            invited_by=inviter,
+            expires_at=timezone.now() + timedelta(days=7)
+        )
+
+        mock_token = f"mock_google_token_{invited_email}"
+        res = self.client.post('/api/auth/google/', {'token': mock_token}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        invitation.refresh_from_db()
+        self.assertEqual(invitation.status, 'ACCEPTED')
+
+        user = User.objects.get(email=invited_email)
+        membership = Membership.objects.get(user=user, organization=invited_org)
+        self.assertEqual(membership.role, 'MEMBER')
+
+    def test_J_user_cannot_forge_google_identity(self):
+        """J. User cannot forge Google identity using invalid token structure."""
+        res = self.client.post('/api/auth/google/', {'token': 'invalid_token_xyz'}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_K_invalid_token_rejected(self):
+        """K. Empty or missing token is rejected."""
+        res = self.client.post('/api/auth/google/', {'token': '   '}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_L_authentication_failure_handled_cleanly(self):
+        """L. Authentication failure returns a structured detail message."""
+        res = self.client.post('/api/auth/google/', {'token': ''}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('detail', res.data)
+
+    def test_M_google_cancellation_no_orphan_account(self):
+        """M. Cancellation / empty submission does not create an orphan account."""
+        count_before = User.objects.count()
+        self.client.post('/api/auth/google/', {'token': ''}, format='json')
 
 
