@@ -6,73 +6,74 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
+    --background: 240 7% 97.3%;
     --foreground: 240 10% 3.9%;
-    
+
     --card: 0 0% 100%;
     --card-foreground: 240 10% 3.9%;
-    
+
     --popover: 0 0% 100%;
     --popover-foreground: 240 10% 3.9%;
-    
+
     --primary: 240 5.9% 10%;
     --primary-foreground: 0 0% 98%;
-    
+
     --secondary: 240 4.8% 95.9%;
     --secondary-foreground: 240 5.9% 10%;
-    
+
     --muted: 240 4.8% 95.9%;
     --muted-foreground: 240 3.8% 46.1%;
-    
+
     --accent: 240 4.8% 95.9%;
     --accent-foreground: 240 5.9% 10%;
-    
+
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-    
+
     --border: 240 5.9% 90%;
     --input: 240 5.9% 90%;
     --ring: 240 5% 64.9%;
-    
+
     --radius: 0.5rem;
   }
 
   html.dark {
-    --background: 0 0% 0%;
+    --background: 0 0% 12.9%;
     --foreground: 0 0% 100%;
-    
-    --card: 0 0% 0%;
+
+    --card: 0 0% 13%;
     --card-foreground: 0 0% 100%;
-    
-    --popover: 0 0% 0%;
+
+    --popover: 0 0% 13%;
     --popover-foreground: 0 0% 100%;
-    
+
     --primary: 0 0% 100%;
     --primary-foreground: 0 0% 0%;
-    
-    --secondary: 0 0% 10%;
+
+    --secondary: 0 0% 15%;
     --secondary-foreground: 0 0% 100%;
-    
-    --muted: 0 0% 10%;
+
+    --muted: 0 0% 15%;
     --muted-foreground: 240 3.8% 56.1%;
-    
-    --accent: 0 0% 10%;
+
+    --accent: 0 0% 15%;
     --accent-foreground: 0 0% 100%;
-    
-    --border: 240 5.9% 15%;
-    --input: 240 5.9% 15%;
+
+    --border: 240 5.9% 18%;
+    --input: 240 5.9% 18%;
     --ring: 0 0% 100%;
   }
 }
 
-html, body {
+html,
+body {
   max-width: 100vw;
   overflow-x: hidden;
 }
 
 body {
   font-family: 'Roboto', sans-serif;
-  background-color: #ffffff;
+  background-color: #F7F7F8;
   color: #000000;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -80,7 +81,7 @@ body {
 }
 
 html.dark body {
-  background-color: #000000;
+  background-color: #212121;
   color: #ffffff;
 }
 
@@ -118,13 +119,16 @@ html.dark select option {
   width: 6px;
   height: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
   background: #e4e4e7;
   border-radius: 3px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: #d4d4d8;
 }
@@ -135,6 +139,7 @@ html.dark select option {
     opacity: 0;
     transform: translateY(16px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -146,6 +151,7 @@ html.dark select option {
     opacity: 0;
     transform: translateX(-16px);
   }
+
   to {
     opacity: 1;
     transform: translateX(0);
@@ -156,9 +162,11 @@ html.dark select option {
   0% {
     transform: scale(1);
   }
+
   50% {
     transform: scale(1.25);
   }
+
   100% {
     transform: scale(1);
   }
@@ -168,6 +176,7 @@ html.dark select option {
   from {
     width: 0;
   }
+
   to {
     width: 100%;
   }
@@ -177,6 +186,7 @@ html.dark select option {
   from {
     opacity: 1;
   }
+
   to {
     opacity: 0;
   }

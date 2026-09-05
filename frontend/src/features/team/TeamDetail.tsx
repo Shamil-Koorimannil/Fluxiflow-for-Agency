@@ -16,6 +16,8 @@ import { useAuth } from '../auth/AuthContext';
 import { useOrganization } from '../../context/OrganizationContext';
 import { getRoleDisplayLabel } from '../../utils/roleUtils';
 import { useConfirm } from '../../context/ConfirmDialogContext';
+import { CustomDropdown } from '../../components/common/CustomDropdown';
+import type { DropdownOption } from '../../components/common/CustomDropdown';
 
 interface TeamMemberDetailResponse {
   summary: {
@@ -84,6 +86,26 @@ export const TeamDetail: React.FC = () => {
   const YEARS = useMemo(() => Array.from({ length: 10 }, (_, i) => currentYearVal - 5 + i), [currentYearVal]);
 
   type PeriodType = 'CURRENT_MONTH' | 'SELECT_MONTH' | 'MONTH_RANGE' | 'LAST_3_MONTHS' | 'CUSTOM_RANGE' | 'CURRENT_YEAR' | 'ALL';
+
+  const PERIOD_OPTIONS: DropdownOption<PeriodType>[] = useMemo(() => [
+    { value: 'CURRENT_MONTH', label: 'Current Month' },
+    { value: 'SELECT_MONTH', label: 'Select Month' },
+    { value: 'MONTH_RANGE', label: 'Month Range' },
+    { value: 'LAST_3_MONTHS', label: 'Last 3 Months' },
+    { value: 'CUSTOM_RANGE', label: 'Custom Range' },
+    { value: 'CURRENT_YEAR', label: 'Current Year' },
+    { value: 'ALL', label: 'All Time' },
+  ], []);
+
+  const MONTH_OPTIONS: DropdownOption<number>[] = useMemo(() => MONTH_NAMES.map((m, idx) => ({
+    value: idx + 1,
+    label: m,
+  })), [MONTH_NAMES]);
+
+  const YEAR_OPTIONS: DropdownOption<number>[] = useMemo(() => YEARS.map((y) => ({
+    value: y,
+    label: String(y),
+  })), [YEARS]);
 
   const [periodType, setPeriodType] = useState<PeriodType>('CURRENT_MONTH');
   const [selectMonth, setSelectMonth] = useState<number>(currentMonthVal);
@@ -497,41 +519,28 @@ export const TeamDetail: React.FC = () => {
                 <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider whitespace-nowrap">Period:</span>
                 
                 {/* Main Period Selector */}
-                <select
+                <CustomDropdown<PeriodType>
+                  options={PERIOD_OPTIONS}
                   value={periodType}
-                  onChange={(e) => setPeriodType(e.target.value as PeriodType)}
-                  className="px-3 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-semibold text-zinc-900 dark:text-zinc-100 shadow-sm focus:outline-none focus:border-purple-500 cursor-pointer"
-                >
-                  <option value="CURRENT_MONTH">Current Month</option>
-                  <option value="SELECT_MONTH">Select Month</option>
-                  <option value="MONTH_RANGE">Month Range</option>
-                  <option value="LAST_3_MONTHS">Last 3 Months</option>
-                  <option value="CUSTOM_RANGE">Custom Range</option>
-                  <option value="CURRENT_YEAR">Current Year</option>
-                  <option value="ALL">All Time</option>
-                </select>
+                  onChange={(val) => setPeriodType(val)}
+                  size="sm"
+                />
 
                 {/* Sub-controls for SELECT_MONTH */}
                 {periodType === 'SELECT_MONTH' && (
                   <div className="flex items-center gap-1.5">
-                    <select
+                    <CustomDropdown<number>
+                      options={MONTH_OPTIONS}
                       value={selectMonth}
-                      onChange={(e) => setSelectMonth(Number(e.target.value))}
-                      className="px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-semibold text-zinc-900 dark:text-zinc-100 shadow-sm focus:outline-none focus:border-purple-500 cursor-pointer"
-                    >
-                      {MONTH_NAMES.map((m, idx) => (
-                        <option key={m} value={idx + 1}>{m}</option>
-                      ))}
-                    </select>
-                    <select
+                      onChange={(val) => setSelectMonth(val)}
+                      size="sm"
+                    />
+                    <CustomDropdown<number>
+                      options={YEAR_OPTIONS}
                       value={selectYear}
-                      onChange={(e) => setSelectYear(Number(e.target.value))}
-                      className="px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-semibold text-zinc-900 dark:text-zinc-100 shadow-sm focus:outline-none focus:border-purple-500 cursor-pointer"
-                    >
-                      {YEARS.map((y) => (
-                        <option key={y} value={y}>{y}</option>
-                      ))}
-                    </select>
+                      onChange={(val) => setSelectYear(val)}
+                      size="sm"
+                    />
                   </div>
                 )}
 
@@ -540,46 +549,34 @@ export const TeamDetail: React.FC = () => {
                   <div className="flex flex-wrap items-center gap-2 bg-zinc-50 dark:bg-zinc-950 p-1.5 rounded-2xl border border-zinc-200 dark:border-zinc-800">
                     <div className="flex items-center gap-1">
                       <span className="text-[11px] font-bold text-zinc-400">From:</span>
-                      <select
+                      <CustomDropdown<number>
+                        options={MONTH_OPTIONS}
                         value={startMonth}
-                        onChange={(e) => setStartMonth(Number(e.target.value))}
-                        className="px-2 py-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-semibold text-zinc-900 dark:text-zinc-100 focus:outline-none cursor-pointer"
-                      >
-                        {MONTH_NAMES.map((m, idx) => (
-                          <option key={m} value={idx + 1}>{m}</option>
-                        ))}
-                      </select>
-                      <select
+                        onChange={(val) => setStartMonth(val)}
+                        size="sm"
+                      />
+                      <CustomDropdown<number>
+                        options={YEAR_OPTIONS}
                         value={startYear}
-                        onChange={(e) => setStartYear(Number(e.target.value))}
-                        className="px-2 py-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-semibold text-zinc-900 dark:text-zinc-100 focus:outline-none cursor-pointer"
-                      >
-                        {YEARS.map((y) => (
-                          <option key={y} value={y}>{y}</option>
-                        ))}
-                      </select>
+                        onChange={(val) => setStartYear(val)}
+                        size="sm"
+                      />
                     </div>
 
                     <div className="flex items-center gap-1">
                       <span className="text-[11px] font-bold text-zinc-400">To:</span>
-                      <select
+                      <CustomDropdown<number>
+                        options={MONTH_OPTIONS}
                         value={endMonth}
-                        onChange={(e) => setEndMonth(Number(e.target.value))}
-                        className="px-2 py-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-semibold text-zinc-900 dark:text-zinc-100 focus:outline-none cursor-pointer"
-                      >
-                        {MONTH_NAMES.map((m, idx) => (
-                          <option key={m} value={idx + 1}>{m}</option>
-                        ))}
-                      </select>
-                      <select
+                        onChange={(val) => setEndMonth(val)}
+                        size="sm"
+                      />
+                      <CustomDropdown<number>
+                        options={YEAR_OPTIONS}
                         value={endYear}
-                        onChange={(e) => setEndYear(Number(e.target.value))}
-                        className="px-2 py-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-semibold text-zinc-900 dark:text-zinc-100 focus:outline-none cursor-pointer"
-                      >
-                        {YEARS.map((y) => (
-                          <option key={y} value={y}>{y}</option>
-                        ))}
-                      </select>
+                        onChange={(val) => setEndYear(val)}
+                        size="sm"
+                      />
                     </div>
                   </div>
                 )}
