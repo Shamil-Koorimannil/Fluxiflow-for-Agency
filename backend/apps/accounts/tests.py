@@ -2931,6 +2931,69 @@ class TimezoneTaskClassificationTests(APITestCase):
             self.assertEqual(len(workload['today']), 0)
             self.assertEqual(len(workload['overdue']), 6)
 
+    def test_subtasks_do_not_increase_pending_tasks(self):
+        """
+        Regression Test B — Parent Tasks + SubTasks:
+        Assigned overdue SubTaskAssignee records MUST NOT increase pending_tasks_count.
+        - canonical_pending_count == 6
+        - team_pending == 6
+        - member_summary_pending == 6
+        - len(workload.pending) == 6
+        - pending_subtasks == 2
+        """
+        from datetime import date
+        import zoneinfo
+        from unittest.mock import patch
+        from apps.tasks.models import Task, TaskAssignee, SubTask, SubTaskAssignee
+        from apps.accounts.views import get_canonical_user_pending_tasks, calculate_user_health_metrics
+
+        tz = zoneinfo.ZoneInfo('Asia/Kolkata')
+        frozen_now = datetime.datetime(2026, 9, 7, 2, 20, 0, tzinfo=tz)
+
+        # 6 overdue parent tasks
+        for i in range(6):
+            t = Task.objects.create(
+                organization=self.org_ist, project=self.project_ist,
+                name=f'Parent Task {i+1}', due_date=date(2026, 9, 6),
+                status='PENDING', created_by=self.user_ist
+            )
+            TaskAssignee.objects.create(task=t, user=self.user_ist)
+
+        # 2 overdue subtasks assigned to self.user_ist
+        parent = Task.objects.first()
+        for j in range(2):
+            st = SubTask.objects.create(
+                task=parent, name=f'Subtask {j+1}',
+                due_date=date(2026, 9, 6), status='PENDING'
+            )
+            SubTaskAssignee.objects.create(subtask=st, user=self.user_ist)
+
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.token_str}', HTTP_X_TIMEZONE='Asia/Kolkata')
+
+        with patch('django.utils.timezone.now', return_value=frozen_now.astimezone(datetime.timezone.utc)):
+            # Direct canonical query
+            canonical_pending = get_canonical_user_pending_tasks(self.user_ist, self.org_ist, now=frozen_now)
+            self.assertEqual(canonical_pending.count(), 6)
+
+            # Direct calculate_user_health_metrics query
+            metrics = calculate_user_health_metrics(self.user_ist, organization=self.org_ist, tz=tz)
+            self.assertEqual(metrics['pending_tasks'], 6)
+            self.assertEqual(metrics['pending_subtasks'], 2)
+
+            # Team API endpoint
+            res_team = self.client.get('/api/team/')
+            user_card = next(u for u in res_team.data if u['id'] == str(self.user_ist.id))
+            self.assertEqual(user_card['pending_tasks'], 6)
+
+            # Workload API endpoint
+            res_workload = self.client.get(f'/api/team/{self.user_ist.id}/workload/')
+            summary = res_workload.data['summary']
+            workload = res_workload.data['workload']
+
+            self.assertEqual(summary['pending_tasks'], 6)
+            self.assertEqual(summary['total_pending'], 6)
+            self.assertEqual(len(workload['pending']), 6)
+
     def test_scenario_d_saudi_timezone(self):
         """D. Saudi timezone (Asia/Riyadh, UTC+3) midnight boundary"""
         from datetime import date
