@@ -1028,9 +1028,10 @@ class SubTaskIndependentWorkItemTests(TestCase):
         from apps.accounts.views import calculate_user_health_metrics
         metrics = calculate_user_health_metrics(self.member1)
         
-        self.assertEqual(metrics['pending_tasks'], 2)
-        self.assertEqual(metrics['overdue_tasks'], 2)
-        self.assertEqual(metrics['health_score'], 94)
+        self.assertEqual(metrics["pending_tasks"], 1)
+        self.assertEqual(metrics["pending_subtasks"], 1)
+        self.assertEqual(metrics["overdue_tasks"], 1)
+        self.assertEqual(metrics["health_score"], 94)
 
     def test_reports_compilation_and_export(self):
         # Admin creates subtask assignment
