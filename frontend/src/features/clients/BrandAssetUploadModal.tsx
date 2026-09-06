@@ -146,6 +146,8 @@ export const BrandAssetUploadModal: React.FC<BrandAssetUploadModalProps> = ({
               fullWidth
               value={assetType}
               onChange={(val) => setAssetType(val as AssetType)}
+              searchable={true}
+              searchPlaceholder="Search asset categories..."
               options={ASSET_TYPES.map((t) => ({
                 value: t.value,
                 label: t.label,

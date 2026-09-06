@@ -377,7 +377,7 @@ export const Projects: React.FC = () => {
             <Link
               key={project.id}
               to={`/app/projects/${project.id}`}
-              className="group border border-zinc-200 dark:border-zinc-800 hover:border-black dark:hover:border-white bg-white dark:bg-black rounded-xl p-6 flex flex-col justify-between hover:shadow-sm transition-all duration-200 text-black dark:text-white relative"
+              className="group border border-zinc-200 dark:border-zinc-800 hover:border-black dark:hover:border-white bg-white dark:bg-black rounded-xl p-6 flex flex-col justify-between hover:shadow-md hover:scale-[1.015] transition-all duration-200 ease-out text-black dark:text-white relative focus:outline-none focus:ring-2 focus:ring-blue-500/20"
             >
               <div className="space-y-3">
                 <div className="flex items-start justify-between gap-2">

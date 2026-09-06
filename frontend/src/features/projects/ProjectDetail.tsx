@@ -227,7 +227,7 @@ export const ProjectDetail: React.FC = () => {
 
   if (activeFilter === 'assigned_to_me') {
     filteredTasks = deduplicatedTasks.filter((t) => t.assignees.some((a) => a.id === user?.id));
-  } else if (activeFilter === 'incompleted') {
+  } else if (activeFilter === 'incompleted' || activeFilter === 'pending') {
     filteredTasks = deduplicatedTasks.filter((t) => t.status !== 'COMPLETED');
   } else if (activeFilter !== 'all') {
     filteredTasks = deduplicatedTasks.filter((t) => classifyTask(t) === activeFilter);

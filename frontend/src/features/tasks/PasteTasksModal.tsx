@@ -139,6 +139,8 @@ export const PasteTasksModal: React.FC<PasteTasksModalProps> = ({
               value={selectedProjectId}
               onChange={(val) => setSelectedProjectId(val)}
               placeholder="No Project (Organization level)"
+              searchable={true}
+              searchPlaceholder="Search destination projects..."
               options={[
                 { value: '', label: 'No Project (Organization level)' },
                 ...(projects?.map((proj) => ({

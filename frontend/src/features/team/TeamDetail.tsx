@@ -18,6 +18,7 @@ import { getRoleDisplayLabel } from '../../utils/roleUtils';
 import { useConfirm } from '../../context/ConfirmDialogContext';
 import { CustomDropdown } from '../../components/common/CustomDropdown';
 import type { DropdownOption } from '../../components/common/CustomDropdown';
+import { isTaskPending } from '../../utils/taskClassifier';
 import { DatePicker } from '../../components/common/DatePicker';
 
 interface TeamMemberDetailResponse {
@@ -69,7 +70,7 @@ export const TeamDetail: React.FC = () => {
   const { isAdmin } = useOrganization();
 
   // Task Filter state
-  const [filter, setFilter] = useState<'ALL' | 'INCOMPLETED' | 'COMPLETED' | 'TODAY' | 'UPCOMING' | 'NO_DUE_DATE'>('ALL');
+  const [filter, setFilter] = useState<'ALL' | 'PENDING' | 'INCOMPLETED' | 'COMPLETED' | 'TODAY' | 'UPCOMING' | 'NO_DUE_DATE'>('ALL');
   const [mainView, setMainView] = useState<'work' | 'performance'>('work');
 
   // Selected task modal state
@@ -284,6 +285,10 @@ export const TeamDetail: React.FC = () => {
     return tasks.filter((t) => t.status !== 'COMPLETED');
   }, [tasks]);
 
+  const pendingTasks = useMemo(() => {
+    return tasks.filter((t) => isTaskPending(t));
+  }, [tasks]);
+
   const completedTasks = useMemo(() => {
     return tasks.filter((t) => t.status === 'COMPLETED');
   }, [tasks]);
@@ -303,7 +308,9 @@ export const TeamDetail: React.FC = () => {
   // Filtered Incomplete Tasks sorted by due_date ascending (earliest first, no due date last)
   const filteredIncompleteTasks = useMemo(() => {
     let list = incompleteTasks;
-    if (filter === 'TODAY') {
+    if (filter === 'PENDING') {
+      list = pendingTasks;
+    } else if (filter === 'TODAY') {
       list = list.filter((t) => t.due_date && t.due_date.split('T')[0] === todayStr);
     } else if (filter === 'UPCOMING') {
       list = list.filter((t) => t.due_date && t.due_date.split('T')[0] > todayStr);
@@ -311,7 +318,7 @@ export const TeamDetail: React.FC = () => {
       list = list.filter((t) => !t.due_date);
     }
     return sortTasksByDueDate(list);
-  }, [incompleteTasks, filter, todayStr]);
+  }, [incompleteTasks, pendingTasks, filter, todayStr]);
 
   const sortedCompletedTasks = useMemo(() => {
     return sortTasksByDueDate(completedTasks);
@@ -709,6 +716,7 @@ export const TeamDetail: React.FC = () => {
             <div className="flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar w-full">
               {[
                 { key: 'ALL', label: `All Tasks (${tasks.length})` },
+                { key: 'PENDING', label: `Pending (${pendingTasks.length})` },
                 { key: 'INCOMPLETED', label: `Incomplete (${incompleteTasks.length})` },
                 { key: 'COMPLETED', label: `Completed (${completedTasks.length})` },
                 { key: 'TODAY', label: 'Today' },

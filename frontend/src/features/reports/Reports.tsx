@@ -383,6 +383,8 @@ export const Reports: React.FC = () => {
             label="Client"
             value={selectedClientId}
             onChange={(val) => setSelectedClientId(val)}
+            searchable={true}
+            searchPlaceholder="Search clients..."
             options={[
               { value: 'all', label: 'All Clients' },
               ...(clients || []).map((c) => ({ value: c.id, label: c.name })),
@@ -395,6 +397,8 @@ export const Reports: React.FC = () => {
             label="Project"
             value={selectedProjectId}
             onChange={(val) => setSelectedProjectId(val)}
+            searchable={true}
+            searchPlaceholder="Search projects..."
             options={[
               { value: 'all', label: 'All Projects' },
               ...(projects || []).map((p) => ({ value: p.id, label: p.name })),

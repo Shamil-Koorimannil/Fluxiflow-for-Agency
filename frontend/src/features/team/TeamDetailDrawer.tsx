@@ -4,7 +4,7 @@ import { api } from '../../services/api';
 import type { Task, TeamWorkload } from '../../types';
 import { TaskDetailPanel } from '../tasks/TaskDetailPanel';
 import { TaskFormModal } from '../tasks/TaskFormModal';
-import { classifyTask } from '../../utils/taskClassifier';
+import { classifyTask, isTaskPending } from '../../utils/taskClassifier';
 import { PasteTasksModal } from '../tasks/PasteTasksModal';
 import { TaskCard } from '../tasks/TaskCard';
 import { useTaskDragSelect } from '../../hooks/useTaskDragSelect';
@@ -124,6 +124,9 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
     }
     if (activeFilter === 'incompleted') {
       return deduplicated.filter((task) => task.status !== 'COMPLETED');
+    }
+    if (activeFilter === 'pending') {
+      return deduplicated.filter((task) => isTaskPending(task));
     }
     return deduplicated.filter((task) => classifyTask(task) === activeFilter);
   }, [allTasksRaw, activeFilter]);

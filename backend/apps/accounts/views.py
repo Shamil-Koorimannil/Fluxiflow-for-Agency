@@ -62,16 +62,24 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None, organiza
         assignments = TaskAssignee.objects.filter(user=user).select_related('task')
         subtask_assignments = SubTaskAssignee.objects.filter(user=user).select_related('subtask', 'subtask__task')
     
+    # pyrefly: ignore [missing-import]
+    from apps.tasks.helpers import get_task_due_datetime
+    now = timezone.now()
+
     # 1. Operational Task Counts (Current state - independent of historical reporting period)
-    pending_tasks_count = 0  # status != COMPLETED and due_date < today
+    pending_tasks_count = 0  # status != COMPLETED and due_date and due_datetime < now
+    overdue_tasks_count = 0  # status != COMPLETED and due_date and due_datetime < now
     today_tasks_count = 0    # due_date == today (both completed & incomplete)
     today_incomplete_count = 0
     tomorrow_tasks_count = 0 # due_date == tomorrow (both completed & incomplete)
 
     for a in assignments:
         t = a.task
-        if t.status != 'COMPLETED' and t.due_date and t.due_date < today_date:
-            pending_tasks_count += 1
+        if t.status != 'COMPLETED' and t.due_date:
+            due_dt = get_task_due_datetime(t.due_date, t.due_time)
+            if due_dt < now:
+                pending_tasks_count += 1
+                overdue_tasks_count += 1
         if t.due_date == today_date:
             today_tasks_count += 1
             if t.status != 'COMPLETED':
@@ -81,8 +89,11 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None, organiza
 
     for sa in subtask_assignments:
         st = sa.subtask
-        if st.status != 'COMPLETED' and st.due_date and st.due_date < today_date:
-            pending_tasks_count += 1
+        if st.status != 'COMPLETED' and st.due_date:
+            due_dt = get_task_due_datetime(st.due_date, st.due_time)
+            if due_dt < now:
+                pending_tasks_count += 1
+                overdue_tasks_count += 1
         if st.due_date == today_date:
             today_tasks_count += 1
             if st.status != 'COMPLETED':
@@ -122,15 +133,15 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None, organiza
     if total_completed_tasks > 0:
         on_time_completion_rate = on_time_completed_tasks / total_completed_tasks
     else:
-        # Default to 1.0 unless they have a critical number of pending tasks (threshold of 7)
-        if pending_tasks_count >= 7:
+        # Default to 1.0 unless they have a critical number of overdue tasks (threshold of 7)
+        if overdue_tasks_count >= 7:
             on_time_completion_rate = 0.0
         else:
             on_time_completion_rate = 1.0
         
     historical_score = 70.0 * on_time_completion_rate
     
-    pending_penalty = pending_tasks_count * 10
+    pending_penalty = overdue_tasks_count * 10
     today_pending_penalty = today_incomplete_count * 3
     late_completion_penalty = late_completed_tasks_in_last_30_days * 2
     
@@ -238,7 +249,7 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None, organiza
         "pending_tasks": pending_tasks_count,
         "today_tasks": today_tasks_count,
         "tomorrow_tasks": tomorrow_tasks_count,
-        "overdue_tasks": pending_tasks_count,
+        "overdue_tasks": overdue_tasks_count,
         "completed_this_week": completed_this_week,
         "completed_this_month": period_completed_count,
         "on_time_completion_rate": period_on_time_completion_rate,
@@ -1074,7 +1085,16 @@ class TeamWorkloadView(views.APIView):
         completed_tasks = user_tasks.filter(status='COMPLETED').order_by('-completed_at')
         incomplete_tasks = user_tasks.exclude(status='COMPLETED')
 
-        pending_tasks = incomplete_tasks.filter(due_date__lt=today)
+        now = timezone.now()
+        from apps.tasks.helpers import get_task_due_datetime
+
+        pending_ids = []
+        for t in incomplete_tasks.filter(due_date__isnull=False):
+            if get_task_due_datetime(t.due_date, t.due_time) < now:
+                pending_ids.append(t.id)
+
+        pending_tasks = user_tasks.filter(id__in=pending_ids)
+        overdue_tasks = pending_tasks
         today_tasks = user_tasks.filter(due_date=today)
         tomorrow_tasks = user_tasks.filter(due_date=tomorrow)
         upcoming_tasks = incomplete_tasks.filter(due_date__gt=tomorrow)
@@ -1123,7 +1143,7 @@ class TeamWorkloadView(views.APIView):
                 "completed_this_month": metrics["completed_this_month"],
                 "health_score": metrics["health_score"],
                 "health_status": metrics["health_status"],
-                "overdue_tasks": metrics["pending_tasks"],
+                "overdue_tasks": metrics["overdue_tasks"],
                 "on_time_completion_rate": metrics["on_time_completion_rate"],
                 "late_completions": metrics["late_completions"]
             },
@@ -1135,7 +1155,7 @@ class TeamWorkloadView(views.APIView):
                 "upcoming": TaskSerializer(upcoming_tasks, many=True, context=context).data,
                 "no_due_date": TaskSerializer(no_due_date_tasks, many=True, context=context).data,
                 "completed": TaskSerializer(completed_tasks, many=True, context=context).data,
-                "overdue": TaskSerializer(pending_tasks, many=True, context=context).data,
+                "overdue": TaskSerializer(overdue_tasks, many=True, context=context).data,
             },
             "tasks": TaskSerializer(user_tasks, many=True, context=context).data
         })

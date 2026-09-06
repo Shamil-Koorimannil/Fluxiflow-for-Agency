@@ -2536,6 +2536,196 @@ class TeamMemberPerformanceReportDownloadTests(APITestCase):
         self.assertIn('performance-report-member-one-alpha-september-2026.pdf', disposition)
 
 
+class PendingCountAccuracyTests(APITestCase):
+    def setUp(self):
+        from apps.accounts.models import Organization, Membership, Profile
+        from apps.clients.models import Client
+        from apps.projects.models import Project
+        from apps.tasks.models import Task, TaskAssignee, TaskType
+        from datetime import time as dt_time
+
+        self.orgA = Organization.objects.create(name='Org A')
+        self.orgB = Organization.objects.create(name='Org B')
+
+        self.userA = User.objects.create_user(
+            email='usera@example.com',
+            name='User A',
+            password='password123',
+            role='MEMBER',
+            status='ACTIVE'
+        )
+        Profile.objects.create(user=self.userA)
+        Membership.objects.create(organization=self.orgA, user=self.userA)
+
+        self.userB = User.objects.create_user(
+            email='userb@example.com',
+            name='User B',
+            password='password123',
+            role='MEMBER',
+            status='ACTIVE'
+        )
+        Profile.objects.create(user=self.userB)
+        Membership.objects.create(organization=self.orgA, user=self.userB)
+
+        self.userOrgB = User.objects.create_user(
+            email='userorgb@example.com',
+            name='User Org B',
+            password='password123',
+            role='MEMBER',
+            status='ACTIVE'
+        )
+        Profile.objects.create(user=self.userOrgB)
+        self.userA.active_organization = self.orgA
+        self.userA.save()
+        self.userB.active_organization = self.orgA
+        self.userB.save()
+        self.userOrgB.active_organization = self.orgB
+        self.userOrgB.save()
+
+        self.clientA = Client.objects.create(organization=self.orgA, name='Client A')
+        self.projectA = Project.objects.create(organization=self.orgA, client=self.clientA, name='Project A', created_by=self.userA)
+
+        self.clientB = Client.objects.create(organization=self.orgB, name='Client B')
+        self.projectB = Project.objects.create(organization=self.orgB, client=self.clientB, name='Project B', created_by=self.userOrgB)
+
+        self.task_type = TaskType.objects.create(organization=self.orgA, name='General')
+
+        token = RefreshToken.for_user(self.userA)
+        self.userA_token = str(token.access_token)
+
+    def test_section_18_all_eleven_pending_scenarios(self):
+        """
+        Verify all 11 explicit test cases from Section 18 of Definitive Pending specification:
+        1. [x] incomplete + past due → Pending
+        2. [x] incomplete + future due → NOT Pending
+        3. [x] incomplete + tomorrow → NOT Pending
+        4. [x] incomplete + today but not yet due → NOT Pending
+        5. [x] incomplete + today and already due → Pending
+        6. [x] incomplete + no due date → NOT Pending
+        7. [x] completed + past due → NOT Pending
+        8. [x] completed + no due date → NOT Pending
+        9. [x] In Progress + past due → Pending
+        10. [x] In Progress + future → NOT Pending
+        11. [x] In Progress + no due date → NOT Pending
+        """
+        from apps.tasks.models import Task, TaskAssignee
+        from datetime import time as dt_time
+
+        now = timezone.now()
+        today = now.date()
+        past_date = today - timedelta(days=2)
+        future_date = today + timedelta(days=5)
+        tomorrow_date = today + timedelta(days=1)
+
+        # 1. incomplete + past due -> Pending (YES)
+        t1 = Task.objects.create(organization=self.orgA, project=self.projectA, task_type=self.task_type, created_by=self.userA, name='Task 1 Incomplete Past Due', due_date=past_date, status='PENDING')
+        TaskAssignee.objects.create(task=t1, user=self.userA)
+
+        # 2. incomplete + future due -> NOT Pending (NO)
+        t2 = Task.objects.create(organization=self.orgA, project=self.projectA, task_type=self.task_type, created_by=self.userA, name='Task 2 Incomplete Future', due_date=future_date, status='PENDING')
+        TaskAssignee.objects.create(task=t2, user=self.userA)
+
+        # 3. incomplete + tomorrow -> NOT Pending (NO)
+        t3 = Task.objects.create(organization=self.orgA, project=self.projectA, task_type=self.task_type, created_by=self.userA, name='Task 3 Incomplete Tomorrow', due_date=tomorrow_date, status='PENDING')
+        TaskAssignee.objects.create(task=t3, user=self.userA)
+
+        # 4. incomplete + today but not yet due -> NOT Pending (NO)
+        # Due at 23:59:59 today
+        t4 = Task.objects.create(organization=self.orgA, project=self.projectA, task_type=self.task_type, created_by=self.userA, name='Task 4 Today Not Yet Due', due_date=today, due_time=dt_time(23, 59, 59), status='PENDING')
+        TaskAssignee.objects.create(task=t4, user=self.userA)
+
+        # 5. incomplete + today and already due -> Pending (YES)
+        # Due at 00:00:01 today (assuming tests don't run at exactly midnight)
+        t5 = Task.objects.create(organization=self.orgA, project=self.projectA, task_type=self.task_type, created_by=self.userA, name='Task 5 Today Already Due', due_date=today, due_time=dt_time(0, 0, 1), status='PENDING')
+        TaskAssignee.objects.create(task=t5, user=self.userA)
+
+        # 6. incomplete + no due date -> NOT Pending (NO)
+        t6 = Task.objects.create(organization=self.orgA, project=self.projectA, task_type=self.task_type, created_by=self.userA, name='Task 6 No Due Date', due_date=None, status='PENDING')
+        TaskAssignee.objects.create(task=t6, user=self.userA)
+
+        # 7. completed + past due -> NOT Pending (NO)
+        t7 = Task.objects.create(organization=self.orgA, project=self.projectA, task_type=self.task_type, created_by=self.userA, name='Task 7 Completed Past Due', due_date=past_date, status='COMPLETED')
+        TaskAssignee.objects.create(task=t7, user=self.userA)
+
+        # 8. completed + no due date -> NOT Pending (NO)
+        t8 = Task.objects.create(organization=self.orgA, project=self.projectA, task_type=self.task_type, created_by=self.userA, name='Task 8 Completed No Due Date', due_date=None, status='COMPLETED')
+        TaskAssignee.objects.create(task=t8, user=self.userA)
+
+        # 9. In Progress + past due -> Pending (YES)
+        t9 = Task.objects.create(organization=self.orgA, project=self.projectA, task_type=self.task_type, created_by=self.userA, name='Task 9 In Progress Past Due', due_date=past_date, status='IN_PROGRESS')
+        TaskAssignee.objects.create(task=t9, user=self.userA)
+
+        # 10. In Progress + future -> NOT Pending (NO)
+        t10 = Task.objects.create(organization=self.orgA, project=self.projectA, task_type=self.task_type, created_by=self.userA, name='Task 10 In Progress Future', due_date=future_date, status='IN_PROGRESS')
+        TaskAssignee.objects.create(task=t10, user=self.userA)
+
+        # 11. In Progress + no due date -> NOT Pending (NO)
+        t11 = Task.objects.create(organization=self.orgA, project=self.projectA, task_type=self.task_type, created_by=self.userA, name='Task 11 In Progress No Due Date', due_date=None, status='IN_PROGRESS')
+        TaskAssignee.objects.create(task=t11, user=self.userA)
+
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.userA_token}')
+        
+        # Test workload summary endpoint
+        res_workload = self.client.get(f'/api/team/{self.userA.id}/workload/')
+        self.assertEqual(res_workload.status_code, status.HTTP_200_OK)
+        # Qualified pending tasks: t1, t5, t9 -> Total 3
+        self.assertEqual(res_workload.data['summary']['pending_tasks'], 3)
+        self.assertEqual(res_workload.data['summary']['total_pending'], 3)
+        self.assertEqual(len(res_workload.data['workload']['pending']), 3)
+        
+        pending_ids = {t['id'] for t in res_workload.data['workload']['pending']}
+        expected_ids = {str(t1.id), str(t5.id), str(t9.id)}
+        self.assertEqual(pending_ids, expected_ids)
+
+        # Test member detail endpoint returns HTTP 200 OK
+        res_member = self.client.get(f'/api/team/{self.userA.id}/')
+        self.assertEqual(res_member.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_member.data['id'], str(self.userA.id))
+
+    def test_timezone_and_exact_time_boundary(self):
+        """Verify task becomes pending exact minute due date/time passes in local timezone."""
+        from apps.tasks.models import Task, TaskAssignee
+        from datetime import time as dt_time
+
+        now = timezone.now()
+        today = now.date()
+
+        # Task due earlier today
+        past_time = (now - timedelta(minutes=5)).time()
+        future_time = (now + timedelta(minutes=30)).time()
+
+        t_past = Task.objects.create(
+            organization=self.orgA, project=self.projectA, task_type=self.task_type, created_by=self.userA,
+            name='Due 5 mins ago', due_date=today, due_time=past_time, status='PENDING'
+        )
+        TaskAssignee.objects.create(task=t_past, user=self.userA)
+
+        t_future = Task.objects.create(
+            organization=self.orgA, project=self.projectA, task_type=self.task_type, created_by=self.userA,
+            name='Due in 30 mins', due_date=today, due_time=future_time, status='PENDING'
+        )
+        TaskAssignee.objects.create(task=t_future, user=self.userA)
+
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.userA_token}')
+        res = self.client.get(f'/api/team/{self.userA.id}/workload/')
+        self.assertEqual(res.data['summary']['pending_tasks'], 1)
+        self.assertEqual(res.data['workload']['pending'][0]['id'], str(t_past.id))
+
+    def test_org_isolation_for_pending_tasks(self):
+        """Tasks from another organization must never be counted as Pending."""
+        from apps.tasks.models import Task, TaskAssignee, TaskType
+        ttB = TaskType.objects.create(organization=self.orgB, name='General B')
+        past_date = timezone.now().date() - timedelta(days=2)
+        t1 = Task.objects.create(organization=self.orgB, project=self.projectB, task_type=ttB, created_by=self.userOrgB, name='Org B Past Due Task', due_date=past_date, status='PENDING')
+        TaskAssignee.objects.create(task=t1, user=self.userA)
+        
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.userA_token}')
+        res = self.client.get(f'/api/team/{self.userA.id}/workload/')
+        self.assertEqual(res.data['summary']['pending_tasks'], 0)
+
+
+
+
 
 
 

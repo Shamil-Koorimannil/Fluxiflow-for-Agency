@@ -14,7 +14,7 @@ export const ClientCard: React.FC<ClientCardProps> = ({ client }) => {
   return (
     <div
       onClick={() => navigate(`/app/clients/${client.id}`)}
-      className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 shadow-sm hover:shadow transition-shadow duration-150 cursor-pointer flex flex-col justify-between"
+      className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 shadow-sm hover:shadow-md hover:scale-[1.015] transition-all duration-200 ease-out cursor-pointer flex flex-col justify-between focus:outline-none focus:ring-2 focus:ring-blue-500/20"
     >
       <div>
         {/* Name & Active/Inactive Status Badge */}

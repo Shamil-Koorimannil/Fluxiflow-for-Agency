@@ -16,28 +16,47 @@ export function getTaskDates(task: Task): string[] {
   return [];
 }
 
-export function classifyTask(task: Task): TaskCategory {
+export function getTaskDueDateTime(task: Task): Date | null {
+  if (!task.due_date) return null;
+  const datePart = task.due_date.split('T')[0];
+  if (task.due_time) {
+    const timePart = task.due_time.length === 5 ? `${task.due_time}:00` : task.due_time;
+    return new Date(`${datePart}T${timePart}`);
+  }
+  // Date-only due date: end of local day (23:59:59)
+  return new Date(`${datePart}T23:59:59`);
+}
+
+export function isTaskPending(task: Task, now: Date = new Date()): boolean {
+  if (task.status === 'COMPLETED') return false;
+  const dueDt = getTaskDueDateTime(task);
+  if (!dueDt) return false;
+  return dueDt < now;
+}
+
+export function classifyTask(task: Task, now: Date = new Date()): TaskCategory {
   if (task.status === 'COMPLETED') {
     return 'completed';
   }
 
-  const dates = getTaskDates(task);
-  if (dates.length === 0) {
+  if (!task.due_date) {
     return 'no_due_date';
   }
 
-  const today = getLocalDateString(new Date());
-  const tomorrowDate = new Date();
-  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-  const tomorrow = getLocalDateString(tomorrowDate);
+  const dueDt = getTaskDueDateTime(task);
+  if (dueDt && dueDt < now) {
+    return 'pending';
+  }
 
-  if (dates.includes(today)) return 'today';
-  if (dates.includes(tomorrow)) return 'tomorrow';
+  const datePart = task.due_date.split('T')[0];
+  const todayStr = getLocalDateString(now);
+  const tomorrowObj = new Date(now);
+  tomorrowObj.setDate(tomorrowObj.getDate() + 1);
+  const tomorrowStr = getLocalDateString(tomorrowObj);
 
-  // If any date is in the future, it is upcoming
-  const hasFutureDate = dates.some((d) => d > today);
-  if (hasFutureDate) return 'upcoming';
+  if (datePart === todayStr) return 'today';
+  if (datePart === tomorrowStr) return 'tomorrow';
+  if (datePart > todayStr) return 'upcoming';
 
-  // If assigned dates have passed and task is incomplete, it is pending
   return 'pending';
 }

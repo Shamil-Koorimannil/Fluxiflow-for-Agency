@@ -7,7 +7,7 @@ import { useAuth } from '../auth/AuthContext';
 import { TaskDetailPanel } from './TaskDetailPanel';
 import { TaskFormModal } from './TaskFormModal';
 import { Plus, CheckSquare, AlertCircle } from 'lucide-react';
-import { classifyTask } from '../../utils/taskClassifier';
+import { classifyTask, isTaskPending } from '../../utils/taskClassifier';
 import { getLocalDateString } from '../../utils/time';
 import { PasteTasksModal } from './PasteTasksModal';
 import { TaskCard } from './TaskCard';
@@ -180,6 +180,8 @@ export const Tasks: React.FC = () => {
     filteredTasks = deduplicatedTasks.filter((t) => t.status === 'COMPLETED' && t.submission_status === 'LATE');
   } else if (activeFilter === 'incompleted') {
     filteredTasks = deduplicatedTasks.filter((t) => t.status !== 'COMPLETED');
+  } else if (activeFilter === 'pending') {
+    filteredTasks = deduplicatedTasks.filter((t) => isTaskPending(t));
   } else if (activeFilter === 'upcoming') {
     const tomorrowDate = new Date();
     tomorrowDate.setDate(tomorrowDate.getDate() + 1);

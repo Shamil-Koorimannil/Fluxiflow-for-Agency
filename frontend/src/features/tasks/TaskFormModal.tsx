@@ -257,6 +257,8 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 value={selectedTaskTypeId || ''}
                 onChange={(val) => setSelectedTaskTypeId(val || null)}
                 placeholder="No Task Type"
+                searchable={true}
+                searchPlaceholder="Search task types..."
                 icon={<Tag className="h-3.5 w-3.5 text-blue-500" />}
                 options={[
                   { value: '', label: 'No Task Type' },
@@ -320,6 +322,8 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
               value={projectId}
               onChange={(val) => setProjectId(val)}
               placeholder="Select Project *"
+              searchable={true}
+              searchPlaceholder="Search projects..."
               options={[
                 ...(projects?.map((p) => ({
                   value: p.id,
@@ -353,11 +357,14 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 value={selectedAssigneeIds[0] || ''}
                 onChange={(val) => setSelectedAssigneeIds(val ? [val] : [])}
                 placeholder="Unassigned"
+                searchable={true}
+                searchPlaceholder="Search members by name or email..."
                 options={[
                   { value: '', label: 'Unassigned' },
                   ...(teamMembers?.map((m) => ({
                     value: m.id,
                     label: m.name,
+                    description: m.email,
                   })) || []),
                 ]}
               />

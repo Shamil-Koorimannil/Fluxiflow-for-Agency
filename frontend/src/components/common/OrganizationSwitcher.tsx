@@ -150,7 +150,11 @@ export const OrganizationSwitcher: React.FC = () => {
       <button
         onClick={() => setIsOpen(!isOpen)}
         disabled={isLoading}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-850 text-zinc-900 dark:text-zinc-100 transition-colors shadow-sm text-xs font-semibold whitespace-nowrap shrink-0"
+        className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border ${
+          isOpen
+            ? 'border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800/90 shadow-sm'
+            : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-zinc-100/80 dark:hover:bg-zinc-800/80 hover:border-zinc-300 dark:hover:border-zinc-700'
+        } text-zinc-900 dark:text-zinc-100 transition-all duration-200 shadow-xs hover:shadow-sm text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer`}
       >
         <div className="h-5 w-5 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-[10px] shrink-0">
           {activeOrganization?.logo_url ? (
@@ -164,7 +168,7 @@ export const OrganizationSwitcher: React.FC = () => {
           {activeOrganization?.effective_name || activeOrganization?.display_name || activeOrganization?.name || 'Select Workspace'}
         </span>
 
-        <ChevronDown className={`h-3.5 w-3.5 text-zinc-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`h-3.5 w-3.5 text-zinc-400 transition-transform duration-200 ${isOpen ? 'rotate-180 text-zinc-700 dark:text-zinc-200' : ''}`} />
       </button>
 
       {/* Dropdown Menu */}

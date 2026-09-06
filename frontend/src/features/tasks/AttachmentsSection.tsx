@@ -186,14 +186,14 @@ export const AttachmentsSection: React.FC<AttachmentsSectionProps> = ({
             type="button"
             disabled={uploadMutation.isPending}
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-zinc-100 dark:bg-zinc-850 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-black dark:text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-100 dark:hover:bg-zinc-200 border border-zinc-200 dark:border-zinc-300 text-black dark:text-black font-bold text-xs rounded-lg transition-colors disabled:opacity-50 shadow-xs"
           >
             {uploadMutation.isPending ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-black shrink-0" />
             ) : (
-              <Plus className="h-3.5 w-3.5" />
+              <Plus className="h-3.5 w-3.5 text-black shrink-0" />
             )}
-            <span>Attach File</span>
+            <span className="text-black font-bold">Attach File</span>
           </button>
         </div>
       </div>

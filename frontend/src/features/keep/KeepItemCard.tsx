@@ -92,7 +92,7 @@ export const KeepItemCard: React.FC<KeepItemCardProps> = ({
       <div
         onClick={() => onOpen(item)}
         onContextMenu={(e) => onContextMenu(e, item)}
-        className="flex items-center justify-between px-4 py-3 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800/70 border border-zinc-200 dark:border-zinc-800 rounded-xl transition-all cursor-pointer group"
+        className="flex items-center justify-between px-4 py-3 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800/70 border border-zinc-200 dark:border-zinc-800 rounded-xl hover:scale-[1.015] hover:shadow-sm transition-all duration-200 ease-out cursor-pointer group"
       >
         <div className="flex items-center gap-3.5 min-w-0">
           {getItemIcon()}
@@ -136,7 +136,7 @@ export const KeepItemCard: React.FC<KeepItemCardProps> = ({
     <div
       onClick={() => onOpen(item)}
       onContextMenu={(e) => onContextMenu(e, item)}
-      className="flex flex-col justify-between p-4 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800/70 border border-zinc-200 dark:border-zinc-800 rounded-2xl transition-all cursor-pointer group shadow-sm hover:shadow-md h-40 relative"
+      className="flex flex-col justify-between p-4 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800/70 border border-zinc-200 dark:border-zinc-800 rounded-2xl hover:scale-[1.015] hover:shadow-md transition-all duration-200 ease-out cursor-pointer group shadow-sm h-40 relative"
     >
       {/* Top Card Bar */}
       <div className="flex items-start justify-between">

@@ -140,6 +140,8 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
                 value={selectedClientId}
                 onChange={(val) => setSelectedClientId(val)}
                 placeholder="No Client (Internal Agency Project)"
+                searchable={true}
+                searchPlaceholder="Search clients by name or company..."
                 options={[
                   { value: '', label: 'No Client (Internal Agency Project)' },
                   ...clients.map((c) => ({

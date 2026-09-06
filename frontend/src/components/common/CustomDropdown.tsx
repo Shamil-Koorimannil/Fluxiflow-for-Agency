@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { ChevronDown, Check } from 'lucide-react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { ChevronDown, Check, Search, X } from 'lucide-react';
 
 export interface DropdownOption<T extends string | number = string> {
   value: T;
@@ -25,6 +25,8 @@ export interface CustomDropdownProps<T extends string | number = string> {
   align?: 'left' | 'right';
   error?: boolean;
   minWidth?: string;
+  searchable?: boolean;
+  searchPlaceholder?: string;
 }
 
 export function CustomDropdown<T extends string | number = string>({
@@ -43,12 +45,26 @@ export function CustomDropdown<T extends string | number = string>({
   align = 'left',
   error = false,
   minWidth,
+  searchable = false,
+  searchPlaceholder = 'Search...',
 }: CustomDropdownProps<T>) {
   const [isOpen, setIsOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState<number>(-1);
+  const [searchQuery, setSearchQuery] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const selectedOption = options.find((opt) => opt.value === value);
+
+  const filteredOptions = useMemo(() => {
+    if (!searchable || !searchQuery.trim()) return options;
+    const q = searchQuery.toLowerCase().trim();
+    return options.filter(
+      (opt) =>
+        opt.label.toLowerCase().includes(q) ||
+        (opt.description && opt.description.toLowerCase().includes(q))
+    );
+  }, [options, searchable, searchQuery]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent | TouchEvent) => {
@@ -63,14 +79,14 @@ export function CustomDropdown<T extends string | number = string>({
         setIsOpen(false);
       } else if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setFocusedIndex((prev) => (prev < options.length - 1 ? prev + 1 : 0));
+        setFocusedIndex((prev) => (prev < filteredOptions.length - 1 ? prev + 1 : 0));
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setFocusedIndex((prev) => (prev > 0 ? prev - 1 : options.length - 1));
-      } else if (e.key === 'Enter' || e.key === ' ') {
+        setFocusedIndex((prev) => (prev > 0 ? prev - 1 : filteredOptions.length - 1));
+      } else if (e.key === 'Enter') {
         e.preventDefault();
-        if (focusedIndex >= 0 && focusedIndex < options.length) {
-          const opt = options[focusedIndex];
+        if (focusedIndex >= 0 && focusedIndex < filteredOptions.length) {
+          const opt = filteredOptions[focusedIndex];
           if (!opt.disabled) {
             onChange(opt.value);
             setIsOpen(false);
@@ -89,14 +105,19 @@ export function CustomDropdown<T extends string | number = string>({
       document.removeEventListener('touchstart', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen, focusedIndex, options, onChange]);
+  }, [isOpen, focusedIndex, filteredOptions, onChange]);
 
   useEffect(() => {
     if (isOpen) {
-      const idx = options.findIndex((opt) => opt.value === value);
+      const idx = filteredOptions.findIndex((opt) => opt.value === value);
       setFocusedIndex(idx >= 0 ? idx : 0);
+      if (searchable) {
+        setTimeout(() => searchInputRef.current?.focus(), 50);
+      }
+    } else {
+      setSearchQuery('');
     }
-  }, [isOpen, options, value]);
+  }, [isOpen, searchable]);
 
   const sizeClasses = {
     sm: 'px-2.5 py-1 text-xs h-8 rounded-lg',
@@ -141,53 +162,90 @@ export function CustomDropdown<T extends string | number = string>({
       {/* Dropdown Menu Popup */}
       {isOpen && (
         <div
-          className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} top-full mt-1.5 min-w-[180px] max-w-[calc(100vw-2rem)] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 overflow-hidden max-h-60 overflow-y-auto`}
+          className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} top-full mt-1.5 min-w-[200px] max-w-[calc(100vw-2rem)] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xl z-50 animate-in fade-in zoom-in-95 duration-100 overflow-hidden`}
           style={minWidth ? { minWidth } : undefined}
         >
-          {options.length === 0 ? (
-            <div className="px-3.5 py-2 text-xs font-medium text-zinc-400 dark:text-zinc-500 italic">
-              No options available
-            </div>
-          ) : (
-            options.map((option, index) => {
-              const isSelected = option.value === value;
-              const isFocused = index === focusedIndex;
-              return (
-                <button
-                  key={String(option.value)}
-                  type="button"
-                  disabled={option.disabled}
-                  onClick={() => {
-                    onChange(option.value);
-                    setIsOpen(false);
+          {searchable && (
+            <div className="p-2 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-950/70 sticky top-0 z-10">
+              <div className="relative flex items-center">
+                <Search className="h-3.5 w-3.5 text-zinc-400 absolute left-2.5 pointer-events-none shrink-0" />
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder={searchPlaceholder}
+                  className="w-full pl-8 pr-7 py-1.5 text-xs bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:border-zinc-400 dark:focus:border-zinc-600 transition-colors"
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setIsOpen(false);
+                    }
                   }}
-                  onMouseEnter={() => setFocusedIndex(index)}
-                  className={`w-full flex items-center justify-between px-3.5 py-2 text-xs font-semibold text-left transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
-                    isSelected
-                      ? 'bg-zinc-100 dark:bg-zinc-800 text-black dark:text-white font-bold'
-                      : isFocused
-                      ? 'bg-zinc-50 dark:bg-zinc-800/60 text-black dark:text-white'
-                      : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 hover:text-black dark:hover:text-white'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 truncate">
-                    {option.icon && <span className="shrink-0">{option.icon}</span>}
-                    <div className="truncate">
-                      <span>{option.label}</span>
-                      {option.description && (
-                        <p className="text-[10px] font-normal text-zinc-400 dark:text-zinc-500 truncate">
-                          {option.description}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  {isSelected && (
-                    <Check className="h-4 w-4 text-black dark:text-white shrink-0 ml-2" />
-                  )}
-                </button>
-              );
-            })
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSearchQuery('');
+                      searchInputRef.current?.focus();
+                    }}
+                    className="absolute right-2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-0.5 rounded cursor-pointer"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            </div>
           )}
+
+          <div className="max-h-60 overflow-y-auto py-1.5">
+            {filteredOptions.length === 0 ? (
+              <div className="px-3.5 py-3 text-xs font-medium text-zinc-400 dark:text-zinc-500 italic text-center">
+                No matching results
+              </div>
+            ) : (
+              filteredOptions.map((option, index) => {
+                const isSelected = option.value === value;
+                const isFocused = index === focusedIndex;
+                return (
+                  <button
+                    key={String(option.value)}
+                    type="button"
+                    disabled={option.disabled}
+                    onClick={() => {
+                      onChange(option.value);
+                      setIsOpen(false);
+                    }}
+                    onMouseEnter={() => setFocusedIndex(index)}
+                    className={`w-full flex items-center justify-between px-3.5 py-2 text-xs font-semibold text-left transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                      isSelected
+                        ? 'bg-zinc-100 dark:bg-zinc-800 text-black dark:text-white font-bold'
+                        : isFocused
+                        ? 'bg-zinc-50 dark:bg-zinc-800/60 text-black dark:text-white'
+                        : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 hover:text-black dark:hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 truncate">
+                      {option.icon && <span className="shrink-0">{option.icon}</span>}
+                      <div className="truncate">
+                        <span>{option.label}</span>
+                        {option.description && (
+                          <p className="text-[10px] font-normal text-zinc-400 dark:text-zinc-500 truncate">
+                            {option.description}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    {isSelected && (
+                      <Check className="h-4 w-4 text-black dark:text-white shrink-0 ml-2" />
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
         </div>
       )}
     </div>
