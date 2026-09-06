@@ -15,6 +15,7 @@ import { TaskContextMenu } from './TaskContextMenu';
 import { useTaskDragSelect } from '../../hooks/useTaskDragSelect';
 
 import { useOrganization } from '../../context/OrganizationContext';
+import { useConfirm } from '../../context/ConfirmDialogContext';
 
 type FilterType = 'all' | 'incompleted' | 'pending' | 'today' | 'tomorrow' | 'upcoming' | 'no_due_date' | 'completed' | 'late';
 
@@ -22,6 +23,7 @@ export const Tasks: React.FC = () => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { isAdmin } = useOrganization();
+  const { confirm, showAlert } = useConfirm();
 
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTaskIdParam = searchParams.get('task');
@@ -209,9 +211,57 @@ export const Tasks: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       queryClient.invalidateQueries({ queryKey: ['project'] });
+      queryClient.invalidateQueries({ queryKey: ['me'] });
       dragSelect.clearSelection();
     },
   });
+
+  const handleDeleteSelected = async () => {
+    const ids = dragSelect.selectedTaskIds;
+    if (ids.length === 0) return;
+    const count = ids.length;
+    const isConfirmed = await confirm({
+      title: 'Confirm Delete',
+      message: count === 1 ? 'Are you sure you want to delete this task?' : `Are you sure you want to delete these ${count} tasks?`,
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'danger',
+    });
+
+    if (!isConfirmed) return;
+
+    try {
+      await bulkDeleteMutation.mutateAsync(ids);
+    } catch (err: any) {
+      showAlert({
+        title: 'Delete Failed',
+        message: err.response?.data?.detail || 'Failed to delete selected task(s).',
+        variant: 'warning',
+      });
+    }
+  };
+
+  const handleSetStatusSelected = async (targetTask: Task, nextStatus: 'IN_PROGRESS' | 'PENDING') => {
+    try {
+      await api.patch(`/tasks/${targetTask.id}/`, { status: nextStatus });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
+      queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
+      queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
+      queryClient.invalidateQueries({ queryKey: ['team'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
+      queryClient.invalidateQueries({ queryKey: ['me'] });
+      queryClient.invalidateQueries({ queryKey: ['search'] });
+    } catch (err: any) {
+      showAlert({
+        title: 'Update Failed',
+        message: err.response?.data?.detail || 'Failed to update task status.',
+        variant: 'warning',
+      });
+    }
+  };
 
 
   const completedList: Task[] = [];
@@ -614,8 +664,9 @@ export const Tasks: React.FC = () => {
             setTaskToEdit(taskToEditTarget);
             setIsFormModalOpen(true);
           }}
-          onDelete={() => bulkDeleteMutation.mutate(dragSelect.selectedTaskIds)}
+          onDelete={handleDeleteSelected}
           onToggleComplete={handleToggleCompleteSelected}
+          onSetStatus={handleSetStatusSelected}
           onSelectAll={() => dragSelect.selectAll()}
           onClearSelection={dragSelect.clearSelection}
         />

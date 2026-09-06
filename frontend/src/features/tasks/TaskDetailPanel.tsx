@@ -15,6 +15,7 @@ import { TaskTypeBadge } from './TaskTypeBadge';
 import { TaskDatePicker } from './TaskDatePicker';
 import { useOrganization } from '../../context/OrganizationContext';
 import { useConfirm } from '../../context/ConfirmDialogContext';
+import { CustomDropdown } from '../../components/common/CustomDropdown';
 
 interface TaskDetailPanelProps {
   taskId: string | null;
@@ -319,16 +320,38 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                       {task.priority} Priority
                     </span>
                   )}
-                  {task.overall_status && (
-                    <span className={`inline-block text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${
-                      task.overall_status === 'COMPLETED'
-                        ? 'bg-green-100 dark:bg-green-950/40 text-green-800 dark:text-green-300'
-                        : task.overall_status === 'IN_PROGRESS'
-                        ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300'
-                        : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500'
-                    }`}>
-                      {task.overall_status === 'IN_PROGRESS' ? 'In Progress' : task.overall_status}
+                  {(task.status === 'IN_PROGRESS' || task.overall_status === 'IN_PROGRESS') && (
+                    <span className="inline-block text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300">
+                      In Progress
                     </span>
+                  )}
+
+                  {!task.task_type && !task.task_type_detail && (
+                    <div className="inline-block shrink-0">
+                      <CustomDropdown
+                        size="sm"
+                        value={task.status === 'IN_PROGRESS' ? 'IN_PROGRESS' : 'PENDING'}
+                        onChange={async (val) => {
+                          const nextStatus = val === 'IN_PROGRESS' ? 'IN_PROGRESS' : 'PENDING';
+                          await api.patch(`/tasks/${task.id}/`, { status: nextStatus });
+                          queryClient.invalidateQueries({ queryKey: ['task', taskId] });
+                          queryClient.invalidateQueries({ queryKey: ['tasks'] });
+                          queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
+                          queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
+                          queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
+                          queryClient.invalidateQueries({ queryKey: ['team'] });
+                          queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+                          queryClient.invalidateQueries({ queryKey: ['projects'] });
+                          queryClient.invalidateQueries({ queryKey: ['project'] });
+                          queryClient.invalidateQueries({ queryKey: ['me'] });
+                          queryClient.invalidateQueries({ queryKey: ['search'] });
+                        }}
+                        options={[
+                          { value: 'PENDING', label: 'To do' },
+                          { value: 'IN_PROGRESS', label: 'In Progress' },
+                        ]}
+                      />
+                    </div>
                   )}
                 </div>
               </div>
@@ -339,6 +362,15 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                 onTimerChange={() => {
                   queryClient.invalidateQueries({ queryKey: ['task', taskId] });
                   queryClient.invalidateQueries({ queryKey: ['tasks'] });
+                  queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
+                  queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
+                  queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
+                  queryClient.invalidateQueries({ queryKey: ['team'] });
+                  queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+                  queryClient.invalidateQueries({ queryKey: ['projects'] });
+                  queryClient.invalidateQueries({ queryKey: ['project'] });
+                  queryClient.invalidateQueries({ queryKey: ['me'] });
+                  queryClient.invalidateQueries({ queryKey: ['search'] });
                 }}
               />
 
@@ -900,7 +932,7 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
         {/* Drawer Action Buttons Footer */}
         {task && !isLoading && (
           <div className="p-6 border-t border-zinc-100 dark:border-zinc-850 bg-zinc-50/50 dark:bg-black flex gap-3">
-            {task.status === 'PENDING' ? (
+            {task.status !== 'COMPLETED' ? (
               <button
                 type="button"
                 disabled={!canComplete || completeTaskMutation.isPending}

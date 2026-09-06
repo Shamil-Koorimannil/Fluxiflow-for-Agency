@@ -435,9 +435,9 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
             </button>
             <button
               onClick={() => setIsAddExistingModalOpen(true)}
-              className="px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 text-xs font-semibold rounded-xl"
+              className="px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 text-xs font-semibold rounded-xl whitespace-nowrap"
             >
-              Add Existing Project
+              Link Project
             </button>
           </div>
         </div>
@@ -874,10 +874,10 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
             </button>
             <button
               onClick={() => setIsAddExistingModalOpen(true)}
-              className="flex items-center justify-center gap-1.5 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-semibold rounded-xl transition-colors shadow-sm flex-1 sm:flex-none"
+              className="flex items-center justify-center gap-1.5 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-semibold rounded-xl transition-colors shadow-sm flex-1 sm:flex-none whitespace-nowrap"
             >
               <Link2 className="h-3.5 w-3.5" />
-              <span>Add Existing Project</span>
+              <span>Link Project</span>
             </button>
           </div>
         </div>
@@ -1098,29 +1098,31 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
       </div>
 
       {/* Tabs Navigation */}
-      <div className="flex items-center gap-2 mb-6 border-b border-zinc-200 dark:border-zinc-800 pb-2 overflow-x-auto no-scrollbar max-w-full">
+      <div className="w-full min-w-0 flex items-center gap-2 mb-6 border-b border-zinc-200 dark:border-zinc-800 pb-2 overflow-x-auto no-scrollbar max-w-full p-1">
         <button
+          type="button"
           onClick={() => setSearchParams({ tab: 'projects' })}
-          className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-colors whitespace-nowrap shrink-0 w-auto ${
+          className={`flex items-center gap-2 px-3 sm:px-4 py-2 text-xs font-bold rounded-xl transition-colors whitespace-nowrap shrink-0 flex-none min-h-[38px] cursor-pointer ${
             activeTab === 'projects'
               ? 'bg-black dark:bg-white text-white dark:text-black shadow-sm'
               : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800'
           }`}
         >
-          <Folder className="h-4 w-4" />
-          <span>Projects ({projects.length})</span>
+          <Folder className="h-4 w-4 shrink-0" />
+          <span className="whitespace-nowrap">Projects ({projects.length})</span>
         </button>
 
         <button
+          type="button"
           onClick={() => setSearchParams({ tab: 'assets' })}
-          className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-colors whitespace-nowrap shrink-0 w-auto ${
+          className={`flex items-center gap-2 px-3 sm:px-4 py-2 text-xs font-bold rounded-xl transition-colors whitespace-nowrap shrink-0 flex-none min-h-[38px] cursor-pointer ${
             activeTab === 'assets'
               ? 'bg-black dark:bg-white text-white dark:text-black shadow-sm'
               : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800'
           }`}
         >
-          <FileText className="h-4 w-4" />
-          <span>Brand Assets ({brandAssets.length})</span>
+          <FileText className="h-4 w-4 shrink-0" />
+          <span className="whitespace-nowrap">Brand Assets ({brandAssets.length})</span>
         </button>
       </div>
 
@@ -1134,17 +1136,17 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
             <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               <button
                 onClick={() => setIsProjectModalOpen(true)}
-                className="flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-colors shadow-sm flex-1 sm:flex-none"
+                className="flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-colors shadow-sm flex-1 sm:flex-none whitespace-nowrap"
               >
                 <Plus className="h-3.5 w-3.5" />
                 <span>Add Project</span>
               </button>
               <button
                 onClick={() => setIsAddExistingModalOpen(true)}
-                className="flex items-center justify-center gap-1.5 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-semibold rounded-xl transition-colors shadow-sm flex-1 sm:flex-none"
+                className="flex items-center justify-center gap-1.5 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-semibold rounded-xl transition-colors shadow-sm flex-1 sm:flex-none whitespace-nowrap"
               >
                 <Link2 className="h-3.5 w-3.5" />
-                <span>Add Existing Project</span>
+                <span>Link Project</span>
               </button>
             </div>
           </div>

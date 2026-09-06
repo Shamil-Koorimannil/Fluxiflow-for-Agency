@@ -112,13 +112,6 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
     enabled: isOpen,
   });
 
-  const handleAssigneeToggle = (userId: string) => {
-    if (selectedAssigneeIds.includes(userId)) {
-      setSelectedAssigneeIds(selectedAssigneeIds.filter((id) => id !== userId));
-    } else {
-      setSelectedAssigneeIds([...selectedAssigneeIds, userId]);
-    }
-  };
 
   const selectedTypeObj = taskTypes?.find(t => t.id === selectedTaskTypeId);
 
@@ -184,6 +177,10 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
       setError('Task Name is required.');
       return;
     }
+    if (!projectId) {
+      setError('Project is required.');
+      return;
+    }
 
     const payload: any = {
       name: name.trim(),
@@ -191,7 +188,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
       priority,
       description: description || null,
       assignee_ids: selectedAssigneeIds,
-      project: projectId || null,
+      project: projectId,
       task_type: selectedTaskTypeId || null,
     };
 
@@ -317,14 +314,13 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
 
           <div className="space-y-1">
             <CustomDropdown
-              label="Project"
+              label="Project *"
               fullWidth
               disabled={submitMutation.isPending || !!projectIdProp}
               value={projectId}
               onChange={(val) => setProjectId(val)}
-              placeholder="No Project"
+              placeholder="Select Project *"
               options={[
-                { value: '', label: 'No Project' },
                 ...(projects?.map((p) => ({
                   value: p.id,
                   label: p.name,
@@ -350,31 +346,21 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">
-                Assignees
-              </label>
-              <div className="max-h-28 overflow-y-auto border border-zinc-200 dark:border-zinc-800 rounded-xl p-2 bg-white dark:bg-zinc-950 space-y-1 text-xs">
-                {teamMembers?.map((m) => {
-                  const isChecked = selectedAssigneeIds.includes(m.id);
-                  return (
-                    <div
-                      key={m.id}
-                      onClick={() => handleAssigneeToggle(m.id)}
-                      className={`flex items-center gap-2 px-2 py-1 rounded-lg cursor-pointer transition-colors ${
-                        isChecked ? 'bg-zinc-100 dark:bg-zinc-800 text-black dark:text-white font-semibold' : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => {}}
-                        className="rounded border-zinc-300 dark:border-zinc-700 text-black dark:text-white focus:ring-0"
-                      />
-                      <span className="truncate">{m.name}</span>
-                    </div>
-                  );
-                })}
-              </div>
+              <CustomDropdown
+                label="Assignee"
+                fullWidth
+                disabled={submitMutation.isPending}
+                value={selectedAssigneeIds[0] || ''}
+                onChange={(val) => setSelectedAssigneeIds(val ? [val] : [])}
+                placeholder="Unassigned"
+                options={[
+                  { value: '', label: 'Unassigned' },
+                  ...(teamMembers?.map((m) => ({
+                    value: m.id,
+                    label: m.name,
+                  })) || []),
+                ]}
+              />
             </div>
           </div>
 

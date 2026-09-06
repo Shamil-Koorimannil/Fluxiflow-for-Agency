@@ -145,7 +145,7 @@ export const OrganizationSwitcher: React.FC = () => {
   }
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className="relative z-50" ref={dropdownRef}>
       {/* Switcher Trigger Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
@@ -169,7 +169,7 @@ export const OrganizationSwitcher: React.FC = () => {
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-64 max-w-[calc(100vw-2rem)] rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xl z-50 p-2 space-y-1">
+        <div className="absolute right-0 mt-2 w-64 max-w-[calc(100vw-2rem)] rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xl z-[9999] p-2 space-y-1">
           <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800">
             <p className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">Current Workspace</p>
             <div className="flex items-center justify-between mt-1">

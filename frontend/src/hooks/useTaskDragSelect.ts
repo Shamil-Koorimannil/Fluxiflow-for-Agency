@@ -103,7 +103,7 @@ export function useTaskDragSelect({
         document.body.style.userSelect = 'none';
         (document.body.style as any).webkitUserSelect = 'none';
         selectTask(taskId);
-      } else if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+      } else {
         clearLongPressTimer();
         longPressTimerRef.current = setTimeout(() => {
           selectTask(taskId);
@@ -120,10 +120,6 @@ export function useTaskDragSelect({
             }
           }
         }, longPressThresholdMs);
-      } else if (e.pointerType === 'mouse') {
-        isDraggingRef.current = true;
-        document.body.style.userSelect = 'none';
-        (document.body.style as any).webkitUserSelect = 'none';
       }
     },
     [selectedTaskIds.length, selectTask, clearLongPressTimer, longPressThresholdMs]

@@ -8,6 +8,7 @@ import { SpreadsheetTabs } from './SpreadsheetTabs';
 import { ShareModal } from './ShareModal';
 import { VersionHistoryModal } from './VersionHistoryModal';
 import { api } from '../../services/api';
+import { useConfirm } from '../../context/ConfirmDialogContext';
 
 interface SpreadsheetEditorProps {
   item: KeepItem;
@@ -22,6 +23,7 @@ export const SpreadsheetEditor: React.FC<SpreadsheetEditorProps> = ({
   onBack,
   onItemUpdated
 }) => {
+  const { confirm } = useConfirm();
   const [title, setTitle] = useState(item.name);
   const [version, setVersion] = useState(item.version);
 
@@ -125,6 +127,16 @@ export const SpreadsheetEditor: React.FC<SpreadsheetEditorProps> = ({
   };
 
   const handleExport = async (format: 'xlsx' | 'csv') => {
+    const formatName = format === 'xlsx' ? 'XLSX' : 'CSV';
+    const isConfirmed = await confirm({
+      title: 'Confirm Export',
+      message: `Are you sure you want to export this spreadsheet as ${formatName}?`,
+      confirmText: 'Export',
+      cancelText: 'Cancel',
+      variant: 'info' as const
+    });
+    if (!isConfirmed) return;
+
     try {
       const query = format === 'csv' ? `export_format=csv&sheet_id=${activeSheetId}` : `export_format=xlsx`;
       const response = await api.get(`/keep/items/${item.id}/export/?${query}`, {
@@ -274,7 +286,7 @@ export const SpreadsheetEditor: React.FC<SpreadsheetEditorProps> = ({
         isOpen={isHistoryOpen}
         item={item}
         onClose={() => setIsHistoryOpen(false)}
-        onVersionRestored={(updated) => {
+        onVersionRestored={(updated: KeepItem) => {
           setVersion(updated.version);
           if (updated.spreadsheet_data) {
             setSpreadsheetData(updated.spreadsheet_data);

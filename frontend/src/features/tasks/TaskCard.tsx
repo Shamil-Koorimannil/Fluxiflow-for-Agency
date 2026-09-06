@@ -258,15 +258,9 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                 Subtask
               </span>
             )}
-            {task.overall_status && (
-              <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider whitespace-nowrap ${
-                task.overall_status === 'COMPLETED'
-                  ? 'bg-green-100 dark:bg-green-950/40 text-green-800 dark:text-green-300'
-                  : task.overall_status === 'IN_PROGRESS'
-                  ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300'
-                  : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-550'
-              }`}>
-                {task.overall_status === 'IN_PROGRESS' ? 'In Progress' : task.overall_status}
+            {(task.status === 'IN_PROGRESS' || task.overall_status === 'IN_PROGRESS') && (
+              <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider whitespace-nowrap bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300">
+                In Progress
               </span>
             )}
           </div>

@@ -643,12 +643,9 @@ export const Team: React.FC = () => {
           }}
         >
           <Box component="span" sx={{ display: { xs: 'none', md: 'inline' } }}>Add Member</Box>
-          <Box component="span" sx={{ display: { xs: 'inline', md: 'none' } }}>Member</Box>
+          <Box component="span" sx={{ display: { xs: 'inline', md: 'none' } }}>Add</Box>
         </Button>
       </Box>
-
-
-
 
       {/* Active vs Deactivated Tab Selection */}
       <Box sx={{ display: 'flex', gap: 1.5, borderBottom: '1px solid', borderColor: 'divider', pb: 2, overflowX: 'auto', whiteSpace: 'nowrap', maxWidth: '100%', WebkitOverflowScrolling: 'touch' }}>
@@ -672,8 +669,9 @@ export const Team: React.FC = () => {
             border: '1px solid',
             borderColor: activeTab === 'active' ? 'text.primary' : 'divider',
             '&:hover': {
-              bgcolor: activeTab === 'active' ? 'text.secondary' : 'action.hover',
-              borderColor: activeTab === 'active' ? 'text.secondary' : 'divider',
+              bgcolor: activeTab === 'active' ? 'text.primary' : 'action.hover',
+              borderColor: activeTab === 'active' ? 'text.primary' : 'divider',
+              color: activeTab === 'active' ? 'background.paper' : 'text.primary',
             }
           }}
         >
@@ -699,8 +697,9 @@ export const Team: React.FC = () => {
             border: '1px solid',
             borderColor: activeTab === 'deactivated' ? 'text.primary' : 'divider',
             '&:hover': {
-              bgcolor: activeTab === 'deactivated' ? 'text.secondary' : 'action.hover',
-              borderColor: activeTab === 'deactivated' ? 'text.secondary' : 'divider',
+              bgcolor: activeTab === 'deactivated' ? 'text.primary' : 'action.hover',
+              borderColor: activeTab === 'deactivated' ? 'text.primary' : 'divider',
+              color: activeTab === 'deactivated' ? 'background.paper' : 'text.primary',
             }
           }}
         >

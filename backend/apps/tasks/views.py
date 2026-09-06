@@ -291,28 +291,43 @@ class TaskViewSet(viewsets.ModelViewSet):
         if not isinstance(task_ids, list) or not task_ids:
             return Response({"detail": "No task IDs provided for bulk deletion."}, status=status.HTTP_400_BAD_REQUEST)
         
+        real_task_ids = []
+        real_subtask_ids = []
+        for tid in task_ids:
+            s_tid = str(tid)
+            if s_tid.startswith('subtask_'):
+                real_subtask_ids.append(s_tid.replace('subtask_', ''))
+            else:
+                real_task_ids.append(s_tid)
+
         from apps.accounts.tenant_context import get_active_organization
-        from django.db.models import Q
         from django.db import transaction
 
-        active_org = get_active_organization(request.user)
+        active_org = get_active_organization(request.user, request=request)
         if not active_org:
             return Response({"detail": "Active organization not found."}, status=status.HTTP_400_BAD_REQUEST)
 
-        org_filter = Q(organization=active_org)
-        tasks_qs = Task.objects.filter(org_filter, id__in=task_ids)
-        found_ids = set(str(tid) for tid in tasks_qs.values_list('id', flat=True))
-        
-        if len(found_ids) != len(set(str(tid) for tid in task_ids)):
+        tasks_qs = Task.objects.filter(organization=active_org, id__in=real_task_ids)
+        subtasks_qs = SubTask.objects.filter(task__organization=active_org, id__in=real_subtask_ids)
+
+        found_task_ids = set(str(t.id) for t in tasks_qs)
+        found_subtask_ids = set(str(st.id) for st in subtasks_qs)
+
+        expected_count = len(set(real_task_ids)) + len(set(real_subtask_ids))
+        actual_count = len(found_task_ids) + len(found_subtask_ids)
+
+        if actual_count != expected_count:
             return Response(
                 {"detail": "One or more selected tasks do not exist or belong to another organization."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
         task_list = list(tasks_qs)
-        count = len(task_list)
+        subtask_list = list(subtasks_qs)
+        total_count = len(task_list) + len(subtask_list)
 
         with transaction.atomic():
+            subtasks_qs.delete()
             tasks_qs.delete()
             for t in task_list:
                 ActivityLog.objects.create(
@@ -324,10 +339,13 @@ class TaskViewSet(viewsets.ModelViewSet):
                     description=f"{request.user.name} bulk deleted task '{t.name}'."
                 )
 
+        count = total_count
+        found_ids = list(found_task_ids.union(set(f"subtask_{sid}" for sid in found_subtask_ids)))
+
         return Response({
             "detail": f"Successfully deleted {count} task(s).",
             "deleted_count": count,
-            "deleted_ids": list(found_ids)
+            "deleted_ids": found_ids
         }, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['POST'])
@@ -570,7 +588,8 @@ class TaskViewSet(viewsets.ModelViewSet):
         if task.timer_status != 'RUNNING':
             task.timer_status = 'RUNNING'
             task.timer_started_at = timezone.now()
-            task.save(update_fields=['timer_status', 'timer_started_at'])
+            task.status = 'IN_PROGRESS'
+            task.save(update_fields=['timer_status', 'timer_started_at', 'status'])
 
         task.refresh_from_db()
         return Response(self.get_serializer(task).data)
@@ -618,7 +637,9 @@ class TaskViewSet(viewsets.ModelViewSet):
         task.elapsed_seconds = 0
         task.timer_started_at = None
         task.timer_status = 'NOT_STARTED'
-        task.save(update_fields=['elapsed_seconds', 'timer_started_at', 'timer_status'])
+        if task.status != 'COMPLETED':
+            task.status = 'PENDING'
+        task.save(update_fields=['elapsed_seconds', 'timer_started_at', 'timer_status', 'status'])
 
         task.refresh_from_db()
         return Response(self.get_serializer(task).data)

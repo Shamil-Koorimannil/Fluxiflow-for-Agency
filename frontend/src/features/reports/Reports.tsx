@@ -47,7 +47,7 @@ interface ReportData {
 }
 
 export const Reports: React.FC = () => {
-  const { showAlert } = useConfirm();
+  const { confirm, showAlert } = useConfirm();
   const { isAdmin } = useOrganization();
 
   // Top Level Tab: 'client' vs 'project'
@@ -156,6 +156,22 @@ export const Reports: React.FC = () => {
 
   const handleExport = async (format: 'excel' | 'csv' | 'pdf') => {
     setIsExportDropdownOpen(false);
+
+    const formatLabels: Record<string, string> = {
+      excel: 'Excel',
+      csv: 'CSV',
+      pdf: 'PDF',
+    };
+
+    const isConfirmed = await confirm({
+      title: 'Confirm Export',
+      message: `Are you sure you want to export this report as ${formatLabels[format]}?`,
+      confirmText: 'Export',
+      cancelText: 'Cancel',
+      variant: 'info' as const,
+    });
+    if (!isConfirmed) return;
+
     const params = new URLSearchParams();
     if (mode === 'single') {
       params.append('date', dateStr);
@@ -340,33 +356,39 @@ export const Reports: React.FC = () => {
           <div className="relative self-start lg:self-auto">
             <button
               onClick={() => setIsExportDropdownOpen(!isExportDropdownOpen)}
-              className="flex items-center gap-2 bg-black dark:bg-white text-white dark:text-black text-xs font-extrabold px-4 py-2.5 rounded-xl hover:bg-zinc-900 dark:hover:bg-zinc-50 transition-colors shadow-sm whitespace-nowrap"
+              className="flex items-center gap-2 bg-black dark:bg-white text-white dark:text-black text-xs font-extrabold px-4 py-2.5 rounded-xl hover:bg-zinc-900 dark:hover:bg-zinc-50 transition-colors shadow-sm whitespace-nowrap cursor-pointer"
             >
               <Download size={14} />
               <span>Export Report</span>
             </button>
 
             {isExportDropdownOpen && (
-              <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-lg py-1.5 z-50">
-                <button
-                  onClick={() => handleExport('excel')}
-                  className="w-full text-left px-4 py-2 text-xs font-bold hover:bg-zinc-50 dark:hover:bg-zinc-800 text-black dark:text-white"
-                >
-                  Export Excel (.xlsx)
-                </button>
-                <button
-                  onClick={() => handleExport('csv')}
-                  className="w-full text-left px-4 py-2 text-xs font-bold hover:bg-zinc-50 dark:hover:bg-zinc-800 text-black dark:text-white"
-                >
-                  Export CSV (.csv)
-                </button>
-                <button
-                  onClick={() => handleExport('pdf')}
-                  className="w-full text-left px-4 py-2 text-xs font-bold hover:bg-zinc-50 dark:hover:bg-zinc-800 text-black dark:text-white"
-                >
-                  Export PDF (.pdf)
-                </button>
-              </div>
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setIsExportDropdownOpen(false)}
+                />
+                <div className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-48 max-w-[calc(100vw-2rem)] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-lg py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
+                  <button
+                    onClick={() => handleExport('excel')}
+                    className="w-full text-left px-4 py-2 text-xs font-bold hover:bg-zinc-50 dark:hover:bg-zinc-800 text-black dark:text-white transition-colors"
+                  >
+                    Export Excel (.xlsx)
+                  </button>
+                  <button
+                    onClick={() => handleExport('csv')}
+                    className="w-full text-left px-4 py-2 text-xs font-bold hover:bg-zinc-50 dark:hover:bg-zinc-800 text-black dark:text-white transition-colors"
+                  >
+                    Export CSV (.csv)
+                  </button>
+                  <button
+                    onClick={() => handleExport('pdf')}
+                    className="w-full text-left px-4 py-2 text-xs font-bold hover:bg-zinc-50 dark:hover:bg-zinc-800 text-black dark:text-white transition-colors"
+                  >
+                    Export PDF (.pdf)
+                  </button>
+                </div>
+              </>
             )}
           </div>
         </div>

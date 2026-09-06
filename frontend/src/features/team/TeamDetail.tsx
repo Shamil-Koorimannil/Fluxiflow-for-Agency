@@ -18,6 +18,7 @@ import { getRoleDisplayLabel } from '../../utils/roleUtils';
 import { useConfirm } from '../../context/ConfirmDialogContext';
 import { CustomDropdown } from '../../components/common/CustomDropdown';
 import type { DropdownOption } from '../../components/common/CustomDropdown';
+import { DatePicker } from '../../components/common/DatePicker';
 
 interface TeamMemberDetailResponse {
   summary: {
@@ -63,7 +64,7 @@ export const TeamDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { showAlert } = useConfirm();
+  const { confirm, showAlert } = useConfirm();
   const { user: currentUser } = useAuth();
   const { isAdmin } = useOrganization();
 
@@ -195,6 +196,16 @@ export const TeamDetail: React.FC = () => {
 
   const handleDownloadReport = async () => {
     if (!id || validationError) return;
+
+    const isConfirmed = await confirm({
+      title: 'Confirm Download',
+      message: 'Are you sure you want to download this performance report?',
+      confirmText: 'Download',
+      cancelText: 'Cancel',
+      variant: 'info' as const
+    });
+    if (!isConfirmed) return;
+
     setIsDownloading(true);
     try {
       const response = await api.get(`/team/${id}/performance-report/download/`, {
@@ -510,7 +521,7 @@ export const TeamDetail: React.FC = () => {
                   Performance Report — {memberSummary.name}
                 </h3>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                  Reporting Period: <span className="font-bold text-purple-600 dark:text-purple-400">{periodLabel}</span>
+                  Reporting Period: <span className="font-bold text-zinc-900 dark:text-zinc-100">{periodLabel}</span>
                 </p>
               </div>
 
@@ -583,35 +594,35 @@ export const TeamDetail: React.FC = () => {
 
                 {/* Sub-controls for CUSTOM_RANGE */}
                 {periodType === 'CUSTOM_RANGE' && (
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="date"
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <DatePicker
                       value={customStartDate}
-                      onChange={(e) => setCustomStartDate(e.target.value)}
-                      className="px-2 py-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-semibold text-zinc-900 dark:text-zinc-100 focus:outline-none"
+                      onChange={(val) => setCustomStartDate(val)}
+                      placeholder="Start Date"
                     />
                     <span className="text-xs text-zinc-400 font-bold">to</span>
-                    <input
-                      type="date"
+                    <DatePicker
                       value={customEndDate}
-                      onChange={(e) => setCustomEndDate(e.target.value)}
-                      className="px-2 py-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-semibold text-zinc-900 dark:text-zinc-100 focus:outline-none"
+                      onChange={(val) => setCustomEndDate(val)}
+                      placeholder="End Date"
                     />
                   </div>
                 )}
+
                 {/* Download Report Button */}
                 <button
                   type="button"
                   onClick={handleDownloadReport}
                   disabled={isDownloading || Boolean(validationError)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-xs font-semibold rounded-xl transition-all shadow-xs shrink-0 cursor-pointer ml-auto sm:ml-0"
+                  aria-label="Download report"
+                  title="Download report"
+                  className="flex items-center justify-center h-8 w-8 bg-black dark:bg-white text-white dark:text-black hover:bg-zinc-900 dark:hover:bg-zinc-100 disabled:opacity-50 text-xs font-semibold rounded-xl transition-all shadow-xs shrink-0 cursor-pointer"
                 >
                   {isDownloading ? (
-                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    <RefreshCw className="h-4 w-4 animate-spin" />
                   ) : (
-                    <Download className="h-3.5 w-3.5" />
+                    <Download className="h-4 w-4" />
                   )}
-                  <span>{isDownloading ? 'Generating...' : 'Download Report'}</span>
                 </button>
               </div>
             </div>

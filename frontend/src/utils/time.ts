@@ -121,40 +121,57 @@ export const formatDueDateTime = (dateStr: string | null | undefined, timeStr: s
   return d || t || '';
 };
 
-export const getDueDateStyleClass = (dateStr: string | null | undefined, status?: string): string => {
-  if (!dateStr || status === 'COMPLETED') return 'text-zinc-400 dark:text-zinc-550';
-  
+export type TaskDateStatus = 'overdue' | 'today' | 'tomorrow' | 'upcoming' | 'completed' | 'none';
+
+export const getTaskDateStatus = (dateStr: string | null | undefined, isCompleted?: boolean): TaskDateStatus => {
+  if (!dateStr) return 'none';
+  if (isCompleted) return 'completed';
+
   const parts = typeof dateStr === 'string' ? dateStr.split('T')[0].split('-') : [];
-  if (parts.length !== 3) return 'text-zinc-500 dark:text-zinc-400';
-  
+  if (parts.length !== 3) return 'none';
+
   const year = parseInt(parts[0], 10);
   const month = parseInt(parts[1], 10) - 1;
   const day = parseInt(parts[2], 10);
   const targetDate = new Date(year, month, day);
-  
-  if (isNaN(targetDate.getTime())) return 'text-zinc-500 dark:text-zinc-400';
-  
+
+  if (isNaN(targetDate.getTime())) return 'none';
+
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
-  
+
   const tomorrow = new Date(today);
   tomorrow.setDate(today.getDate() + 1);
-  
+
   const targetTime = targetDate.getTime();
-  if (targetTime === today.getTime()) {
-    return 'font-bold text-amber-600 dark:text-amber-400';
+  if (targetTime < today.getTime()) {
+    return 'overdue';
+  } else if (targetTime === today.getTime()) {
+    return 'today';
   } else if (targetTime === tomorrow.getTime()) {
-    return 'font-semibold text-blue-600 dark:text-blue-450';
-  } else if (targetTime === yesterday.getTime()) {
-    return 'font-semibold text-red-600 dark:text-red-400';
-  } else if (targetTime < today.getTime()) {
-    return 'text-red-650 dark:text-red-400 font-medium';
+    return 'tomorrow';
+  } else {
+    return 'upcoming';
   }
-  
-  return 'text-zinc-500 dark:text-zinc-400 font-medium';
+};
+
+export const getDueDateStyleClass = (dateStr: string | null | undefined, status?: string): string => {
+  const isCompleted = status === 'COMPLETED';
+  const dateStatus = getTaskDateStatus(dateStr, isCompleted);
+  switch (dateStatus) {
+    case 'overdue':
+      return 'font-semibold text-red-600 dark:text-red-400';
+    case 'today':
+      return 'font-bold text-amber-500 dark:text-amber-400';
+    case 'tomorrow':
+      return 'font-semibold text-green-600 dark:text-green-400';
+    case 'upcoming':
+      return 'text-zinc-500 dark:text-zinc-400 font-medium';
+    case 'completed':
+    case 'none':
+    default:
+      return 'text-zinc-400 dark:text-zinc-550';
+  }
 };
 
 export const getLocalDateString = (date: Date): string => {

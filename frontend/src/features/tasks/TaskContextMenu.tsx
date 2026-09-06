@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import type { Task } from '../../types';
 
+import { Clock } from 'lucide-react';
+
 export interface TaskContextMenuProps {
   x: number;
   y: number;
@@ -23,6 +25,7 @@ export interface TaskContextMenuProps {
   onEdit?: (task: Task) => void;
   onDelete: () => void;
   onToggleComplete: () => void;
+  onSetStatus?: (task: Task, status: 'IN_PROGRESS' | 'PENDING') => void;
   onSelectAll?: () => void;
   onClearSelection?: () => void;
 }
@@ -38,6 +41,7 @@ export const TaskContextMenu: React.FC<TaskContextMenuProps> = ({
   onEdit,
   onDelete,
   onToggleComplete,
+  onSetStatus,
   onSelectAll,
   onClearSelection,
 }) => {
@@ -127,6 +131,22 @@ export const TaskContextMenu: React.FC<TaskContextMenuProps> = ({
             </>
           )}
         </button>
+
+        {/* Set In Progress / Clear Status for Non-Typed Tasks */}
+        {singleTask && !singleTask.task_type && !singleTask.task_type_detail && onSetStatus && (
+          <button
+            type="button"
+            onClick={() => {
+              const targetStatus = singleTask.status === 'IN_PROGRESS' ? 'PENDING' : 'IN_PROGRESS';
+              onSetStatus(singleTask, targetStatus);
+              onClose();
+            }}
+            className="w-full text-left px-2.5 py-1.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center gap-2.5 transition-colors text-zinc-700 dark:text-zinc-200 font-semibold"
+          >
+            <Clock className="h-4 w-4 text-amber-500 shrink-0" />
+            <span>{singleTask.status === 'IN_PROGRESS' ? 'Mark To do' : 'Mark In Progress'}</span>
+          </button>
+        )}
 
         {/* Edit (only available when single task is selected) */}
         {singleTask && onEdit && (

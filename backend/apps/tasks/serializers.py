@@ -304,6 +304,11 @@ class TaskSerializer(serializers.ModelSerializer):
         return data
 
     def validate(self, attrs):
+        is_create = self.instance is None
+        project = attrs.get('project')
+        if is_create and not project:
+            raise serializers.ValidationError({"project": "Project is required when creating a task."})
+
         status_val = attrs.get('status')
         if status_val == 'COMPLETED':
             if self.instance and self.instance.subtasks.exclude(status='COMPLETED').exists():
@@ -316,7 +321,6 @@ class TaskSerializer(serializers.ModelSerializer):
             from apps.accounts.tenant_context import get_active_organization
             active_org = get_active_organization(request.user, request=request)
             if active_org:
-                project = attrs.get('project')
                 if project and project.organization_id != active_org.id:
                     raise serializers.ValidationError({"project": "Selected project belongs to another organization."})
                 task_type = attrs.get('task_type')
@@ -432,7 +436,9 @@ class TaskSerializer(serializers.ModelSerializer):
         total_assignees = assignees_rels.count()
         completed_assignees = assignees_rels.filter(completed=True).count()
         
-        if total_assignees > 0:
+        if instance.status == 'IN_PROGRESS' or instance.timer_status == 'RUNNING':
+            overall_status = 'IN_PROGRESS'
+        elif total_assignees > 0:
             if completed_assignees == total_assignees:
                 overall_status = 'COMPLETED'
             elif completed_assignees > 0:

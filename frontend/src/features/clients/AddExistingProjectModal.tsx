@@ -119,7 +119,7 @@ export const AddExistingProjectModal: React.FC<AddExistingProjectModalProps> = (
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
-                Add Existing Projects
+                Link Existing Projects
               </h2>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
                 Associate existing organization projects with <span className="font-semibold text-zinc-700 dark:text-zinc-300">{clientName}</span>

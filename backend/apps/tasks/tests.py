@@ -2025,6 +2025,12 @@ class MultiDateTaskTests(TestCase):
         Membership.objects.create(user=self.admin, organization=self.org1, role='ADMIN')
         Membership.objects.create(user=self.member, organization=self.org1, role='MEMBER')
 
+        self.admin.active_organization = self.org1
+        self.admin.save(update_fields=['active_organization'])
+        self.member.active_organization = self.org1
+        self.member.save(update_fields=['active_organization'])
+
+        self.project = Project.objects.create(name="MultiDate Proj", organization=self.org1, created_by=self.admin)
         self.admin_token = self.get_jwt_token(self.admin.email)
 
     def get_jwt_token(self, email):
@@ -2033,6 +2039,8 @@ class MultiDateTaskTests(TestCase):
         refresh['email'] = user.email
         refresh['name'] = user.name
         refresh['role'] = user.role
+        if user.active_organization_id:
+            refresh['org_id'] = str(user.active_organization_id)
         return str(refresh.access_token)
 
     def set_auth(self, token):
@@ -2043,6 +2051,7 @@ class MultiDateTaskTests(TestCase):
         url = reverse('task-list')
         response = self.client.post(url, {
             'name': 'Single Date Task',
+            'project': str(self.project.id),
             'dates': ['2026-09-02']
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -2055,6 +2064,7 @@ class MultiDateTaskTests(TestCase):
         url = reverse('task-list')
         response = self.client.post(url, {
             'name': 'Website Update',
+            'project': str(self.project.id),
             'dates': ['2026-09-02', '2026-09-04', '2026-09-08']
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -2081,6 +2091,7 @@ class MultiDateTaskTests(TestCase):
         url = reverse('task-list')
         response = self.client.post(url, {
             'name': 'No Date Task',
+            'project': str(self.project.id),
             'dates': []
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -2091,6 +2102,7 @@ class MultiDateTaskTests(TestCase):
         url = reverse('task-list')
         res_create = self.client.post(url, {
             'name': 'Task to Edit',
+            'project': str(self.project.id),
             'due_date': '2026-09-02'
         }, format='json')
         task_id = res_create.data['id']
@@ -2118,6 +2130,7 @@ class MultiDateTaskTests(TestCase):
         url = reverse('task-list')
         res = self.client.post(url, {
             'name': 'Org1 Task',
+            'project': str(self.project.id),
             'due_date': '2026-09-02'
         }, format='json')
         task_id = res.data['id']
@@ -2457,6 +2470,8 @@ class TaskTypePermissionsFeatureTests(TestCase):
         self.token_multiorg = self.get_token(self.user_multiorg)
 
         # Existing TaskType in Org A and Org B
+        from apps.projects.models import Project
+        self.project_a = Project.objects.create(name='Proj A', organization=self.org_a, created_by=self.user_admin)
         self.task_type_a = TaskType.objects.create(organization=self.org_a, name='Design A', allocated_seconds=3600)
         self.task_type_b = TaskType.objects.create(organization=self.org_b, name='Design B', allocated_seconds=7200)
 
@@ -2592,6 +2607,7 @@ class TaskTypePermissionsFeatureTests(TestCase):
         self.set_auth(self.token_admin)
         res = self.client.post('/api/tasks/', {
             'name': 'Typed Task',
+            'project': str(self.project_a.id),
             'task_type': str(self.task_type_a.id)
         }, format='json')
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
@@ -2601,7 +2617,8 @@ class TaskTypePermissionsFeatureTests(TestCase):
     def test_untyped_task_creation(self):
         self.set_auth(self.token_admin)
         res = self.client.post('/api/tasks/', {
-            'name': 'Untyped Task'
+            'name': 'Untyped Task',
+            'project': str(self.project_a.id)
         }, format='json')
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.assertIsNone(res.data.get('task_type'))
@@ -2720,6 +2737,53 @@ class TaskDataScopingTests(TestCase):
         task_ids = [t['id'] for t in res.data]
         self.assertEqual(len(task_ids), 1)
         self.assertEqual(task_ids[0], str(self.task_a.id))
+
+    def test_bulk_delete_tasks_success_2_and_5(self):
+        self.set_auth(self.get_token(self.user_a))
+        t1 = Task.objects.create(name='T1', project=self.project1, organization=self.org1, created_by=self.user_a)
+        t2 = Task.objects.create(name='T2', project=self.project1, organization=self.org1, created_by=self.user_a)
+        t3 = Task.objects.create(name='T3', project=self.project1, organization=self.org1, created_by=self.user_a)
+        t4 = Task.objects.create(name='T4', project=self.project1, organization=self.org1, created_by=self.user_a)
+        t5 = Task.objects.create(name='T5', project=self.project1, organization=self.org1, created_by=self.user_a)
+
+        # Bulk delete 2 tasks
+        res2 = self.client.post('/api/tasks/bulk-delete/', {'task_ids': [str(t1.id), str(t2.id)]}, format='json')
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+        self.assertFalse(Task.objects.filter(id__in=[t1.id, t2.id]).exists())
+
+        # Bulk delete remaining 3 tasks
+        res3 = self.client.post('/api/tasks/bulk-delete/', {'task_ids': [str(t3.id), str(t4.id), str(t5.id)]}, format='json')
+        self.assertEqual(res3.status_code, status.HTTP_200_OK)
+        self.assertFalse(Task.objects.filter(id__in=[t3.id, t4.id, t5.id]).exists())
+
+    def test_mandatory_project_on_task_creation(self):
+        self.set_auth(self.get_token(self.user_a))
+        # Creation without project -> 400 Bad Request
+        res_no_proj = self.client.post('/api/tasks/', {'name': 'No Proj Task'}, format='json')
+        self.assertEqual(res_no_proj.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('project', res_no_proj.data)
+
+        # Creation with project from another org -> 400 Bad Request
+        proj_other = Project.objects.create(name='Other Org Proj', organization=self.org2, created_by=self.user_a)
+        res_other_proj = self.client.post('/api/tasks/', {'name': 'Cross Org Proj Task', 'project': str(proj_other.id)}, format='json')
+        self.assertEqual(res_other_proj.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Creation with valid project -> 201 Created
+        res_valid = self.client.post('/api/tasks/', {'name': 'Valid Proj Task', 'project': str(self.project1.id)}, format='json')
+        self.assertEqual(res_valid.status_code, status.HTTP_201_CREATED)
+
+    def test_timer_start_auto_sets_in_progress(self):
+        self.set_auth(self.get_token(self.user_a))
+        from apps.tasks.models import TaskType
+        tt = TaskType.objects.create(name='Design Type', organization=self.org1, allocated_seconds=3600)
+        t = Task.objects.create(name='Typed Task', project=self.project1, organization=self.org1, task_type=tt, created_by=self.user_a)
+        TaskAssignee.objects.create(task=t, user=self.user_a)
+
+        res_timer = self.client.post(f'/api/tasks/{t.id}/timer/start/')
+        self.assertEqual(res_timer.status_code, status.HTTP_200_OK)
+        t.refresh_from_db()
+        self.assertEqual(t.status, 'IN_PROGRESS')
+        self.assertEqual(res_timer.data['overall_status'], 'IN_PROGRESS')
 
 
 

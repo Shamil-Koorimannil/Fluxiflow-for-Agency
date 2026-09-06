@@ -214,6 +214,15 @@ export const Keep: React.FC = () => {
   };
 
   const handleDownloadFile = async (item: KeepItem) => {
+    const isConfirmed = await confirm({
+      title: 'Confirm Download',
+      message: 'Are you sure you want to download this file?',
+      confirmText: 'Download',
+      cancelText: 'Cancel',
+      variant: 'info' as const
+    });
+    if (!isConfirmed) return;
+
     try {
       const res = await api.get(`/keep/items/${item.id}/download/`, {
         responseType: 'blob'
@@ -566,10 +575,11 @@ export const Keep: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => handleDownloadFile(previewFileItem)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors shadow-sm"
+                  aria-label="Download"
+                  title="Download"
+                  className="p-2 bg-black dark:bg-white text-white dark:text-black hover:bg-zinc-900 dark:hover:bg-zinc-100 rounded-lg transition-colors shadow-xs flex items-center justify-center shrink-0 cursor-pointer"
                 >
-                  <Download className="h-3.5 w-3.5" />
-                  <span>Download</span>
+                  <Download className="h-4 w-4" />
                 </button>
                 <button
                   type="button"
@@ -618,10 +628,11 @@ export const Keep: React.FC = () => {
                   </div>
                   <button
                     onClick={() => handleDownloadFile(previewFileItem)}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-xl shadow-sm transition-colors"
+                    aria-label="Download"
+                    title="Download"
+                    className="inline-flex items-center justify-center p-2.5 bg-black dark:bg-white text-white dark:text-black hover:bg-zinc-900 dark:hover:bg-zinc-100 rounded-xl shadow-xs transition-colors cursor-pointer"
                   >
                     <Download className="h-4 w-4" />
-                    <span>Download Original File</span>
                   </button>
                 </div>
               )}

@@ -153,7 +153,7 @@ export interface Task {
   dates?: string[];
   due_time: string | null;
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | null;
-  status: 'PENDING' | 'COMPLETED';
+  status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
   created_by: string;
   created_by_detail: User;
   completed_by: string | null;

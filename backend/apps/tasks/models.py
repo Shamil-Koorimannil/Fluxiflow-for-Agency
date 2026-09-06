@@ -32,6 +32,7 @@ class Task(models.Model):
     )
     STATUS_CHOICES = (
         ('PENDING', 'Pending'),
+        ('IN_PROGRESS', 'In Progress'),
         ('COMPLETED', 'Completed'),
     )
     TIMER_STATUS_CHOICES = (
