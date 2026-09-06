@@ -1313,7 +1313,7 @@ export const Team: React.FC = () => {
                         PENDING
                       </Typography>
                       <Typography variant="body2" sx={{ fontWeight: 800, color: 'text.primary', mt: 0.5 }}>
-                        {member.pending_tasks ?? 0}
+                        {member.pending_tasks ?? member.pending_tasks_count ?? 0}
                       </Typography>
                     </Box>
                     <Box sx={{ textAlign: 'center' }}>
