@@ -135,10 +135,10 @@ export const TaskTypeSettings: React.FC = () => {
       {/* Feature Toggle Card */}
       <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm">
         <div className="flex items-center justify-between gap-4">
-          <div>
+          <div className="min-w-0 flex-1">
             <h3 className="font-bold text-base text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <Tag className="h-4 w-4 text-blue-500" />
-              <span>Enable Task Types</span>
+              <Tag className="h-4 w-4 text-blue-500 shrink-0" />
+              <span className="truncate">Enable Task Types</span>
             </h3>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-xl">
               Allow defining standard work categories (e.g. Logo Design, Video Editing) and allocated duration for accurate workload tracking.
@@ -149,7 +149,7 @@ export const TaskTypeSettings: React.FC = () => {
             type="button"
             disabled={savingSetting}
             onClick={handleToggleEnable}
-            className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
+            className={`relative inline-flex h-7 w-12 shrink-0 flex-shrink-0 items-center rounded-full transition-colors ${
               settings.enable_task_types ? 'bg-emerald-600' : 'bg-zinc-300 dark:bg-zinc-700'
             }`}
           >
@@ -163,11 +163,11 @@ export const TaskTypeSettings: React.FC = () => {
 
         {/* Weekly Capacity Hours Input */}
         <div className="mt-6 pt-6 border-t border-zinc-100 dark:border-zinc-800/80 flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs">
-          <div>
+          <div className="min-w-0 flex-1">
             <span className="font-semibold text-zinc-800 dark:text-zinc-200">Default Weekly Member Capacity</span>
             <p className="text-zinc-500 dark:text-zinc-400 text-[11px]">Used to calculate team member workload percentages (e.g. 40 hours/week).</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <input
               type="number"
               min="1"
@@ -185,7 +185,7 @@ export const TaskTypeSettings: React.FC = () => {
       {settings.enable_task_types && (
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-4">
-            <div>
+            <div className="min-w-0 flex-1">
               <h3 className="font-bold text-base text-zinc-900 dark:text-zinc-100">
                 Task Types & Duration Specs
               </h3>
@@ -200,10 +200,10 @@ export const TaskTypeSettings: React.FC = () => {
                 setSelectedTaskType(null);
                 setIsModalOpen(true);
               }}
-              className="flex items-center gap-1.5 px-4 py-2 bg-black dark:bg-white text-white dark:text-black hover:bg-zinc-800 dark:hover:bg-zinc-200 text-xs font-semibold rounded-xl transition-colors shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-2 bg-black dark:bg-white text-white dark:text-black hover:bg-zinc-800 dark:hover:bg-zinc-200 text-xs font-semibold rounded-xl transition-colors shadow-sm shrink-0 whitespace-nowrap"
             >
-              <Plus className="h-4 w-4" />
-              <span>Add Task Type</span>
+              <Plus className="w-4 h-4 mr-1.5" />
+              <span>Add Type</span>
             </button>
           </div>
 

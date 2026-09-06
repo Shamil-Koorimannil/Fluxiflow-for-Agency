@@ -437,4 +437,129 @@ class ReportBackendTests(APITestCase):
         names_combo = [t['task_name'] for t in d_combo['tasks']]
         self.assertEqual(names_combo, ['Task E'])
 
+    def test_export_api_endpoints_full_pipeline(self):
+        self.client.force_authenticate(user=self.admin)
+        today_str = timezone.localdate().isoformat()
+        
+        # 1. Test CSV export endpoint
+        csv_res = self.client.get(f'/api/reports/export/csv/?start_date={today_str}&end_date={today_str}')
+        self.assertEqual(csv_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(csv_res['Content-Type'], 'text/csv; charset=utf-8')
+        self.assertIn('attachment; filename=', csv_res['Content-Disposition'])
+        self.assertTrue(len(csv_res.content) > 0)
+
+        # 2. Test Excel export endpoint
+        excel_res = self.client.get(f'/api/reports/export/excel/?start_date={today_str}&end_date={today_str}')
+        self.assertEqual(excel_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(excel_res['Content-Type'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        self.assertIn('attachment; filename=', excel_res['Content-Disposition'])
+        self.assertTrue(len(excel_res.content) > 0)
+
+        # 3. Test PDF export endpoint
+        pdf_res = self.client.get(f'/api/reports/export/pdf/?start_date={today_str}&end_date={today_str}')
+        self.assertEqual(pdf_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(pdf_res['Content-Type'], 'application/pdf')
+        self.assertIn('attachment; filename=', pdf_res['Content-Disposition'])
+        self.assertTrue(len(pdf_res.content) > 0)
+
+    def test_export_filters_date_and_client_enforcement(self):
+        org_a = Organization.objects.create(name="Export Org A", slug="export-org-a")
+        from apps.accounts.models import Membership
+        Membership.objects.create(organization=org_a, user=self.admin, is_active=True, role='ORG_ADMIN')
+        Membership.objects.create(organization=org_a, user=self.member1, is_active=True, role='MEMBER')
+
+        self.client.force_authenticate(user=self.admin)
+        
+        client_a = Client.objects.create(name="Export Client A", organization=org_a, created_by=self.admin)
+        proj_a = Project.objects.create(name="Export Proj A", organization=org_a, client=client_a, created_by=self.admin)
+
+        # Sept task
+        sept_date = date(2026, 9, 15)
+        sept_start, _ = ReportGenerator.get_day_boundaries(sept_date)
+        t_sept = Task.objects.create(name="Sept Export Task", due_date=sept_date, project=proj_a, organization=org_a, created_by=self.admin)
+        Task.objects.filter(id=t_sept.id).update(created_at=sept_start + timedelta(hours=1))
+        t_sept.refresh_from_db()
+        TaskAssignee.objects.create(task=t_sept, user=self.member1)
+        TaskAssignmentHistory.objects.filter(task=t_sept, user=self.member1).update(assigned_at=sept_start + timedelta(hours=1))
+
+        # Aug task
+        aug_date = date(2026, 8, 15)
+        aug_start, _ = ReportGenerator.get_day_boundaries(aug_date)
+        t_aug = Task.objects.create(name="Aug Export Task", due_date=aug_date, project=proj_a, organization=org_a, created_by=self.admin)
+        Task.objects.filter(id=t_aug.id).update(created_at=aug_start + timedelta(hours=1))
+        t_aug.refresh_from_db()
+        TaskAssignee.objects.create(task=t_aug, user=self.member1)
+        TaskAssignmentHistory.objects.filter(task=t_aug, user=self.member1).update(assigned_at=aug_start + timedelta(hours=1))
+
+        # Request September CSV export via HTTP endpoint with client filter
+        url = f"/api/reports/export/csv/?start_date=2026-09-01&end_date=2026-09-30&client={client_a.id}"
+        res = self.client.get(url, HTTP_X_ORGANIZATION_ID=str(org_a.id))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        
+        content = res.content.decode('utf-8')
+        self.assertIn("Sept Export Task", content)
+        self.assertNotIn("Aug Export Task", content)
+
+    def test_export_cross_organization_security(self):
+        org1 = Organization.objects.create(name="Org Alpha", slug="org-alpha")
+        org2 = Organization.objects.create(name="Org Beta", slug="org-beta")
+        
+        from apps.accounts.models import Membership
+        Membership.objects.create(organization=org1, user=self.admin, is_active=True, role='ORG_ADMIN')
+        
+        # User in Org1 tries to access Org2 data via export endpoint
+        proj_org2 = Project.objects.create(name="Org2 Private Proj", organization=org2, created_by=self.admin)
+        t_org2 = Task.objects.create(name="Org2 Secret Task", due_date=date(2026, 9, 10), project=proj_org2, organization=org2, created_by=self.admin)
+        TaskAssignee.objects.create(task=t_org2, user=self.member2)
+
+        self.client.force_authenticate(user=self.admin)
+        # Set active organization header to Org1
+        res = self.client.get(
+            f"/api/reports/export/csv/?start_date=2026-09-01&end_date=2026-09-30&project={proj_org2.id}",
+            HTTP_X_ORGANIZATION_ID=str(org1.id)
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        content = res.content.decode('utf-8')
+        self.assertNotIn("Org2 Secret Task", content)
+
+    def test_export_smart_formula_sanitization(self):
+        # Test helper directly
+        self.assertEqual(ReportGenerator.sanitize_formula_value("=cmd|' /C calc'!A0"), "'=cmd|' /C calc'!A0")
+        self.assertEqual(ReportGenerator.sanitize_formula_value("+1234567890"), "+1234567890")
+        self.assertEqual(ReportGenerator.sanitize_formula_value("-25.50"), "-25.50")
+        self.assertEqual(ReportGenerator.sanitize_formula_value("-25"), "-25")
+        self.assertEqual(ReportGenerator.sanitize_formula_value("@SUM(A1:A10)"), "'@SUM(A1:A10)")
+        self.assertEqual(ReportGenerator.sanitize_formula_value("+malicious"), "'+malicious")
+
+        # Test in exported CSV
+        today = date(2026, 9, 10)
+        t_start, _ = ReportGenerator.get_day_boundaries(today)
+        t_formula = Task.objects.create(
+            name="=SUM(A1:A100)",
+            due_date=today,
+            project=self.project,
+            created_by=self.admin
+        )
+        Task.objects.filter(id=t_formula.id).update(created_at=t_start + timedelta(hours=1))
+        TaskAssignee.objects.create(task=t_formula, user=self.member1)
+        TaskAssignmentHistory.objects.filter(task=t_formula, user=self.member1).update(assigned_at=t_start + timedelta(hours=1))
+
+        csv_bytes = ReportGenerator.export_csv(today, today)
+        content = csv_bytes.decode('utf-8')
+        self.assertIn("'=SUM(A1:A100)", content)
+
+    def test_export_empty_report_returns_valid_file(self):
+        future_date = date(2028, 1, 1)
+        
+        csv_bytes = ReportGenerator.export_csv(future_date, future_date)
+        self.assertTrue(len(csv_bytes) > 0)
+        self.assertIn("Date,Client,Project", csv_bytes.decode('utf-8'))
+
+        excel_io = ReportGenerator.export_excel(future_date, future_date)
+        self.assertTrue(len(excel_io.read()) > 0)
+
+        pdf_io = ReportGenerator.export_pdf(future_date, future_date)
+        self.assertTrue(len(pdf_io.read()) > 0)
+
+
 

@@ -11,9 +11,9 @@ class ReportViewSet(viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated, IsAdmin]
 
     def _get_common_params(self, request):
-        member_id = request.query_params.get('member')
-        project_id = request.query_params.get('project')
-        client_id = request.query_params.get('client')
+        member_id = request.query_params.get('member_id') or request.query_params.get('member')
+        project_id = request.query_params.get('project_id') or request.query_params.get('project')
+        client_id = request.query_params.get('client_id') or request.query_params.get('client')
         status_filter = request.query_params.get('status', 'all')
         search_query = request.query_params.get('search')
         include_deactivated = request.query_params.get('include_deactivated') == 'true'

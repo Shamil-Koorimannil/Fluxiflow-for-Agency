@@ -341,6 +341,18 @@ class ReportGenerator:
         }
 
     @staticmethod
+    def sanitize_formula_value(val):
+        if not isinstance(val, str) or not val:
+            return val
+        if val[0] in ('=', '+', '-', '@'):
+            try:
+                float(val)
+                return val
+            except ValueError:
+                return f"'{val}"
+        return val
+
+    @staticmethod
     def export_excel(start_date, end_date, member_id=None, project_id=None, client_id=None, status_filter=None, search_query=None, include_deactivated=False, organization=None):
         data = ReportGenerator.compile_report_data(
             start_date, end_date, member_id, project_id, client_id=client_id, status_filter=status_filter, search_query=search_query, include_deactivated=include_deactivated, organization=organization
@@ -418,22 +430,23 @@ class ReportGenerator:
 
         # Data rows
         detail_row = 8
+        s = ReportGenerator.sanitize_formula_value
         for t in data["tasks"]:
-            ws1.cell(row=detail_row, column=1, value=t["date"]).alignment = align_center
-            ws1.cell(row=detail_row, column=2, value=t.get("client_name") or "-").alignment = align_left
-            ws1.cell(row=detail_row, column=3, value=t["project_name"]).alignment = align_left
-            ws1.cell(row=detail_row, column=4, value=t["task_name"]).alignment = align_left
-            ws1.cell(row=detail_row, column=5, value=t["subtask_name"]).alignment = align_left
-            ws1.cell(row=detail_row, column=6, value=t["status"]).alignment = align_center
-            ws1.cell(row=detail_row, column=7, value=t["due_date"]).alignment = align_center
-            ws1.cell(row=detail_row, column=8, value=t["due_time"] or "-").alignment = align_center
-            ws1.cell(row=detail_row, column=9, value=t["completed_at"] or "-").alignment = align_center
-            ws1.cell(row=detail_row, column=10, value=t["priority"]).alignment = align_center
+            ws1.cell(row=detail_row, column=1, value=s(t["date"])).alignment = align_center
+            ws1.cell(row=detail_row, column=2, value=s(t.get("client_name") or "-")).alignment = align_left
+            ws1.cell(row=detail_row, column=3, value=s(t["project_name"])).alignment = align_left
+            ws1.cell(row=detail_row, column=4, value=s(t["task_name"])).alignment = align_left
+            ws1.cell(row=detail_row, column=5, value=s(t["subtask_name"])).alignment = align_left
+            ws1.cell(row=detail_row, column=6, value=s(t["status"])).alignment = align_center
+            ws1.cell(row=detail_row, column=7, value=s(t["due_date"])).alignment = align_center
+            ws1.cell(row=detail_row, column=8, value=s(t["due_time"] or "-")).alignment = align_center
+            ws1.cell(row=detail_row, column=9, value=s(t["completed_at"] or "-")).alignment = align_center
+            ws1.cell(row=detail_row, column=10, value=s(t["priority"])).alignment = align_center
             
             for col in range(1, 11):
                 cell = ws1.cell(row=detail_row, column=col)
                 cell.font = regular_font
-                cell.border = grid_border
+                cell.border = thin_border
             ws1.row_dimensions[detail_row].height = 20
             detail_row += 1
 
@@ -449,9 +462,9 @@ class ReportGenerator:
         return output
 
     @staticmethod
-    def export_csv(start_date, end_date, member_id=None, project_id=None, status_filter=None, search_query=None, include_deactivated=False, organization=None):
+    def export_csv(start_date, end_date, member_id=None, project_id=None, client_id=None, status_filter=None, search_query=None, include_deactivated=False, organization=None):
         data = ReportGenerator.compile_report_data(
-            start_date, end_date, member_id, project_id, status_filter, search_query, include_deactivated, organization=organization
+            start_date, end_date, member_id, project_id, client_id=client_id, status_filter=status_filter, search_query=search_query, include_deactivated=include_deactivated, organization=organization
         )
         
         import io
@@ -462,26 +475,27 @@ class ReportGenerator:
         writer.writerow(["Date", "Client", "Project", "Task", "Subtask", "Status", "Due Date", "Due Time", "Completed At", "Priority"])
         
         # Data
+        s = ReportGenerator.sanitize_formula_value
         for t in data["tasks"]:
             writer.writerow([
-                t["date"],
-                t.get("client_name") or "",
-                t["project_name"],
-                t["task_name"],
-                t["subtask_name"],
-                t["status"],
-                t["due_date"],
-                t["due_time"] or "",
-                t["completed_at"] or "",
-                t["priority"]
+                s(t["date"]),
+                s(t.get("client_name") or ""),
+                s(t["project_name"]),
+                s(t["task_name"]),
+                s(t["subtask_name"]),
+                s(t["status"]),
+                s(t["due_date"]),
+                s(t["due_time"] or ""),
+                s(t["completed_at"] or ""),
+                s(t["priority"])
             ])
             
         return b'\xef\xbb\xbf' + output.getvalue().encode('utf-8')
 
     @staticmethod
-    def export_pdf(start_date, end_date, member_id=None, project_id=None, status_filter=None, search_query=None, include_deactivated=False, organization=None):
+    def export_pdf(start_date, end_date, member_id=None, project_id=None, client_id=None, status_filter=None, search_query=None, include_deactivated=False, organization=None):
         data = ReportGenerator.compile_report_data(
-            start_date, end_date, member_id, project_id, status_filter, search_query, include_deactivated, organization=organization
+            start_date, end_date, member_id, project_id, client_id=client_id, status_filter=status_filter, search_query=search_query, include_deactivated=include_deactivated, organization=organization
         )
 
         buffer = BytesIO()
