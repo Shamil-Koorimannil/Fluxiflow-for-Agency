@@ -13,10 +13,11 @@ class ReportViewSet(viewsets.ViewSet):
     def _get_common_params(self, request):
         member_id = request.query_params.get('member')
         project_id = request.query_params.get('project')
+        client_id = request.query_params.get('client')
         status_filter = request.query_params.get('status', 'all')
         search_query = request.query_params.get('search')
         include_deactivated = request.query_params.get('include_deactivated') == 'true'
-        return member_id, project_id, status_filter, search_query, include_deactivated
+        return member_id, project_id, client_id, status_filter, search_query, include_deactivated
 
     @action(detail=False, methods=['GET'], url_path='daily')
     def daily_report(self, request):
@@ -24,7 +25,7 @@ class ReportViewSet(viewsets.ViewSet):
         if not date_str:
             date_str = str(timezone.localdate())
             
-        member_id, project_id, status_filter, search_query, include_deactivated = self._get_common_params(request)
+        member_id, project_id, client_id, status_filter, search_query, include_deactivated = self._get_common_params(request)
         from apps.accounts.tenant_context import get_active_organization
         active_org = get_active_organization(request.user, request=request)
         
@@ -34,6 +35,7 @@ class ReportViewSet(viewsets.ViewSet):
                 end_date=date_str,
                 member_id=member_id,
                 project_id=project_id,
+                client_id=client_id,
                 status_filter=status_filter,
                 search_query=search_query,
                 include_deactivated=include_deactivated,
@@ -54,7 +56,7 @@ class ReportViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
             
-        member_id, project_id, status_filter, search_query, include_deactivated = self._get_common_params(request)
+        member_id, project_id, client_id, status_filter, search_query, include_deactivated = self._get_common_params(request)
         from apps.accounts.tenant_context import get_active_organization
         active_org = get_active_organization(request.user, request=request)
         
@@ -64,6 +66,7 @@ class ReportViewSet(viewsets.ViewSet):
                 end_date=end_date_str,
                 member_id=member_id,
                 project_id=project_id,
+                client_id=client_id,
                 status_filter=status_filter,
                 search_query=search_query,
                 include_deactivated=include_deactivated,
@@ -85,7 +88,7 @@ class ReportViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        member_id, project_id, status_filter, search_query, include_deactivated = self._get_common_params(request)
+        member_id, project_id, client_id, status_filter, search_query, include_deactivated = self._get_common_params(request)
         from apps.accounts.tenant_context import get_active_organization
         active_org = get_active_organization(request.user, request=request)
 
@@ -95,6 +98,7 @@ class ReportViewSet(viewsets.ViewSet):
                 end_date=end_date,
                 member_id=member_id,
                 project_id=project_id,
+                client_id=client_id,
                 status_filter=status_filter,
                 search_query=search_query,
                 include_deactivated=include_deactivated,
@@ -132,7 +136,7 @@ class ReportViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        member_id, project_id, status_filter, search_query, include_deactivated = self._get_common_params(request)
+        member_id, project_id, client_id, status_filter, search_query, include_deactivated = self._get_common_params(request)
         from apps.accounts.tenant_context import get_active_organization
         active_org = get_active_organization(request.user, request=request)
 
@@ -142,6 +146,7 @@ class ReportViewSet(viewsets.ViewSet):
                 end_date=end_date,
                 member_id=member_id,
                 project_id=project_id,
+                client_id=client_id,
                 status_filter=status_filter,
                 search_query=search_query,
                 include_deactivated=include_deactivated,
@@ -176,7 +181,7 @@ class ReportViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        member_id, project_id, status_filter, search_query, include_deactivated = self._get_common_params(request)
+        member_id, project_id, client_id, status_filter, search_query, include_deactivated = self._get_common_params(request)
         from apps.accounts.tenant_context import get_active_organization
         active_org = get_active_organization(request.user, request=request)
 
@@ -186,6 +191,7 @@ class ReportViewSet(viewsets.ViewSet):
                 end_date=end_date,
                 member_id=member_id,
                 project_id=project_id,
+                client_id=client_id,
                 status_filter=status_filter,
                 search_query=search_query,
                 include_deactivated=include_deactivated,

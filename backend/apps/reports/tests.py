@@ -6,6 +6,8 @@ from rest_framework.test import APITestCase
 from rest_framework import status
 from apps.tasks.models import Task, TaskAssignee, TaskAssignmentHistory
 from apps.projects.models import Project
+from apps.clients.models import Client
+from apps.accounts.models import Organization
 from apps.reports.services import ReportGenerator
 
 User = get_user_model()
@@ -88,6 +90,7 @@ class ReportBackendTests(APITestCase):
     def test_daily_overdue_calculation(self):
         # Create overdue task
         yesterday = timezone.localdate() - timedelta(days=1)
+        yest_start, _ = ReportGenerator.get_day_boundaries(yesterday)
         task = Task.objects.create(
             name='Task Overdue',
             due_date=yesterday,
@@ -95,13 +98,18 @@ class ReportBackendTests(APITestCase):
             project=self.project,
             created_by=self.admin
         )
+        Task.objects.filter(id=task.id).update(created_at=yest_start + timedelta(hours=1))
         TaskAssignee.objects.create(task=task, user=self.member1)
+        TaskAssignmentHistory.objects.filter(task=task, user=self.member1).update(assigned_at=yest_start + timedelta(hours=1))
         
-        # Today report should count it as overdue since deadline was yesterday and it's incomplete
+        # Yesterday report counts it as pending/overdue for yesterday's report
+        data_yest = ReportGenerator.compile_report_data(yesterday, yesterday)
+        self.assertEqual(data_yest["summary"]["pending"] + data_yest["summary"]["overdue"], 1)
+
+        # Today report excludes yesterday's task under strict day date filtering
         today = timezone.localdate()
-        data = ReportGenerator.compile_report_data(today, today)
-        self.assertEqual(data["summary"]["overdue"], 1)
-        self.assertEqual(data["summary"]["pending"], 0)
+        data_today = ReportGenerator.compile_report_data(today, today)
+        self.assertEqual(len(data_today["tasks"]), 0)
 
     def test_multi_assignee_task_reporting(self):
         # Task assigned to both Sarah and John
@@ -152,22 +160,23 @@ class ReportBackendTests(APITestCase):
         a = TaskAssignee.objects.create(task=task, user=self.member1)
         TaskAssignmentHistory.objects.filter(task=task, user=self.member1).update(assigned_at=mon_start + timedelta(hours=1))
 
-        # Tuesday: task reassigned to John
+        # Monday report shows Sarah was assigned
+        data_mon = ReportGenerator.compile_report_data(monday, monday)
+        self.assertIn('Sarah Thomas', [t['member_name'] for t in data_mon['tasks']])
+        self.assertNotIn('John Mathew', [t['member_name'] for t in data_mon['tasks']])
+
+        # Tuesday: task reassigned to John with Tuesday due date
         tuesday = date(2026, 8, 11)
         tue_start, tue_end = ReportGenerator.get_day_boundaries(tuesday)
         
         # Delete Sarah's assignee record
-        a.delete() # Signal receiver sets unassigned_at = Tuesday now (let's mock to Tuesday morning)
+        a.delete()
         TaskAssignmentHistory.objects.filter(task=task, user=self.member1, unassigned_at__isnull=True).update(unassigned_at=tue_start + timedelta(hours=1))
 
-        # Assign to John
+        # Update task due date to Tuesday for John's assignment
+        Task.objects.filter(id=task.id).update(due_date=tuesday)
         TaskAssignee.objects.create(task=task, user=self.member2)
         TaskAssignmentHistory.objects.filter(task=task, user=self.member2).update(assigned_at=tue_start + timedelta(hours=2))
-
-        # Monday report must show Sarah was assigned
-        data_mon = ReportGenerator.compile_report_data(monday, monday)
-        self.assertIn('Sarah Thomas', [t['member_name'] for t in data_mon['tasks']])
-        self.assertNotIn('John Mathew', [t['member_name'] for t in data_mon['tasks']])
 
         # Tuesday report shows John is assigned
         data_tue = ReportGenerator.compile_report_data(tuesday, tuesday)
@@ -246,3 +255,186 @@ class ReportBackendTests(APITestCase):
         self.client.force_authenticate(user=self.admin)
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_today_date_filtering_excludes_future_tasks(self):
+        today = timezone.localdate()
+        yesterday = today - timedelta(days=1)
+        next_week = today + timedelta(days=7)
+
+        # Task 1: Due Today
+        task_today = Task.objects.create(
+            name='Task Due Today',
+            due_date=today,
+            project=self.project,
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=task_today, user=self.member1)
+
+        # Task 2: Completed Yesterday
+        task_yesterday = Task.objects.create(
+            name='Task Completed Yesterday',
+            due_date=yesterday,
+            project=self.project,
+            created_by=self.admin
+        )
+        yest_start, _ = ReportGenerator.get_day_boundaries(yesterday)
+        Task.objects.filter(id=task_yesterday.id).update(created_at=yest_start + timedelta(hours=2))
+        assignee_yest = TaskAssignee.objects.create(task=task_yesterday, user=self.member1)
+        assignee_yest.completed = True
+        assignee_yest.completed_at = yest_start + timedelta(hours=5)
+        assignee_yest.save()
+        TaskAssignmentHistory.objects.filter(task=task_yesterday, user=self.member1).update(
+            assigned_at=yest_start + timedelta(hours=2),
+            completed_at=yest_start + timedelta(hours=5),
+            completed=True
+        )
+
+        # Task 3: Due Next Week (Future task, incomplete)
+        task_next_week = Task.objects.create(
+            name='Task Due Next Week',
+            due_date=next_week,
+            project=self.project,
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=task_next_week, user=self.member1)
+
+        # Compile Today's report
+        data_today = ReportGenerator.compile_report_data(today, today)
+        today_task_names = [t['task_name'] for t in data_today['tasks']]
+
+        self.assertIn('Task Due Today', today_task_names)
+        self.assertNotIn('Task Completed Yesterday', today_task_names)
+        self.assertNotIn('Task Due Next Week', today_task_names)
+
+    def test_client_id_filtering(self):
+        today = timezone.localdate()
+        client_a = Client.objects.create(name="Client Alpha", created_by=self.admin)
+        client_b = Client.objects.create(name="Client Beta", created_by=self.admin)
+
+        proj_a = Project.objects.create(name="Proj A", client=client_a, created_by=self.admin)
+        proj_b = Project.objects.create(name="Proj B", client=client_b, created_by=self.admin)
+
+        task_a = Task.objects.create(name="Client A Task", due_date=today, project=proj_a, created_by=self.admin)
+        task_b = Task.objects.create(name="Client B Task", due_date=today, project=proj_b, created_by=self.admin)
+
+        TaskAssignee.objects.create(task=task_a, user=self.member1)
+        TaskAssignee.objects.create(task=task_b, user=self.member1)
+
+        # Filter by Client A
+        data_client_a = ReportGenerator.compile_report_data(today, today, client_id=str(client_a.id))
+        task_names = [t['task_name'] for t in data_client_a['tasks']]
+        self.assertIn('Client A Task', task_names)
+        self.assertNotIn('Client B Task', task_names)
+
+    def test_organization_multi_tenant_isolation(self):
+        today = timezone.localdate()
+        org1 = Organization.objects.create(name="Org One", slug="org-one")
+        org2 = Organization.objects.create(name="Org Two", slug="org-two")
+
+        from apps.accounts.models import Membership
+        Membership.objects.create(organization=org1, user=self.member1)
+        Membership.objects.create(organization=org2, user=self.member1)
+
+        proj_org1 = Project.objects.create(name="Org1 Proj", organization=org1, created_by=self.admin)
+        proj_org2 = Project.objects.create(name="Org2 Proj", organization=org2, created_by=self.admin)
+
+        task_org1 = Task.objects.create(name="Org1 Task", due_date=today, project=proj_org1, organization=org1, created_by=self.admin)
+        task_org2 = Task.objects.create(name="Org2 Task", due_date=today, project=proj_org2, organization=org2, created_by=self.admin)
+
+        TaskAssignee.objects.create(task=task_org1, user=self.member1)
+        TaskAssignee.objects.create(task=task_org2, user=self.member1)
+
+        # Compile for Org 1
+        data_org1 = ReportGenerator.compile_report_data(today, today, organization=org1)
+        org1_tasks = [t['task_name'] for t in data_org1['tasks']]
+        self.assertIn('Org1 Task', org1_tasks)
+        self.assertNotIn('Org2 Task', org1_tasks)
+
+    def test_date_filtering_exact_multi_date_matrix(self):
+        # Section 15 requirements:
+        # 30 Aug -> Task A
+        # 31 Aug -> Task B
+        # 01 Sep -> Task C
+        # 05 Sep -> Task D
+        # 06 Sep -> Task E
+        # 07 Sep -> Task F
+        # 15 Sep -> Task G
+        # 16 Sep -> Task H
+
+        client_x = Client.objects.create(name="Client X", created_by=self.admin)
+        proj_x = Project.objects.create(name="Project X", client=client_x, created_by=self.admin)
+
+        dates_tasks = [
+            (date(2026, 8, 30), 'Task A'),
+            (date(2026, 8, 31), 'Task B'),
+            (date(2026, 9, 1), 'Task C'),
+            (date(2026, 9, 5), 'Task D'),
+            (date(2026, 9, 6), 'Task E'),
+            (date(2026, 9, 7), 'Task F'),
+            (date(2026, 9, 15), 'Task G'),
+            (date(2026, 9, 16), 'Task H'),
+        ]
+
+        for dt, task_name in dates_tasks:
+            t_start, _ = ReportGenerator.get_day_boundaries(dt)
+            t = Task.objects.create(
+                name=task_name,
+                due_date=dt,
+                project=proj_x,
+                created_by=self.admin
+            )
+            Task.objects.filter(id=t.id).update(created_at=t_start + timedelta(hours=1))
+            assignee = TaskAssignee.objects.create(task=t, user=self.member1)
+            # Mark Task E as completed on 06 Sep to test completed status filter
+            if task_name == 'Task E':
+                assignee.completed = True
+                assignee.completed_at = t_start + timedelta(hours=4)
+                assignee.save()
+                TaskAssignmentHistory.objects.filter(task=t, user=self.member1).update(
+                    assigned_at=t_start + timedelta(hours=1),
+                    completed_at=t_start + timedelta(hours=4),
+                    completed=True
+                )
+            else:
+                TaskAssignmentHistory.objects.filter(task=t, user=self.member1).update(
+                    assigned_at=t_start + timedelta(hours=1)
+                )
+
+        # 1. 06 Sep -> E ONLY
+        d_06sep = ReportGenerator.compile_report_data(date(2026, 9, 6), date(2026, 9, 6))
+        names_06sep = [t['task_name'] for t in d_06sep['tasks']]
+        self.assertEqual(names_06sep, ['Task E'])
+
+        # 2. 05 Sep -> D ONLY
+        d_05sep = ReportGenerator.compile_report_data(date(2026, 9, 5), date(2026, 9, 5))
+        names_05sep = [t['task_name'] for t in d_05sep['tasks']]
+        self.assertEqual(names_05sep, ['Task D'])
+
+        # 3. 01 Sep -> 15 Sep -> C, D, E, F, G
+        d_range = ReportGenerator.compile_report_data(date(2026, 9, 1), date(2026, 9, 15))
+        names_range = set(t['task_name'] for t in d_range['tasks'])
+        self.assertEqual(names_range, {'Task C', 'Task D', 'Task E', 'Task F', 'Task G'})
+
+        # 4. September 2026 -> C, D, E, F, G, H
+        d_sep = ReportGenerator.compile_report_data(date(2026, 9, 1), date(2026, 9, 30))
+        names_sep = set(t['task_name'] for t in d_sep['tasks'])
+        self.assertEqual(names_sep, {'Task C', 'Task D', 'Task E', 'Task F', 'Task G', 'Task H'})
+
+        # 5. August 2026 -> A, B
+        d_aug = ReportGenerator.compile_report_data(date(2026, 8, 1), date(2026, 8, 31))
+        names_aug = set(t['task_name'] for t in d_aug['tasks'])
+        self.assertEqual(names_aug, {'Task A', 'Task B'})
+
+        # 6. Combination: Date (Sept 2026) + Client X + Project X + Status (completed) + Search ("Task E")
+        d_combo = ReportGenerator.compile_report_data(
+            start_date=date(2026, 9, 1),
+            end_date=date(2026, 9, 30),
+            client_id=str(client_x.id),
+            project_id=str(proj_x.id),
+            status_filter='completed',
+            search_query='Task E'
+        )
+        names_combo = [t['task_name'] for t in d_combo['tasks']]
+        self.assertEqual(names_combo, ['Task E'])
+
+

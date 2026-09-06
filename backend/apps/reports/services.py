@@ -38,7 +38,7 @@ class ReportGenerator:
         return start_dt, end_dt
 
     @staticmethod
-    def compile_report_data(start_date, end_date, member_id=None, project_id=None, status_filter=None, search_query=None, include_deactivated=False, organization=None):
+    def compile_report_data(start_date, end_date, member_id=None, project_id=None, client_id=None, status_filter=None, search_query=None, include_deactivated=False, organization=None):
         tz = timezone.get_current_timezone()
         
         # Format date inputs
@@ -104,18 +104,33 @@ class ReportGenerator:
         while current_date <= end_date:
             day_start_dt, day_end_dt = ReportGenerator.get_day_boundaries(current_date, tz)
             
-            # Fetch assignment histories active on this day
+            day_date_q = (
+                models.Q(completed_at__gte=day_start_dt, completed_at__lte=day_end_dt) |
+                models.Q(subtask__due_date=current_date) |
+                models.Q(subtask__isnull=True, task__due_date=current_date) |
+                models.Q(subtask__due_date__isnull=True, completed_at__isnull=True, subtask__created_at__gte=day_start_dt, subtask__created_at__lte=day_end_dt) |
+                models.Q(subtask__isnull=True, task__due_date__isnull=True, completed_at__isnull=True, task__created_at__gte=day_start_dt, task__created_at__lte=day_end_dt)
+            )
+
+            # Fetch assignment histories active on this day and matching reporting date
             histories = TaskAssignmentHistory.objects.filter(
                 user_id__in=member_ids,
                 assigned_at__lte=day_end_dt
             ).filter(
                 models.Q(unassigned_at__isnull=True) | models.Q(unassigned_at__gt=day_start_dt)
-            ).select_related('task', 'task__project', 'subtask', 'subtask__task', 'subtask__task__project', 'user')
+            ).filter(day_date_q).select_related('task', 'task__project', 'subtask', 'subtask__task', 'subtask__task__project', 'user')
 
             if organization:
                 histories = histories.filter(
                     models.Q(task__organization=organization) |
                     models.Q(subtask__task__organization=organization)
+                )
+
+            # Filter by client
+            if client_id and client_id != 'all':
+                histories = histories.filter(
+                    models.Q(task__project__client_id=client_id) |
+                    models.Q(subtask__task__project__client_id=client_id)
                 )
 
             # Filter by project
@@ -326,9 +341,9 @@ class ReportGenerator:
         }
 
     @staticmethod
-    def export_excel(start_date, end_date, member_id=None, project_id=None, status_filter=None, search_query=None, include_deactivated=False, organization=None):
+    def export_excel(start_date, end_date, member_id=None, project_id=None, client_id=None, status_filter=None, search_query=None, include_deactivated=False, organization=None):
         data = ReportGenerator.compile_report_data(
-            start_date, end_date, member_id, project_id, status_filter, search_query, include_deactivated, organization=organization
+            start_date, end_date, member_id, project_id, client_id=client_id, status_filter=status_filter, search_query=search_query, include_deactivated=include_deactivated, organization=organization
         )
 
         wb = Workbook()
@@ -349,19 +364,23 @@ class ReportGenerator:
         
         align_center = Alignment(horizontal="center", vertical="center")
         align_left = Alignment(horizontal="left", vertical="center")
+        align_right = Alignment(horizontal="right", vertical="center")
         
-        border_thin = Side(border_style="thin", color="CCCCCC")
-        border_double = Side(border_style="double", color="333333")
-        grid_border = Border(left=border_thin, right=border_thin, top=border_thin, bottom=border_thin)
-
-        # Title block
-        ws1.merge_cells("A1:C1")
-        ws1["A1"] = f"Fluxiflow Client Deliverables Report ({data['start_date']} to {data['end_date']})"
-        ws1["A1"].font = title_font
-        ws1["A1"].fill = fill_title
-        ws1["A1"].alignment = align_center
+        thin_border = Border(
+            left=Side(style='thin', color='E0E0E0'),
+            right=Side(style='thin', color='E0E0E0'),
+            top=Side(style='thin', color='E0E0E0'),
+            bottom=Side(style='thin', color='E0E0E0')
+        )
+        
+        # Title
+        ws1.merge_cells("A1:G1")
+        cell_title = ws1["A1"]
+        cell_title.value = "FLUXIFLOW — DELIVERABLES & PROGRESS REPORT"
+        cell_title.font = title_font
+        cell_title.fill = fill_title
+        cell_title.alignment = align_center
         ws1.row_dimensions[1].height = 40
-
         # Overall summary cards row
         ws1["A3"] = "Total Deliverables"
         ws1["B3"] = "Completed Tasks"
@@ -383,7 +402,7 @@ class ReportGenerator:
         for col in ["A", "B", "C"]:
             ws1[f"{col}4"].font = regular_font
             ws1[f"{col}4"].alignment = align_center
-            ws1[f"{col}4"].border = grid_border
+            ws1[f"{col}4"].border = thin_border
         
         ws1.row_dimensions[3].height = 20
         ws1.row_dimensions[4].height = 25
