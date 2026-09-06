@@ -35,6 +35,29 @@ def get_task_due_datetime(due_date, due_time):
         return make_aware(due_dt)
     return due_dt
 
+def get_canonical_user_tasks(user, organization=None):
+    from apps.tasks.models import Task
+    from django.db.models import Q
+    if not user or not user.is_authenticated:
+        return Task.objects.none()
+    if organization:
+        return Task.objects.filter(
+            Q(organization=organization) | Q(project__organization=organization),
+            assignee_relationships__user=user
+        ).distinct().order_by('due_date', 'due_time', 'created_at')
+    return Task.objects.filter(assignee_relationships__user=user).distinct().order_by('due_date', 'due_time', 'created_at')
+
+def get_canonical_user_pending_tasks(user, organization=None, now=None):
+    if now is None:
+        now = timezone.now()
+    user_tasks = get_canonical_user_tasks(user, organization)
+    incomplete_tasks = user_tasks.exclude(status='COMPLETED').filter(due_date__isnull=False)
+    pending_ids = []
+    for t in incomplete_tasks:
+        if get_task_due_datetime(t.due_date, t.due_time) < now:
+            pending_ids.append(t.id)
+    return user_tasks.filter(id__in=pending_ids)
+
 def calculate_user_health_metrics(user, start_date=None, end_date=None, organization=None):
     now = timezone.now()
     today_date = now.date()
@@ -54,39 +77,33 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None, organiza
     
     # pyrefly: ignore [missing-import]
     from apps.tasks.models import TaskAssignee, SubTaskAssignee
+    from django.db.models import Q
     
+    user_tasks = get_canonical_user_tasks(user, organization)
+    pending_tasks_qs = get_canonical_user_pending_tasks(user, organization, now=now)
+    pending_tasks_count = pending_tasks_qs.count()
+    overdue_tasks_count = pending_tasks_count
+
+    today_tasks_count = user_tasks.filter(due_date=today_date).count()
+    today_incomplete_count = user_tasks.filter(due_date=today_date).exclude(status='COMPLETED').count()
+    tomorrow_tasks_count = user_tasks.filter(due_date=tomorrow_date).count()
+
     if organization:
-        assignments = TaskAssignee.objects.filter(user=user, task__organization=organization).select_related('task')
-        subtask_assignments = SubTaskAssignee.objects.filter(user=user, subtask__task__organization=organization).select_related('subtask', 'subtask__task')
+        assignments = TaskAssignee.objects.filter(
+            Q(task__organization=organization) | Q(task__project__organization=organization),
+            user=user
+        ).select_related('task')
+        subtask_assignments = SubTaskAssignee.objects.filter(
+            Q(subtask__task__organization=organization) | Q(subtask__task__project__organization=organization),
+            user=user
+        ).select_related('subtask', 'subtask__task')
     else:
         assignments = TaskAssignee.objects.filter(user=user).select_related('task')
         subtask_assignments = SubTaskAssignee.objects.filter(user=user).select_related('subtask', 'subtask__task')
     
     # pyrefly: ignore [missing-import]
     from apps.tasks.helpers import get_task_due_datetime
-    now = timezone.now()
-
-    # 1. Operational Task Counts (Current state - independent of historical reporting period)
-    pending_tasks_count = 0  # status != COMPLETED and due_date and due_datetime < now
-    overdue_tasks_count = 0  # status != COMPLETED and due_date and due_datetime < now
-    today_tasks_count = 0    # due_date == today (both completed & incomplete)
-    today_incomplete_count = 0
-    tomorrow_tasks_count = 0 # due_date == tomorrow (both completed & incomplete)
-
-    for a in assignments:
-        t = a.task
-        if t.status != 'COMPLETED' and t.due_date:
-            due_dt = get_task_due_datetime(t.due_date, t.due_time)
-            if due_dt < now:
-                pending_tasks_count += 1
-                overdue_tasks_count += 1
-        if t.due_date == today_date:
-            today_tasks_count += 1
-            if t.status != 'COMPLETED':
-                today_incomplete_count += 1
-        if t.due_date == tomorrow_date:
-            tomorrow_tasks_count += 1
-
+    
     for sa in subtask_assignments:
         st = sa.subtask
         if st.status != 'COMPLETED' and st.due_date:
@@ -1037,12 +1054,7 @@ class TeamWorkloadView(views.APIView):
         yesterday = today - timedelta(days=1)
         tomorrow = today + timedelta(days=1)
 
-        # Query unique task IDs first for active organization
-        if active_org:
-            task_ids = Task.objects.filter(organization=active_org, assignee_relationships__user=user).values_list('id', flat=True).distinct()
-        else:
-            task_ids = Task.objects.none()
-        user_tasks = Task.objects.filter(id__in=task_ids).order_by('due_date', 'due_time')
+        user_tasks = get_canonical_user_tasks(user, active_org)
 
         # Workload capacity calculations
         membership = Membership.objects.filter(user=user, organization=active_org).first() or Membership.objects.filter(user=user).first()
@@ -1086,14 +1098,7 @@ class TeamWorkloadView(views.APIView):
         incomplete_tasks = user_tasks.exclude(status='COMPLETED')
 
         now = timezone.now()
-        from apps.tasks.helpers import get_task_due_datetime
-
-        pending_ids = []
-        for t in incomplete_tasks.filter(due_date__isnull=False):
-            if get_task_due_datetime(t.due_date, t.due_time) < now:
-                pending_ids.append(t.id)
-
-        pending_tasks = user_tasks.filter(id__in=pending_ids)
+        pending_tasks = get_canonical_user_pending_tasks(user, active_org, now=now)
         overdue_tasks = pending_tasks
         today_tasks = user_tasks.filter(due_date=today)
         tomorrow_tasks = user_tasks.filter(due_date=tomorrow)
@@ -1330,9 +1335,7 @@ class TeamTasksView(views.APIView):
         today_date = now.date()
 
         # Query using the canonical assignment relationship scoped to active org
-        queryset = Task.objects.filter(organization=active_org, assignee_relationships__user=user).distinct()
-        
-        queryset = queryset.order_by('due_date', 'due_time', 'created_at')
+        queryset = get_canonical_user_tasks(user, active_org)
             
         context = {'request': request, 'target_user': user}
         serializer = TaskSerializer(queryset, many=True, context=context)

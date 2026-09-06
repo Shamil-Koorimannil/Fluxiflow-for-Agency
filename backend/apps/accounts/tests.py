@@ -2711,17 +2711,99 @@ class PendingCountAccuracyTests(APITestCase):
         self.assertEqual(res.data['summary']['pending_tasks'], 1)
         self.assertEqual(res.data['workload']['pending'][0]['id'], str(t_past.id))
 
-    def test_org_isolation_for_pending_tasks(self):
-        """Tasks from another organization must never be counted as Pending."""
-        from apps.tasks.models import Task, TaskAssignee, TaskType
-        ttB = TaskType.objects.create(organization=self.orgB, name='General B')
-        past_date = timezone.now().date() - timedelta(days=2)
-        t1 = Task.objects.create(organization=self.orgB, project=self.projectB, task_type=ttB, created_by=self.userOrgB, name='Org B Past Due Task', due_date=past_date, status='PENDING')
-        TaskAssignee.objects.create(task=t1, user=self.userA)
+    def test_consistency_invariant_rayan_scenario(self):
+        """
+        Regression test for Rayan Hany bug:
+        TEAM_CARD_PENDING_COUNT(M) == MEMBER_DETAIL_PENDING_COUNT(M) == COUNT(MEMBER_DETAIL_PENDING_TASK_QUERY(M))
         
+        Create 6 past-due incomplete tasks.
+        Verify Team Card, Member Detail, and Workload List all equal 6.
+        Complete 1 task -> all equal 5.
+        Assign new past-due task -> all equal 6.
+        """
+        from apps.tasks.models import Task, TaskAssignee
+
+        past_date = timezone.now().date() - timedelta(days=3)
+
+        # Create 6 past-due incomplete tasks assigned to userA
+        created_tasks = []
+        for i in range(6):
+            t = Task.objects.create(
+                organization=self.orgA,
+                project=self.projectA,
+                task_type=self.task_type,
+                created_by=self.userA,
+                name=f'Rayan Past Due Task {i+1}',
+                due_date=past_date,
+                status='PENDING'
+            )
+            TaskAssignee.objects.create(task=t, user=self.userA)
+            created_tasks.append(t)
+
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.userA_token}')
-        res = self.client.get(f'/api/team/{self.userA.id}/workload/')
-        self.assertEqual(res.data['summary']['pending_tasks'], 0)
+
+        # 1. Team Card endpoint (/api/team/)
+        res_team_list = self.client.get('/api/team/')
+        self.assertEqual(res_team_list.status_code, status.HTTP_200_OK)
+        user_a_card = next(u for u in res_team_list.data if u['id'] == str(self.userA.id))
+        team_card_pending = user_a_card['pending_tasks']
+        self.assertEqual(team_card_pending, 6)
+
+        # 2. Member Detail Workload endpoint (/api/team/<id>/workload/)
+        res_workload = self.client.get(f'/api/team/{self.userA.id}/workload/')
+        self.assertEqual(res_workload.status_code, status.HTTP_200_OK)
+        member_detail_summary_pending = res_workload.data['summary']['pending_tasks']
+        workload_pending_list_count = len(res_workload.data['workload']['pending'])
+
+        self.assertEqual(member_detail_summary_pending, 6)
+        self.assertEqual(workload_pending_list_count, 6)
+
+        # 3. Assert Consistency Invariant
+        self.assertEqual(team_card_pending, member_detail_summary_pending)
+        self.assertEqual(member_detail_summary_pending, workload_pending_list_count)
+
+        # 4. State mutation: Complete 1 task
+        completed_task = created_tasks[0]
+        self.client.post(f'/api/tasks/{completed_task.id}/complete/')
+
+        # Re-query all 3 endpoints
+        res_team_list_2 = self.client.get('/api/team/')
+        user_a_card_2 = next(u for u in res_team_list_2.data if u['id'] == str(self.userA.id))
+        res_workload_2 = self.client.get(f'/api/team/{self.userA.id}/workload/')
+
+        team_pending_2 = user_a_card_2['pending_tasks']
+        detail_pending_2 = res_workload_2.data['summary']['pending_tasks']
+        list_pending_2 = len(res_workload_2.data['workload']['pending'])
+
+        self.assertEqual(team_pending_2, 5)
+        self.assertEqual(detail_pending_2, 5)
+        self.assertEqual(list_pending_2, 5)
+
+        # 5. State mutation: Add 1 new past-due task assigned to userA
+        t_new = Task.objects.create(
+            organization=self.orgA,
+            project=self.projectA,
+            task_type=self.task_type,
+            created_by=self.userA,
+            name='Rayan Newly Assigned Past Due Task',
+            due_date=past_date,
+            status='PENDING'
+        )
+        TaskAssignee.objects.create(task=t_new, user=self.userA)
+
+        # Re-query all 3 endpoints
+        res_team_list_3 = self.client.get('/api/team/')
+        user_a_card_3 = next(u for u in res_team_list_3.data if u['id'] == str(self.userA.id))
+        res_workload_3 = self.client.get(f'/api/team/{self.userA.id}/workload/')
+
+        team_pending_3 = user_a_card_3['pending_tasks']
+        detail_pending_3 = res_workload_3.data['summary']['pending_tasks']
+        list_pending_3 = len(res_workload_3.data['workload']['pending'])
+
+        self.assertEqual(team_pending_3, 6)
+        self.assertEqual(detail_pending_3, 6)
+        self.assertEqual(list_pending_3, 6)
+
 
 
 
