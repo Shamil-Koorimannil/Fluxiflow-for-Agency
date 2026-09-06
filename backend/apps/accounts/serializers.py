@@ -30,7 +30,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 class ProfileSerializer(serializers.ModelSerializer):
     class Meta:  # type: ignore
         model = Profile
-        fields = ['id', 'avatar']
+        fields = ['id', 'avatar', 'timezone']
 
 class UserSerializer(serializers.ModelSerializer):
     profile = ProfileSerializer(read_only=True)
@@ -112,7 +112,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Organization
-        fields = ['id', 'name', 'display_name', 'effective_name', 'slug', 'logo', 'logo_url', 'description', 'enable_task_types', 'weekly_capacity_hours', 'is_active', 'created_at', 'role']
+        fields = ['id', 'name', 'display_name', 'effective_name', 'slug', 'logo', 'logo_url', 'description', 'enable_task_types', 'weekly_capacity_hours', 'timezone', 'is_active', 'created_at', 'role']
         read_only_fields = ['id', 'created_at', 'slug', 'effective_name']
 
     def get_logo_url(self, obj):
@@ -148,7 +148,7 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:  # type: ignore
         model = Profile
-        fields = ['id', 'avatar', 'name', 'email']
+        fields = ['id', 'avatar', 'name', 'email', 'timezone']
 
     def update(self, instance, validated_data):
         user_data = validated_data.pop('user', {})
@@ -162,9 +162,11 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
             
         user.save()
         
-        # Update Profile avatar if provided
+        # Update Profile avatar/timezone if provided
         if 'avatar' in validated_data:
             instance.avatar = validated_data['avatar']
+        if 'timezone' in validated_data:
+            instance.timezone = validated_data['timezone']
             
         instance.save()
         return instance

@@ -24,16 +24,18 @@ from .tenant_context import get_active_membership, get_active_organization, get_
 import datetime
 from django.utils.timezone import make_aware
 
+from apps.core.timezone_utils import (
+    resolve_business_tz,
+    get_business_now,
+    get_business_today,
+    get_business_tomorrow,
+    get_task_due_datetime_in_tz
+)
+
 User: type[CustomUser] = get_user_model()  # type: ignore
 
-def get_task_due_datetime(due_date, due_time):
-    if due_time:
-        due_dt = datetime.datetime.combine(due_date, due_time)
-    else:
-        due_dt = datetime.datetime.combine(due_date, datetime.time(23, 59, 59))
-    if timezone.is_naive(due_dt):
-        return make_aware(due_dt)
-    return due_dt
+def get_task_due_datetime(due_date, due_time, tz=None, request=None, organization=None, user=None):
+    return get_task_due_datetime_in_tz(due_date, due_time, tz=tz, request=request, organization=organization, user=user)
 
 def get_canonical_user_tasks(user, organization=None):
     from apps.tasks.models import Task
@@ -47,19 +49,30 @@ def get_canonical_user_tasks(user, organization=None):
         ).distinct().order_by('due_date', 'due_time', 'created_at')
     return Task.objects.filter(assignee_relationships__user=user).distinct().order_by('due_date', 'due_time', 'created_at')
 
-def get_canonical_user_pending_tasks(user, organization=None, now=None):
+def get_canonical_user_pending_tasks(user, organization=None, now=None, tz=None, request=None):
+    tz = resolve_business_tz(request=request, organization=organization, user=user)
     if now is None:
-        now = timezone.now()
+        now_in_tz = get_business_now(request=request, organization=organization, user=user, tz=tz)
+    else:
+        if timezone.is_naive(now):
+            now_in_tz = timezone.make_aware(now, tz)
+        else:
+            now_in_tz = now.astimezone(tz)
+            
     user_tasks = get_canonical_user_tasks(user, organization)
     incomplete_tasks = user_tasks.exclude(status='COMPLETED').filter(due_date__isnull=False)
     pending_ids = []
     for t in incomplete_tasks:
-        if get_task_due_datetime(t.due_date, t.due_time) < now:
+        due_dt = get_task_due_datetime_in_tz(t.due_date, t.due_time, tz=tz)
+        if due_dt < now_in_tz:
             pending_ids.append(t.id)
     return user_tasks.filter(id__in=pending_ids)
 
-def calculate_user_health_metrics(user, start_date=None, end_date=None, organization=None):
-    now = timezone.now()
+def calculate_user_health_metrics(user, start_date=None, end_date=None, organization=None, request=None, tz=None):
+    if tz is None:
+        tz = resolve_business_tz(request=request, organization=organization, user=user)
+
+    now = get_business_now(request=request, organization=organization, user=user, tz=tz)
     today_date = now.date()
     tomorrow_date = today_date + timedelta(days=1)
     
@@ -80,7 +93,7 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None, organiza
     from django.db.models import Q
     
     user_tasks = get_canonical_user_tasks(user, organization)
-    pending_tasks_qs = get_canonical_user_pending_tasks(user, organization, now=now)
+    pending_tasks_qs = get_canonical_user_pending_tasks(user, organization, now=now, tz=tz, request=request)
     pending_tasks_count = pending_tasks_qs.count()
     overdue_tasks_count = pending_tasks_count
 
@@ -101,13 +114,10 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None, organiza
         assignments = TaskAssignee.objects.filter(user=user).select_related('task')
         subtask_assignments = SubTaskAssignee.objects.filter(user=user).select_related('subtask', 'subtask__task')
     
-    # pyrefly: ignore [missing-import]
-    from apps.tasks.helpers import get_task_due_datetime
-    
     for sa in subtask_assignments:
         st = sa.subtask
         if st.status != 'COMPLETED' and st.due_date:
-            due_dt = get_task_due_datetime(st.due_date, st.due_time)
+            due_dt = get_task_due_datetime_in_tz(st.due_date, st.due_time, tz=tz)
             if due_dt < now:
                 pending_tasks_count += 1
                 overdue_tasks_count += 1
@@ -465,7 +475,7 @@ class MeView(views.APIView):
             logging.getLogger(__name__).warning("MeView membership exception: %s", str(e))
 
         active_org = get_active_organization(request.user, request=request)
-        metrics = calculate_user_health_metrics(request.user, organization=active_org)
+        metrics = calculate_user_health_metrics(request.user, organization=active_org, request=request)
 
         return Response({
             **user_data,
@@ -579,7 +589,7 @@ class TeamListView(views.APIView):
         
         data = []
         for user in users:
-            metrics = calculate_user_health_metrics(user, start_date=start_date, end_date=end_date, organization=active_org)
+            metrics = calculate_user_health_metrics(user, start_date=start_date, end_date=end_date, organization=active_org, request=request)
             user_data = UserSerializer(user, context={'request': request}).data
             
             # Map role based on active organization membership
@@ -1049,8 +1059,10 @@ class TeamWorkloadView(views.APIView):
         if start_date and end_date and start_date > end_date:
             return Response({"detail": "Invalid date range: start date cannot be after end date."}, status=status.HTTP_400_BAD_REQUEST)
 
-        metrics = calculate_user_health_metrics(user, start_date=start_date, end_date=end_date, organization=active_org)
-        today = timezone.now().date()
+        tz = resolve_business_tz(request=request, organization=active_org, user=user)
+        metrics = calculate_user_health_metrics(user, start_date=start_date, end_date=end_date, organization=active_org, request=request, tz=tz)
+        now = get_business_now(request=request, organization=active_org, user=user, tz=tz)
+        today = now.date()
         yesterday = today - timedelta(days=1)
         tomorrow = today + timedelta(days=1)
 
@@ -1097,8 +1109,7 @@ class TeamWorkloadView(views.APIView):
         completed_tasks = user_tasks.filter(status='COMPLETED').order_by('-completed_at')
         incomplete_tasks = user_tasks.exclude(status='COMPLETED')
 
-        now = timezone.now()
-        pending_tasks = get_canonical_user_pending_tasks(user, active_org, now=now)
+        pending_tasks = get_canonical_user_pending_tasks(user, active_org, now=now, tz=tz, request=request)
         overdue_tasks = pending_tasks
         today_tasks = user_tasks.filter(due_date=today)
         tomorrow_tasks = user_tasks.filter(due_date=tomorrow)
@@ -1262,7 +1273,7 @@ class TeamMemberPerformanceReportDownloadView(views.APIView):
             return Response({"detail": "Invalid date range: start date cannot be after end date."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Canonical calculation metrics
-        metrics = calculate_user_health_metrics(user, start_date=start_date, end_date=end_date, organization=active_org)
+        metrics = calculate_user_health_metrics(user, start_date=start_date, end_date=end_date, organization=active_org, request=request)
 
         # Query user tasks for active organization
         if active_org:

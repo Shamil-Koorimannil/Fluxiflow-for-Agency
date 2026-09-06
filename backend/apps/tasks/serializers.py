@@ -522,66 +522,20 @@ class TaskSerializer(serializers.ModelSerializer):
             rep['late_by_minutes'] = late_mins
 
         # Calculate date representation
-        from datetime import timedelta, time, datetime
-        
-        now_local = timezone.localtime(timezone.now())
-        today = now_local.date()
-        
-        due_date = instance.due_date
-        due_time = instance.due_time
-        
-        if not due_date:
-            date_display = "No due date"
-            date_color = "gray"
-        else:
-            # Combine due date & time to make aware datetime for comparison
-            if due_time:
-                due_dt = datetime.combine(due_date, due_time)
-            else:
-                due_dt = datetime.combine(due_date, time(23, 59, 59))
-            
-            if timezone.is_naive(due_dt):
-                due_dt = timezone.make_aware(due_dt, timezone.get_current_timezone())
-                
-            due_dt = timezone.localtime(due_dt)
-            
-            time_str = ""
-            if due_time:
-                time_str = f" · {due_time.strftime('%I:%M %p')}"
+        from apps.tasks.helpers import calculate_date_display_color
+        request = self.context.get('request')
+        target_user = self.context.get('target_user')
+        org = instance.organization or (instance.project.organization if instance.project else None)
 
-            if is_completed:
-                date_color = 'gray'
-                if completed_at_val:
-                    completed_local = timezone.localtime(completed_at_val)
-                    completed_date = completed_local.date()
-                    if completed_date == today:
-                        date_display = "Completed Today"
-                    elif completed_date == today - timedelta(days=1):
-                        date_display = "Completed Yesterday"
-                    else:
-                        date_display = f"Completed {completed_date.strftime('%b %d')}"
-                else:
-                    date_display = "Completed"
-            else:
-                # Incomplete
-                if due_dt < now_local:
-                    # Overdue!
-                    date_color = 'red'
-                    if due_date == today - timedelta(days=1):
-                        date_display = f"Yesterday{time_str}"
-                    else:
-                        date_display = f"{due_date.strftime('%b %d')}{time_str}"
-                else:
-                    # Future or Today
-                    if due_date == today:
-                        date_color = 'amber'
-                        date_display = f"Today{time_str}"
-                    elif due_date == today + timedelta(days=1):
-                        date_color = 'green'
-                        date_display = f"Tomorrow{time_str}"
-                    else:
-                        date_color = 'gray'
-                        date_display = f"{due_date.strftime('%b %d')}{time_str}"
+        date_display, date_color = calculate_date_display_color(
+            due_date_str=instance.due_date,
+            due_time=instance.due_time,
+            is_completed=is_completed,
+            completed_at_val=completed_at_val,
+            request=request,
+            organization=org,
+            user=target_user or (request.user if request and request.user.is_authenticated else None)
+        )
 
         rep['date_display'] = date_display
         rep['date_color'] = date_color

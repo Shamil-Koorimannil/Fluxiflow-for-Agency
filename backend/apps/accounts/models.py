@@ -12,6 +12,7 @@ class Organization(models.Model):
     description = models.TextField(blank=True, default='')
     enable_task_types = models.BooleanField(default=True)
     weekly_capacity_hours = models.IntegerField(default=40)
+    timezone = models.CharField(max_length=100, default='UTC', blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -124,6 +125,7 @@ class Profile(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='profile')
     avatar = models.ImageField(upload_to='avatars/', null=True, blank=True)
+    timezone = models.CharField(max_length=100, default='', blank=True)
     
     objects = models.Manager()
     

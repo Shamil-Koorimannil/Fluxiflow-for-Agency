@@ -1,6 +1,7 @@
 import re
 import hashlib
 from django.utils import timezone
+import datetime
 from datetime import timedelta
 from django.contrib.auth import get_user_model
 from django.core import mail
@@ -2803,6 +2804,310 @@ class PendingCountAccuracyTests(APITestCase):
         self.assertEqual(team_pending_3, 6)
         self.assertEqual(detail_pending_3, 6)
         self.assertEqual(list_pending_3, 6)
+
+
+class TimezoneTaskClassificationTests(APITestCase):
+    def setUp(self):
+        import datetime
+        from apps.accounts.models import Organization, CustomUser, Membership
+        from apps.projects.models import Project
+        from apps.tasks.models import TaskType, Task, TaskAssignee
+        from rest_framework_simplejwt.tokens import RefreshToken
+
+        self.org_ist = Organization.objects.create(name='IST Org', timezone='Asia/Kolkata')
+        self.user_ist = CustomUser.objects.create_user(email='ist_user@example.com', name='IST User', status='ACTIVE')
+        Membership.objects.create(organization=self.org_ist, user=self.user_ist, role='ORG_ADMIN')
+        self.user_ist.active_organization = self.org_ist
+        self.user_ist.save()
+
+        self.project_ist = Project.objects.create(name='IST Project', organization=self.org_ist, created_by=self.user_ist)
+        self.task_type = TaskType.objects.create(organization=self.org_ist, name='General')
+        token = RefreshToken.for_user(self.user_ist)
+        self.token_str = str(token.access_token)
+
+    def test_scenario_a_same_timezone_before_midnight(self):
+        """A. Same timezone (Asia/Kolkata), before midnight (2026-09-06 23:59:00 IST) -> NOT overdue"""
+        from datetime import date
+        import zoneinfo
+        from apps.accounts.views import get_canonical_user_pending_tasks
+        from apps.tasks.models import Task, TaskAssignee
+
+        tz = zoneinfo.ZoneInfo('Asia/Kolkata')
+        frozen_now = datetime.datetime(2026, 9, 6, 23, 59, 0, tzinfo=tz)
+
+        t = Task.objects.create(
+            organization=self.org_ist,
+            project=self.project_ist,
+            name='Task Sep 6',
+            due_date=date(2026, 9, 6),
+            status='PENDING',
+            created_by=self.user_ist
+        )
+        TaskAssignee.objects.create(task=t, user=self.user_ist)
+
+        pending = get_canonical_user_pending_tasks(self.user_ist, self.org_ist, now=frozen_now)
+        self.assertEqual(pending.count(), 0)
+
+    def test_scenario_b_same_timezone_after_midnight(self):
+        """B. Same timezone (Asia/Kolkata), after midnight (2026-09-07 00:00:01 IST) -> OVERDUE"""
+        from datetime import date
+        import zoneinfo
+        from apps.accounts.views import get_canonical_user_pending_tasks
+        from apps.tasks.models import Task, TaskAssignee
+
+        tz = zoneinfo.ZoneInfo('Asia/Kolkata')
+        frozen_now = datetime.datetime(2026, 9, 7, 0, 0, 1, tzinfo=tz)
+
+        t = Task.objects.create(
+            organization=self.org_ist,
+            project=self.project_ist,
+            name='Task Sep 6',
+            due_date=date(2026, 9, 6),
+            status='PENDING',
+            created_by=self.user_ist
+        )
+        TaskAssignee.objects.create(task=t, user=self.user_ist)
+
+        pending = get_canonical_user_pending_tasks(self.user_ist, self.org_ist, now=frozen_now)
+        self.assertEqual(pending.count(), 1)
+
+    def test_scenario_c_real_reported_rayan_scenario(self):
+        """
+        C. Real reported scenario:
+        Organization timezone: Asia/Kolkata
+        Current local user time: 2026-09-07 02:20 IST
+        6 incomplete tasks due 2026-09-06.
+        Must produce:
+        Team card pending = 6
+        Member summary total_pending = 6, overdue = 6
+        Member workload pending = 6
+        Member workload today = 0 of those 6 tasks
+        """
+        from datetime import date
+        import zoneinfo
+        from unittest.mock import patch
+        from apps.tasks.models import Task, TaskAssignee
+
+        tz = zoneinfo.ZoneInfo('Asia/Kolkata')
+        frozen_now = datetime.datetime(2026, 9, 7, 2, 20, 0, tzinfo=tz)
+
+        task_names = [
+            'Package design', 'Tackinghead video', 'Poster',
+            'Research/Analysis', 'Creative Setup', 'Campaign setup'
+        ]
+        for name in task_names:
+            t = Task.objects.create(
+                organization=self.org_ist,
+                project=self.project_ist,
+                name=name,
+                due_date=date(2026, 9, 6),
+                status='PENDING',
+                created_by=self.user_ist
+            )
+            TaskAssignee.objects.create(task=t, user=self.user_ist)
+
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.token_str}', HTTP_X_TIMEZONE='Asia/Kolkata')
+
+        # Patch timezone.now to return frozen_now in UTC
+        with patch('django.utils.timezone.now', return_value=frozen_now.astimezone(datetime.timezone.utc)):
+            # 1. Team API
+            res_team = self.client.get('/api/team/')
+            self.assertEqual(res_team.status_code, 200)
+            user_card = next(u for u in res_team.data if u['id'] == str(self.user_ist.id))
+            self.assertEqual(user_card['pending_tasks'], 6)
+            self.assertEqual(user_card['today_tasks'], 0)
+
+            # 2. Member Workload API
+            res_workload = self.client.get(f'/api/team/{self.user_ist.id}/workload/')
+            self.assertEqual(res_workload.status_code, 200)
+
+            summary = res_workload.data['summary']
+            self.assertEqual(summary['pending_tasks'], 6)
+            self.assertEqual(summary['overdue_tasks'], 6)
+            self.assertEqual(summary['today_tasks'], 0)
+
+            workload = res_workload.data['workload']
+            self.assertEqual(len(workload['pending']), 6)
+            self.assertEqual(len(workload['today']), 0)
+            self.assertEqual(len(workload['overdue']), 6)
+
+    def test_scenario_d_saudi_timezone(self):
+        """D. Saudi timezone (Asia/Riyadh, UTC+3) midnight boundary"""
+        from datetime import date
+        import zoneinfo
+        from apps.accounts.models import Organization
+        from apps.accounts.views import get_canonical_user_pending_tasks
+        from apps.tasks.models import Task, TaskAssignee
+
+        org_sa = Organization.objects.create(name='Saudi Org', timezone='Asia/Riyadh')
+        self.user_ist.active_organization = org_sa
+        self.user_ist.save()
+
+        tz = zoneinfo.ZoneInfo('Asia/Riyadh')
+        before_midnight = datetime.datetime(2026, 9, 6, 23, 59, 59, tzinfo=tz)
+        after_midnight = datetime.datetime(2026, 9, 7, 0, 0, 1, tzinfo=tz)
+
+        t = Task.objects.create(
+            organization=org_sa,
+            project=self.project_ist,
+            name='Saudi Task',
+            due_date=date(2026, 9, 6),
+            status='PENDING',
+            created_by=self.user_ist
+        )
+        TaskAssignee.objects.create(task=t, user=self.user_ist)
+
+        self.assertEqual(get_canonical_user_pending_tasks(self.user_ist, org_sa, now=before_midnight).count(), 0)
+        self.assertEqual(get_canonical_user_pending_tasks(self.user_ist, org_sa, now=after_midnight).count(), 1)
+
+    def test_scenario_e_oman_timezone(self):
+        """E. Oman timezone (Asia/Muscat, UTC+4) midnight boundary"""
+        from datetime import date
+        import zoneinfo
+        from apps.accounts.models import Organization
+        from apps.accounts.views import get_canonical_user_pending_tasks
+        from apps.tasks.models import Task, TaskAssignee
+
+        org_om = Organization.objects.create(name='Oman Org', timezone='Asia/Muscat')
+        tz = zoneinfo.ZoneInfo('Asia/Muscat')
+        before_midnight = datetime.datetime(2026, 9, 6, 23, 59, 59, tzinfo=tz)
+        after_midnight = datetime.datetime(2026, 9, 7, 0, 0, 1, tzinfo=tz)
+
+        t = Task.objects.create(
+            organization=org_om,
+            project=self.project_ist,
+            name='Oman Task',
+            due_date=date(2026, 9, 6),
+            status='PENDING',
+            created_by=self.user_ist
+        )
+        TaskAssignee.objects.create(task=t, user=self.user_ist)
+
+        self.assertEqual(get_canonical_user_pending_tasks(self.user_ist, org_om, now=before_midnight).count(), 0)
+        self.assertEqual(get_canonical_user_pending_tasks(self.user_ist, org_om, now=after_midnight).count(), 1)
+
+    def test_scenario_f_utc_organization(self):
+        """F. UTC organization timezone"""
+        from datetime import date
+        import zoneinfo
+        from apps.accounts.models import Organization
+        from apps.accounts.views import get_canonical_user_pending_tasks
+        from apps.tasks.models import Task, TaskAssignee
+
+        org_utc = Organization.objects.create(name='UTC Org', timezone='UTC')
+        tz = zoneinfo.ZoneInfo('UTC')
+        before_midnight = datetime.datetime(2026, 9, 6, 23, 59, 59, tzinfo=tz)
+        after_midnight = datetime.datetime(2026, 9, 7, 0, 0, 1, tzinfo=tz)
+
+        t = Task.objects.create(
+            organization=org_utc,
+            project=self.project_ist,
+            name='UTC Task',
+            due_date=date(2026, 9, 6),
+            status='PENDING',
+            created_by=self.user_ist
+        )
+        TaskAssignee.objects.create(task=t, user=self.user_ist)
+
+        self.assertEqual(get_canonical_user_pending_tasks(self.user_ist, org_utc, now=before_midnight).count(), 0)
+        self.assertEqual(get_canonical_user_pending_tasks(self.user_ist, org_utc, now=after_midnight).count(), 1)
+
+    def test_scenario_g_task_with_explicit_due_time(self):
+        """G. Explicit due_time Sep 7 09:00: at 08:59 not overdue, at 09:01 overdue"""
+        from datetime import date, time
+        import zoneinfo
+        from apps.accounts.views import get_canonical_user_pending_tasks
+        from apps.tasks.models import Task, TaskAssignee
+
+        tz = zoneinfo.ZoneInfo('Asia/Kolkata')
+        before_due = datetime.datetime(2026, 9, 7, 8, 59, 0, tzinfo=tz)
+        after_due = datetime.datetime(2026, 9, 7, 9, 1, 0, tzinfo=tz)
+
+        t = Task.objects.create(
+            organization=self.org_ist,
+            project=self.project_ist,
+            name='Timed Task',
+            due_date=date(2026, 9, 7),
+            due_time=time(9, 0, 0),
+            status='PENDING',
+            created_by=self.user_ist
+        )
+        TaskAssignee.objects.create(task=t, user=self.user_ist)
+
+        self.assertEqual(get_canonical_user_pending_tasks(self.user_ist, self.org_ist, now=before_due).count(), 0)
+        self.assertEqual(get_canonical_user_pending_tasks(self.user_ist, self.org_ist, now=after_due).count(), 1)
+
+    def test_scenario_h_no_due_date(self):
+        """H. No due date must never become overdue"""
+        import zoneinfo
+        from apps.accounts.views import get_canonical_user_pending_tasks
+        from apps.tasks.models import Task, TaskAssignee
+
+        tz = zoneinfo.ZoneInfo('Asia/Kolkata')
+        now = datetime.datetime(2026, 9, 7, 12, 0, 0, tzinfo=tz)
+
+        t = Task.objects.create(
+            organization=self.org_ist,
+            project=self.project_ist,
+            name='No Due Date Task',
+            due_date=None,
+            status='PENDING',
+            created_by=self.user_ist
+        )
+        TaskAssignee.objects.create(task=t, user=self.user_ist)
+
+        self.assertEqual(get_canonical_user_pending_tasks(self.user_ist, self.org_ist, now=now).count(), 0)
+
+    def test_scenario_i_completed_overdue_task(self):
+        """I. Completed overdue task must never appear in Pending/Overdue"""
+        from datetime import date
+        import zoneinfo
+        from apps.accounts.views import get_canonical_user_pending_tasks
+        from apps.tasks.models import Task, TaskAssignee
+
+        tz = zoneinfo.ZoneInfo('Asia/Kolkata')
+        now = datetime.datetime(2026, 9, 7, 12, 0, 0, tzinfo=tz)
+
+        t = Task.objects.create(
+            organization=self.org_ist,
+            project=self.project_ist,
+            name='Completed Task',
+            due_date=date(2026, 9, 6),
+            status='COMPLETED',
+            completed_at=now,
+            created_by=self.user_ist
+        )
+        TaskAssignee.objects.create(task=t, user=self.user_ist)
+
+        self.assertEqual(get_canonical_user_pending_tasks(self.user_ist, self.org_ist, now=now).count(), 0)
+
+    def test_scenario_j_dst_timezone(self):
+        """J. DST timezone (America/New_York) transition boundary"""
+        from datetime import date
+        import zoneinfo
+        from apps.accounts.models import Organization
+        from apps.accounts.views import get_canonical_user_pending_tasks
+        from apps.tasks.models import Task, TaskAssignee
+
+        org_dst = Organization.objects.create(name='DST Org', timezone='America/New_York')
+        tz = zoneinfo.ZoneInfo('America/New_York')
+
+        before_midnight = datetime.datetime(2026, 11, 1, 23, 59, 59, tzinfo=tz)
+        after_midnight = datetime.datetime(2026, 11, 2, 0, 0, 1, tzinfo=tz)
+
+        t = Task.objects.create(
+            organization=org_dst,
+            project=self.project_ist,
+            name='DST Task',
+            due_date=date(2026, 11, 1),
+            status='PENDING',
+            created_by=self.user_ist
+        )
+        TaskAssignee.objects.create(task=t, user=self.user_ist)
+
+        self.assertEqual(get_canonical_user_pending_tasks(self.user_ist, org_dst, now=before_midnight).count(), 0)
+        self.assertEqual(get_canonical_user_pending_tasks(self.user_ist, org_dst, now=after_midnight).count(), 1)
+
 
 
 

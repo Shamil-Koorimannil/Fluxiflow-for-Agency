@@ -58,7 +58,7 @@ export const clearTokens = () => {
   sessionStorage.removeItem('refreshToken');
 };
 
-// Request Interceptor: Attach token and active organization ID
+// Request Interceptor: Attach token, active organization ID, and client timezone
 api.interceptors.request.use(
   (config) => {
     const token = getAccessToken();
@@ -68,6 +68,11 @@ api.interceptors.request.use(
     const activeOrgId = localStorage.getItem('activeOrganizationId') || sessionStorage.getItem('activeOrganizationId');
     if (activeOrgId) {
       config.headers['X-Organization-Id'] = activeOrgId;
+    }
+    try {
+      config.headers['X-Timezone'] = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch (e) {
+      // Fallback if Intl API unavailable
     }
     return config;
   },
