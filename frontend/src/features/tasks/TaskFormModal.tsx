@@ -353,14 +353,14 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
               <CustomDropdown
                 label="Assignee"
                 fullWidth
+                multiple={true}
                 disabled={submitMutation.isPending}
-                value={selectedAssigneeIds[0] || ''}
-                onChange={(val) => setSelectedAssigneeIds(val ? [val] : [])}
+                value={selectedAssigneeIds}
+                onChange={(val) => setSelectedAssigneeIds(val as string[])}
                 placeholder="Unassigned"
                 searchable={true}
                 searchPlaceholder="Search members by name or email..."
                 options={[
-                  { value: '', label: 'Unassigned' },
                   ...(teamMembers?.map((m) => ({
                     value: m.id,
                     label: m.name,

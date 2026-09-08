@@ -11,8 +11,9 @@ export interface DropdownOption<T extends string | number = string> {
 
 export interface CustomDropdownProps<T extends string | number = string> {
   options: DropdownOption<T>[];
-  value: T;
-  onChange: (value: T) => void;
+  value?: T | T[];
+  onChange?: (value: any) => void;
+  multiple?: boolean;
   label?: string;
   placeholder?: string;
   valuePrefix?: string;
@@ -33,6 +34,7 @@ export function CustomDropdown<T extends string | number = string>({
   options,
   value,
   onChange,
+  multiple = false,
   label,
   placeholder = 'Select option...',
   valuePrefix,
@@ -54,7 +56,28 @@ export function CustomDropdown<T extends string | number = string>({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const selectedOption = options.find((opt) => opt.value === value);
+  const checkIsSelected = (optVal: T): boolean => {
+    if (multiple) {
+      return Array.isArray(value) && value.includes(optVal);
+    }
+    return value === optVal;
+  };
+
+  const handleSelect = (optVal: T) => {
+    if (multiple) {
+      const currentValues = Array.isArray(value) ? value : [];
+      let newValues: T[];
+      if (currentValues.includes(optVal)) {
+        newValues = currentValues.filter((v) => v !== optVal);
+      } else {
+        newValues = [...currentValues, optVal];
+      }
+      onChange?.(newValues);
+    } else {
+      onChange?.(optVal);
+      setIsOpen(false);
+    }
+  };
 
   const filteredOptions = useMemo(() => {
     if (!searchable || !searchQuery.trim()) return options;
@@ -88,8 +111,7 @@ export function CustomDropdown<T extends string | number = string>({
         if (focusedIndex >= 0 && focusedIndex < filteredOptions.length) {
           const opt = filteredOptions[focusedIndex];
           if (!opt.disabled) {
-            onChange(opt.value);
-            setIsOpen(false);
+            handleSelect(opt.value);
           }
         }
       }
@@ -105,11 +127,11 @@ export function CustomDropdown<T extends string | number = string>({
       document.removeEventListener('touchstart', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen, focusedIndex, filteredOptions, onChange]);
+  }, [isOpen, focusedIndex, filteredOptions, onChange, multiple, value]);
 
   useEffect(() => {
     if (isOpen) {
-      const idx = filteredOptions.findIndex((opt) => opt.value === value);
+      const idx = filteredOptions.findIndex((opt) => checkIsSelected(opt.value));
       setFocusedIndex(idx >= 0 ? idx : 0);
       if (searchable) {
         setTimeout(() => searchInputRef.current?.focus(), 50);
@@ -125,7 +147,21 @@ export function CustomDropdown<T extends string | number = string>({
     lg: 'px-4 py-2.5 text-sm h-11 rounded-xl',
   };
 
-  const displayText = buttonText || (selectedOption ? `${valuePrefix || ''}${selectedOption.label}` : placeholder);
+  let displayText = buttonText;
+  if (!displayText) {
+    if (multiple) {
+      const selectedValues = Array.isArray(value) ? value : [];
+      const selectedOpts = options.filter((opt) => selectedValues.includes(opt.value));
+      if (selectedOpts.length === 0) {
+        displayText = placeholder;
+      } else {
+        displayText = selectedOpts.map((opt) => opt.label).join(', ');
+      }
+    } else {
+      const selectedOption = options.find((opt) => opt.value === value);
+      displayText = selectedOption ? `${valuePrefix || ''}${selectedOption.label}` : placeholder;
+    }
+  }
 
   return (
     <div
@@ -207,17 +243,14 @@ export function CustomDropdown<T extends string | number = string>({
               </div>
             ) : (
               filteredOptions.map((option, index) => {
-                const isSelected = option.value === value;
+                const isSelected = checkIsSelected(option.value);
                 const isFocused = index === focusedIndex;
                 return (
                   <button
                     key={String(option.value)}
                     type="button"
                     disabled={option.disabled}
-                    onClick={() => {
-                      onChange(option.value);
-                      setIsOpen(false);
-                    }}
+                    onClick={() => handleSelect(option.value)}
                     onMouseEnter={() => setFocusedIndex(index)}
                     className={`w-full flex items-center justify-between px-3.5 py-2 text-xs font-semibold text-left transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                       isSelected
@@ -227,7 +260,14 @@ export function CustomDropdown<T extends string | number = string>({
                         : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 hover:text-black dark:hover:text-white'
                     }`}
                   >
-                    <div className="flex items-center gap-2 truncate">
+                    <div className="flex items-center gap-2 truncate min-w-0">
+                      {multiple && (
+                        <span className="w-2.5 h-2.5 shrink-0 flex items-center justify-center">
+                          {isSelected && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-600 dark:bg-blue-500 shrink-0" />
+                          )}
+                        </span>
+                      )}
                       {option.icon && <span className="shrink-0">{option.icon}</span>}
                       <div className="truncate">
                         <span>{option.label}</span>
@@ -238,7 +278,7 @@ export function CustomDropdown<T extends string | number = string>({
                         )}
                       </div>
                     </div>
-                    {isSelected && (
+                    {!multiple && isSelected && (
                       <Check className="h-4 w-4 text-black dark:text-white shrink-0 ml-2" />
                     )}
                   </button>
