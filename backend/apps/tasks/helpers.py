@@ -16,15 +16,15 @@ def calculate_assignee_submission_status(assignee_obj, due_date, due_time, tz=No
     status_str: PENDING, OVERDUE, COMPLETED_ON_TIME, LATE
     """
     if hasattr(assignee_obj, 'task'):
-        is_completed = (assignee_obj.task.status == 'COMPLETED')
-        completed_at = assignee_obj.task.completed_at
+        is_completed = assignee_obj.completed
+        completed_at = assignee_obj.completed_at
         if not organization:
             organization = getattr(assignee_obj.task, 'organization', None) or getattr(getattr(assignee_obj.task, 'project', None), 'organization', None)
         if not user:
             user = getattr(assignee_obj, 'user', None)
     else:
-        is_completed = (assignee_obj.subtask.status == 'COMPLETED')
-        completed_at = assignee_obj.subtask.completed_at
+        is_completed = assignee_obj.completed
+        completed_at = assignee_obj.completed_at
         if not organization:
             task = getattr(assignee_obj.subtask, 'task', None)
             organization = getattr(task, 'organization', None) or getattr(getattr(task, 'project', None), 'organization', None)
@@ -153,26 +153,29 @@ def calculate_date_display_color(due_date_str, due_time, is_completed, completed
             elif completed_date == today - timedelta(days=1):
                 date_display = "Completed Yesterday"
             else:
-                date_display = f"Completed {completed_date.strftime('%b %d')}"
+                fmt = f"{completed_date.day} {completed_date.strftime('%b')}" if completed_date.year == today.year else f"{completed_date.day} {completed_date.strftime('%b %Y')}"
+                date_display = f"Completed {fmt}"
         else:
             date_display = "Completed"
     else:
-        # Incomplete
-        if due_dt < now_local:
+        # Incomplete tasks relative date classification
+        if due_date == today:
+            date_color = 'green'
+            date_display = f"Today{time_str}"
+        elif due_date == today + timedelta(days=1):
+            date_color = 'amber'
+            date_display = f"Tomorrow{time_str}"
+        elif due_date == today - timedelta(days=1):
             date_color = 'red'
-            if due_date == today - timedelta(days=1):
-                date_display = f"Yesterday{time_str}"
-            else:
-                date_display = f"{due_date.strftime('%b %d')}{time_str}"
+            date_display = f"Yesterday{time_str}"
+        elif due_date < today - timedelta(days=1):
+            date_color = 'red'
+            fmt = f"{due_date.day} {due_date.strftime('%b')}" if due_date.year == today.year else f"{due_date.day} {due_date.strftime('%b %Y')}"
+            date_display = f"{fmt}{time_str}"
         else:
-            if due_date == today:
-                date_color = 'amber'
-                date_display = f"Today{time_str}"
-            elif due_date == today + timedelta(days=1):
-                date_color = 'green'
-                date_display = f"Tomorrow{time_str}"
-            else:
-                date_color = 'gray'
-                date_display = f"{due_date.strftime('%b %d')}{time_str}"
+            date_color = 'gray'
+            fmt = f"{due_date.day} {due_date.strftime('%b')}" if due_date.year == today.year else f"{due_date.day} {due_date.strftime('%b %Y')}"
+            date_display = f"{fmt}{time_str}"
 
     return date_display, date_color
+

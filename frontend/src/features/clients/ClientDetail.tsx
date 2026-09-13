@@ -362,7 +362,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
       {/* Status Tabs, Date Filter & Sorting Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-3 border-b border-zinc-100 dark:border-zinc-900">
         {/* Status Tabs (Ongoing vs Completed) */}
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar max-w-full pb-1">
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar max-w-full py-1 px-0.5">
           <button
             onClick={() => setProjectStatusTab('ongoing')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition-all border whitespace-nowrap shrink-0 w-auto ${
@@ -1098,11 +1098,11 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
       </div>
 
       {/* Tabs Navigation */}
-      <div className="w-full min-w-0 flex items-center gap-2 mb-6 border-b border-zinc-200 dark:border-zinc-800 pb-2 overflow-x-auto no-scrollbar max-w-full p-1">
+      <div className="w-full min-w-0 flex items-center gap-2 mb-6 border-b border-zinc-200 dark:border-zinc-800 pt-2 pb-3 px-1 overflow-x-auto no-scrollbar max-w-full min-h-[54px]">
         <button
           type="button"
           onClick={() => setSearchParams({ tab: 'projects' })}
-          className={`flex items-center gap-2 px-3 sm:px-4 py-2 text-xs font-bold rounded-xl transition-colors whitespace-nowrap shrink-0 flex-none min-h-[38px] cursor-pointer ${
+          className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap shrink-0 flex-none cursor-pointer ${
             activeTab === 'projects'
               ? 'bg-black dark:bg-white text-white dark:text-black shadow-sm'
               : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800'
@@ -1115,7 +1115,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
         <button
           type="button"
           onClick={() => setSearchParams({ tab: 'assets' })}
-          className={`flex items-center gap-2 px-3 sm:px-4 py-2 text-xs font-bold rounded-xl transition-colors whitespace-nowrap shrink-0 flex-none min-h-[38px] cursor-pointer ${
+          className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap shrink-0 flex-none cursor-pointer ${
             activeTab === 'assets'
               ? 'bg-black dark:bg-white text-white dark:text-black shadow-sm'
               : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800'

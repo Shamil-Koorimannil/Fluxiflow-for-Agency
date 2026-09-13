@@ -134,11 +134,11 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None, organiza
     # 2. Historical Performance: Completed tasks/subtasks in 30-day health window
     completed_assignments_30 = [
         a for a in assignments 
-        if a.task.status == 'COMPLETED' and a.task.completed_at and rolling_30_start <= a.task.completed_at <= rolling_30_end
+        if a.completed and a.completed_at and rolling_30_start <= a.completed_at <= rolling_30_end
     ]
     completed_subtask_assignments_30 = [
         sa for sa in subtask_assignments
-        if sa.subtask.status == 'COMPLETED' and sa.subtask.completed_at and rolling_30_start <= sa.subtask.completed_at <= rolling_30_end
+        if sa.completed and sa.completed_at and rolling_30_start <= sa.completed_at <= rolling_30_end
     ]
     
     total_completed_tasks = len(completed_assignments_30) + len(completed_subtask_assignments_30)
@@ -176,8 +176,6 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None, organiza
     pending_penalty = total_effective_overdue * 10
     today_pending_penalty = today_incomplete_count * 3
     late_completion_penalty = late_completed_tasks_in_last_30_days * 2
-    today_pending_penalty = today_incomplete_count * 3
-    late_completion_penalty = late_completed_tasks_in_last_30_days * 2
     
     current_workload_score = 100 - pending_penalty - today_pending_penalty - late_completion_penalty
     current_workload_score = max(0, current_workload_score)
@@ -200,11 +198,11 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None, organiza
     # Filter completed tasks for requested period (start_date_val to end_date_val)
     completed_assignments_period = [
         a for a in assignments 
-        if a.task.status == 'COMPLETED' and a.task.completed_at and start_date_val <= a.task.completed_at <= end_date_val
+        if a.completed and a.completed_at and start_date_val <= a.completed_at <= end_date_val
     ]
     completed_subtask_assignments_period = [
         sa for sa in subtask_assignments
-        if sa.subtask.status == 'COMPLETED' and sa.subtask.completed_at and start_date_val <= sa.subtask.completed_at <= end_date_val
+        if sa.completed and sa.completed_at and start_date_val <= sa.completed_at <= end_date_val
     ]
 
     period_completed_count = len(completed_assignments_period) + len(completed_subtask_assignments_period)
@@ -234,10 +232,10 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None, organiza
     completed_this_week = 0
     
     for a in completed_assignments_period:
-        if a.task.completed_at and a.task.completed_at >= start_of_week:
+        if a.completed_at and a.completed_at >= start_of_week:
             completed_this_week += 1
     for sa in completed_subtask_assignments_period:
-        if sa.subtask.completed_at and sa.subtask.completed_at >= start_of_week:
+        if sa.completed_at and sa.completed_at >= start_of_week:
             completed_this_week += 1
 
     # Workload & Capacity metrics
@@ -254,7 +252,7 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None, organiza
         t = a.task
         task_seconds = t.allocated_seconds or (t.task_type.allocated_seconds if t.task_type else 0)
         total_allocated_seconds += task_seconds
-        if t.status == 'COMPLETED':
+        if a.completed:
             completed_allocated_seconds += task_seconds
 
     for sa in subtask_assignments:
@@ -1009,36 +1007,84 @@ class TeamWorkloadView(views.APIView):
 
         import calendar
         import django.utils.dateparse
+        from django.db.models import Q
 
+        tz = resolve_business_tz(request=request, organization=active_org, user=user)
+        now = get_business_now(request=request, organization=active_org, user=user, tz=tz)
+        today = now.date()
+        yesterday = today - timedelta(days=1)
+        tomorrow = today + timedelta(days=1)
+
+        period_type = request.query_params.get('period_type')
         start_date_str = request.query_params.get('start_date')
         end_date_str = request.query_params.get('end_date')
         start_month_str = request.query_params.get('start_month')
         start_year_str = request.query_params.get('start_year')
         end_month_str = request.query_params.get('end_month')
         end_year_str = request.query_params.get('end_year')
+        selected_month_str = request.query_params.get('selected_month')
+        sort_by = request.query_params.get('sort_by', 'newest')
 
         start_date = None
         end_date = None
 
-        if start_month_str and start_year_str:
+        has_any_param = any([
+            period_type, start_date_str, end_date_str, start_month_str, start_year_str,
+            end_month_str, end_year_str, selected_month_str
+        ])
+
+        # Default to THIS_MONTH if no params provided
+        if not has_any_param and not period_type:
+            period_type = 'THIS_MONTH'
+
+        if period_type == 'ALL':
+            start_date = None
+            end_date = None
+        elif period_type == 'THIS_DATE':
+            start_date = timezone.make_aware(datetime.datetime(now.year, now.month, now.day, 0, 0, 0), tz)
+            end_date = timezone.make_aware(datetime.datetime(now.year, now.month, now.day, 23, 59, 59, 999999), tz)
+        elif period_type == 'THIS_WEEK':
+            start_of_week = today - timedelta(days=today.weekday())
+            end_of_week = start_of_week + timedelta(days=6)
+            start_date = timezone.make_aware(datetime.datetime(start_of_week.year, start_of_week.month, start_of_week.day, 0, 0, 0), tz)
+            end_date = timezone.make_aware(datetime.datetime(end_of_week.year, end_of_week.month, end_of_week.day, 23, 59, 59, 999999), tz)
+        elif period_type == 'THIS_MONTH':
+            last_day = calendar.monthrange(now.year, now.month)[1]
+            start_date = timezone.make_aware(datetime.datetime(now.year, now.month, 1, 0, 0, 0), tz)
+            end_date = timezone.make_aware(datetime.datetime(now.year, now.month, last_day, 23, 59, 59, 999999), tz)
+        elif period_type == 'LAST_3_MONTHS':
+            start_month_date = (now.replace(day=1) - timedelta(days=1)).replace(day=1)
+            start_3_month_date = (start_month_date - timedelta(days=1)).replace(day=1)
+            last_day = calendar.monthrange(now.year, now.month)[1]
+            start_date = timezone.make_aware(datetime.datetime(start_3_month_date.year, start_3_month_date.month, 1, 0, 0, 0), tz)
+            end_date = timezone.make_aware(datetime.datetime(now.year, now.month, last_day, 23, 59, 59, 999999), tz)
+        elif period_type == 'THIS_YEAR':
+            start_date = timezone.make_aware(datetime.datetime(now.year, 1, 1, 0, 0, 0), tz)
+            end_date = timezone.make_aware(datetime.datetime(now.year, 12, 31, 23, 59, 59, 999999), tz)
+        elif selected_month_str or (start_month_str and start_year_str) or period_type in ['SELECT_MONTH', 'MONTH_RANGE']:
             try:
-                sm = int(start_month_str)
-                sy = int(start_year_str)
-                if not (1 <= sm <= 12 and 1900 <= sy <= 2100):
-                    return Response({"detail": "Invalid month or year values."}, status=status.HTTP_400_BAD_REQUEST)
-                
-                em = int(end_month_str) if end_month_str else sm
-                ey = int(end_year_str) if end_year_str else sy
-                if not (1 <= em <= 12 and 1900 <= ey <= 2100):
+                if selected_month_str and '-' in selected_month_str:
+                    parts = selected_month_str.split('-')
+                    sy = int(parts[0])
+                    sm = int(parts[1])
+                    ey = sy
+                    em = sm
+                else:
+                    sm = int(start_month_str) if start_month_str else now.month
+                    sy = int(start_year_str) if start_year_str else now.year
+                    em = int(end_month_str) if end_month_str else sm
+                    ey = int(end_year_str) if end_year_str else sy
+
+                if not (1 <= sm <= 12 and 1900 <= sy <= 2100 and 1 <= em <= 12 and 1900 <= ey <= 2100):
                     return Response({"detail": "Invalid month or year values."}, status=status.HTTP_400_BAD_REQUEST)
 
                 if (sy, sm) > (ey, em):
                     return Response({"detail": "Invalid month range: start period cannot be after end period."}, status=status.HTTP_400_BAD_REQUEST)
 
-                start_date = timezone.make_aware(datetime.datetime(sy, sm, 1, 0, 0, 0))
+                start_date = timezone.make_aware(datetime.datetime(sy, sm, 1, 0, 0, 0), tz)
                 last_day = calendar.monthrange(ey, em)[1]
-                end_date = timezone.make_aware(datetime.datetime(ey, em, last_day, 23, 59, 59, 999999))
-            except ValueError:
+                end_date = timezone.make_aware(datetime.datetime(ey, em, last_day, 23, 59, 59, 999999), tz)
+            except (ValueError, IndexError):
                 return Response({"detail": "Invalid month or year values."}, status=status.HTTP_400_BAD_REQUEST)
         else:
             if start_date_str:
@@ -1049,7 +1095,7 @@ class TeamWorkloadView(views.APIView):
                         if d:
                             start_date = datetime.datetime.combine(d, datetime.time.min)
                     if start_date and timezone.is_naive(start_date):
-                        start_date = timezone.make_aware(start_date)
+                        start_date = timezone.make_aware(start_date, tz)
                 except Exception:
                     pass
             if end_date_str:
@@ -1060,21 +1106,32 @@ class TeamWorkloadView(views.APIView):
                         if d:
                             end_date = datetime.datetime.combine(d, datetime.time.max)
                     if end_date and timezone.is_naive(end_date):
-                        end_date = timezone.make_aware(end_date)
+                        end_date = timezone.make_aware(end_date, tz)
                 except Exception:
                     pass
 
         if start_date and end_date and start_date > end_date:
             return Response({"detail": "Invalid date range: start date cannot be after end date."}, status=status.HTTP_400_BAD_REQUEST)
 
-        tz = resolve_business_tz(request=request, organization=active_org, user=user)
         metrics = calculate_user_health_metrics(user, start_date=start_date, end_date=end_date, organization=active_org, request=request, tz=tz)
-        now = get_business_now(request=request, organization=active_org, user=user, tz=tz)
-        today = now.date()
-        yesterday = today - timedelta(days=1)
-        tomorrow = today + timedelta(days=1)
 
-        user_tasks = get_canonical_user_tasks(user, active_org)
+        raw_user_tasks = get_canonical_user_tasks(user, active_org)
+
+        if start_date and end_date:
+            start_d = start_date.astimezone(tz).date()
+            end_d = end_date.astimezone(tz).date()
+            user_tasks = raw_user_tasks.filter(
+                Q(due_date__gte=start_d, due_date__lte=end_d) |
+                Q(due_date__isnull=True, created_at__gte=start_date, created_at__lte=end_date) |
+                Q(status='COMPLETED', completed_at__gte=start_date, completed_at__lte=end_date)
+            ).distinct()
+        else:
+            user_tasks = raw_user_tasks
+
+        if sort_by == 'oldest':
+            user_tasks = user_tasks.order_by('due_date', 'created_at')
+        else:
+            user_tasks = user_tasks.order_by('-due_date', '-created_at')
 
         # Workload capacity calculations
         membership = Membership.objects.filter(user=user, organization=active_org).first() or Membership.objects.filter(user=user).first()
@@ -1114,10 +1171,16 @@ class TeamWorkloadView(views.APIView):
             workload_status = 'Overloaded'
 
         # Segment tasks based on canonical task status
-        completed_tasks = user_tasks.filter(status='COMPLETED').order_by('-completed_at')
+        if sort_by == 'oldest':
+            completed_tasks = user_tasks.filter(status='COMPLETED').order_by('completed_at', 'created_at')
+        else:
+            completed_tasks = user_tasks.filter(status='COMPLETED').order_by('-completed_at', '-created_at')
         incomplete_tasks = user_tasks.exclude(status='COMPLETED')
 
         pending_tasks = get_canonical_user_pending_tasks(user, active_org, now=now, tz=tz, request=request)
+        if start_date and end_date:
+            pending_tasks = pending_tasks.filter(id__in=user_tasks.values_list('id', flat=True))
+
         overdue_tasks = pending_tasks
         today_tasks = user_tasks.filter(due_date=today)
         tomorrow_tasks = user_tasks.filter(due_date=tomorrow)

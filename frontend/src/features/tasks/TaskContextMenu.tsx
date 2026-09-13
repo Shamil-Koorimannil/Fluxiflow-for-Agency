@@ -92,8 +92,11 @@ export const TaskContextMenu: React.FC<TaskContextMenuProps> = ({
   return createPortal(
     <div
       ref={menuRef}
+      data-selection-control="true"
+      data-no-deselect="true"
+      data-context-menu="true"
       style={{ top: adjustedY, left: adjustedX }}
-      className="fixed z-50 w-56 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xl py-1.5 text-zinc-900 dark:text-zinc-100 text-xs font-medium animate-in fade-in zoom-in-95 duration-100 select-none"
+      className="task-context-menu fixed z-50 w-56 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xl py-1.5 text-zinc-900 dark:text-zinc-100 text-xs font-medium animate-in fade-in zoom-in-95 duration-100 select-none"
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
     >

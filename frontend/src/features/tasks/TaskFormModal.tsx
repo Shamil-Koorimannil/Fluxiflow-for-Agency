@@ -3,10 +3,21 @@ import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import type { Task, Project, User, TaskType, OrganizationSettings } from '../../types';
-import { X, Tag } from 'lucide-react';
+import { X, Tag, Plus, Trash2, Pencil, ListTodo } from 'lucide-react';
 import { TimePicker } from '../../components/common/TimePicker';
 import { DatePicker } from '../../components/common/DatePicker';
 import { CustomDropdown } from '../../components/common/CustomDropdown';
+
+interface SubtaskItemState {
+  id: string;
+  name: string;
+  due_date: string | null;
+  due_time: string | null;
+  assignee_ids: string[];
+  status?: string;
+  isNew?: boolean;
+  isEdited?: boolean;
+}
 
 interface TaskFormModalProps {
   isOpen: boolean;
@@ -34,7 +45,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
   const taskToEdit = initialData || propTaskToEdit;
   const isEditMode = !!taskToEdit;
 
-  // Form states
+  // Primary task form states
   const [name, setName] = useState('');
   const [dates, setDates] = useState<string[]>([]);
   const [dueTime, setDueTime] = useState('');
@@ -44,6 +55,24 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
   const [selectedTaskTypeId, setSelectedTaskTypeId] = useState<string | null>(null);
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  // Subtasks state
+  const [subtasks, setSubtasks] = useState<SubtaskItemState[]>([]);
+  const [deletedSubtaskIds, setDeletedSubtaskIds] = useState<string[]>([]);
+
+  // Add new subtask inline form states
+  const [showAddSubForm, setShowAddSubForm] = useState(false);
+  const [newSubName, setNewSubName] = useState('');
+  const [newSubDueDate, setNewSubDueDate] = useState('');
+  const [newSubDueTime, setNewSubDueTime] = useState('');
+  const [newSubAssigneeIds, setNewSubAssigneeIds] = useState<string[]>([]);
+
+  // Edit existing subtask inline form states
+  const [editingSubId, setEditingSubId] = useState<string | null>(null);
+  const [editSubName, setEditSubName] = useState('');
+  const [editSubDueDate, setEditSubDueDate] = useState('');
+  const [editSubDueTime, setEditSubDueTime] = useState('');
+  const [editSubAssigneeIds, setEditSubAssigneeIds] = useState<string[]>([]);
 
   // Load data on edit or defaults
   useEffect(() => {
@@ -57,7 +86,28 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
         setDescription(taskToEdit.description || '');
         setProjectId(taskToEdit.project || projectIdProp || defaultProjectId || '');
         setSelectedTaskTypeId(taskToEdit.task_type || taskToEdit.task_type_detail?.id || null);
-        setSelectedAssigneeIds(taskToEdit.assignees ? taskToEdit.assignees.map((a) => a.id) : []);
+        setSelectedAssigneeIds(
+          taskToEdit.assignees
+            ? taskToEdit.assignees.map((a: any) => String(a.id || a.user?.id || a.user_id))
+            : []
+        );
+
+        if (taskToEdit.subtasks && Array.isArray(taskToEdit.subtasks)) {
+          setSubtasks(
+            taskToEdit.subtasks.map((s: any) => ({
+              id: String(s.id),
+              name: s.name,
+              due_date: s.due_date || null,
+              due_time: s.due_time ? String(s.due_time).substring(0, 5) : null,
+              assignee_ids: s.assignees
+                ? s.assignees.map((a: any) => String(a.id || a.user?.id || a.user_id))
+                : [],
+              status: s.status || 'PENDING',
+            }))
+          );
+        } else {
+          setSubtasks([]);
+        }
       } else {
         setName('');
         setDates([]);
@@ -67,7 +117,11 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
         setProjectId(projectIdProp || defaultProjectId || '');
         setSelectedTaskTypeId(null);
         setSelectedAssigneeIds(defaultAssigneeId ? [defaultAssigneeId] : []);
+        setSubtasks([]);
       }
+      setDeletedSubtaskIds([]);
+      setShowAddSubForm(false);
+      setEditingSubId(null);
       setError(null);
     }
   }, [isOpen, taskToEdit, defaultProjectId, defaultAssigneeId, projectIdProp]);
@@ -112,8 +166,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
     enabled: isOpen,
   });
 
-
-  const selectedTypeObj = taskTypes?.find(t => t.id === selectedTaskTypeId);
+  const selectedTypeObj = taskTypes?.find((t) => t.id === selectedTaskTypeId);
 
   const formatReadableDuration = (totalSecs: number): string => {
     const hrs = Math.floor(totalSecs / 3600);
@@ -123,18 +176,110 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
     return `${mins}m`;
   };
 
+  // Subtask local state actions
+  const handleAddSubtask = () => {
+    if (!newSubName.trim()) return;
+    const newSub: SubtaskItemState = {
+      id: `temp-${Date.now()}-${Math.random()}`,
+      name: newSubName.trim(),
+      due_date: newSubDueDate || null,
+      due_time: newSubDueTime || null,
+      assignee_ids: newSubAssigneeIds,
+      status: 'PENDING',
+      isNew: true,
+    };
+    setSubtasks((prev) => [...prev, newSub]);
+    setNewSubName('');
+    setNewSubDueDate('');
+    setNewSubDueTime('');
+    setNewSubAssigneeIds([]);
+    setShowAddSubForm(false);
+  };
+
+  const handleStartEditSubtask = (st: SubtaskItemState) => {
+    setEditingSubId(st.id);
+    setEditSubName(st.name);
+    setEditSubDueDate(st.due_date || '');
+    setEditSubDueTime(st.due_time || '');
+    setEditSubAssigneeIds(st.assignee_ids || []);
+  };
+
+  const handleSaveEditSubtask = (stId: string) => {
+    if (!editSubName.trim()) return;
+    setSubtasks((prev) =>
+      prev.map((s) => {
+        if (s.id === stId) {
+          return {
+            ...s,
+            name: editSubName.trim(),
+            due_date: editSubDueDate || null,
+            due_time: editSubDueTime || null,
+            assignee_ids: editSubAssigneeIds,
+            isEdited: !s.isNew,
+          };
+        }
+        return s;
+      })
+    );
+    setEditingSubId(null);
+  };
+
+  const handleDeleteSubtask = (stId: string) => {
+    setSubtasks((prev) => prev.filter((s) => s.id !== stId));
+    if (!stId.startsWith('temp-')) {
+      setDeletedSubtaskIds((prev) => [...prev, stId]);
+    }
+  };
+
   // Create or Update mutation
   const submitMutation = useMutation({
     mutationFn: async (data: any) => {
+      let savedTask: any;
       if (isEditMode && taskToEdit) {
         const response = await api.patch(`/tasks/${taskToEdit.id}/`, data);
-        return response.data;
+        savedTask = response.data;
       } else {
         const response = await api.post('/tasks/', data);
-        return response.data;
+        const responseData = response.data;
+        savedTask = Array.isArray(responseData) ? responseData[0] : responseData;
       }
+
+      const parentTaskId = savedTask?.id || taskToEdit?.id;
+
+      if (parentTaskId) {
+        // 1. Delete removed existing subtasks
+        for (const subId of deletedSubtaskIds) {
+          if (!subId.startsWith('temp-')) {
+            try {
+              await api.delete(`/subtasks/${subId}/`);
+            } catch (e) {
+              console.error(`Failed to delete subtask ${subId}:`, e);
+            }
+          }
+        }
+
+        // 2. Create or update subtasks
+        for (const sub of subtasks) {
+          const subPayload: any = {
+            name: sub.name,
+            due_date: sub.due_date || null,
+            due_time: sub.due_time ? (sub.due_time.length === 5 ? `${sub.due_time}:00` : sub.due_time) : null,
+            assignee_ids: sub.assignee_ids,
+          };
+
+          if (sub.isNew || sub.id.startsWith('temp-')) {
+            subPayload.task = parentTaskId;
+            await api.post('/subtasks/', subPayload);
+          } else if (sub.isEdited) {
+            await api.patch(`/subtasks/${sub.id}/`, subPayload);
+          }
+        }
+      }
+
+      return savedTask;
     },
-    onSuccess: async () => {
+    onSuccess: async (savedTask) => {
+      const targetTaskId = savedTask?.id || taskToEdit?.id;
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['tasks'] }),
         queryClient.invalidateQueries({ queryKey: ['teamTasks'] }),
@@ -144,8 +289,8 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
         queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
         queryClient.invalidateQueries({ queryKey: ['projects'] }),
       ]);
-      if (isEditMode) {
-        await queryClient.invalidateQueries({ queryKey: ['task', taskToEdit?.id] });
+      if (targetTaskId) {
+        await queryClient.invalidateQueries({ queryKey: ['task', targetTaskId] });
       }
       if (projectId) {
         await Promise.all([
@@ -197,7 +342,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
     }
 
     if (dueTime) {
-      payload.due_time = `${dueTime}:00`;
+      payload.due_time = dueTime.length === 5 ? `${dueTime}:00` : dueTime;
     } else {
       payload.due_time = null;
     }
@@ -222,7 +367,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
           {isEditMode ? 'Edit Task' : 'Create Task'}
         </h3>
         <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">
-          {isEditMode ? 'Modify details of the existing task.' : 'Add a new action item and assign it to team members.'}
+          {isEditMode ? 'Modify details and subtasks of the existing task.' : 'Add a new action item and assign it to team members.'}
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -383,6 +528,198 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
               disabled={submitMutation.isPending}
               className="w-full px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs focus:outline-none focus:border-black dark:focus:border-white disabled:opacity-50 transition-colors resize-none"
             />
+          </div>
+
+          {/* SUBTASKS SECTION */}
+          <div className="space-y-3 pt-3 border-t border-zinc-200 dark:border-zinc-800">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                <ListTodo className="h-3.5 w-3.5 text-zinc-400" />
+                Subtasks ({subtasks.length})
+              </label>
+              {!showAddSubForm && (
+                <button
+                  type="button"
+                  disabled={submitMutation.isPending}
+                  onClick={() => {
+                    setShowAddSubForm(true);
+                    setNewSubName('');
+                    setNewSubDueDate('');
+                    setNewSubDueTime('');
+                    setNewSubAssigneeIds([]);
+                  }}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add Subtask
+                </button>
+              )}
+            </div>
+
+            {/* List of current subtasks */}
+            {subtasks.length > 0 && (
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                {subtasks.map((st) => (
+                  <div
+                    key={st.id}
+                    className="p-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs"
+                  >
+                    {editingSubId === st.id ? (
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={editSubName}
+                          onChange={(e) => setEditSubName(e.target.value)}
+                          placeholder="Subtask title *"
+                          className="w-full px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs"
+                        />
+                        <div className="grid grid-cols-2 gap-2">
+                          <DatePicker
+                            multiSelect={false}
+                            value={editSubDueDate}
+                            onChange={(val) => setEditSubDueDate(val)}
+                            placeholder="Due date"
+                          />
+                          <TimePicker
+                            value={editSubDueTime}
+                            onChange={(val) => setEditSubDueTime(val)}
+                          />
+                        </div>
+                        <CustomDropdown
+                          label="Subtask Assignees"
+                          fullWidth
+                          multiple={true}
+                          value={editSubAssigneeIds}
+                          onChange={(val) => setEditSubAssigneeIds(val as string[])}
+                          placeholder="Unassigned"
+                          options={
+                            teamMembers?.map((m) => ({
+                              value: m.id,
+                              label: m.name,
+                            })) || []
+                          }
+                        />
+                        <div className="flex items-center justify-end gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setEditingSubId(null)}
+                            className="px-2 py-1 text-[11px] font-semibold text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveEditSubtask(st.id)}
+                            className="px-2.5 py-1 text-[11px] font-semibold bg-black text-white dark:bg-white dark:text-black rounded-lg"
+                          >
+                            Save Subtask
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <span className="h-2 w-2 rounded-full bg-zinc-400 shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <span className="font-semibold text-zinc-900 dark:text-zinc-100 truncate block">
+                              {st.name}
+                            </span>
+                            {(st.due_date || st.assignee_ids.length > 0) && (
+                              <div className="flex items-center gap-2 text-[10px] text-zinc-500 dark:text-zinc-400 mt-0.5">
+                                {st.due_date && <span>Due: {st.due_date}</span>}
+                                {st.assignee_ids.length > 0 && (
+                                  <span>
+                                    Assignees: {st.assignee_ids.length} member{st.assignee_ids.length > 1 ? 's' : ''}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0 ml-2">
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditSubtask(st)}
+                            className="p-1 text-zinc-400 hover:text-black dark:hover:text-white rounded-md"
+                            title="Edit subtask"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSubtask(st.id)}
+                            className="p-1 text-zinc-400 hover:text-red-500 rounded-md"
+                            title="Remove subtask"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* New Subtask Input Form */}
+            {showAddSubForm && (
+              <div className="p-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl space-y-2 animate-in fade-in duration-150">
+                <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block">
+                  New Subtask
+                </span>
+                <input
+                  type="text"
+                  placeholder="Subtask title *"
+                  value={newSubName}
+                  onChange={(e) => setNewSubName(e.target.value)}
+                  className="w-full px-3 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <DatePicker
+                    multiSelect={false}
+                    value={newSubDueDate}
+                    onChange={(val) => setNewSubDueDate(val)}
+                    placeholder="Due date"
+                  />
+                  <TimePicker
+                    value={newSubDueTime}
+                    onChange={(val) => setNewSubDueTime(val)}
+                  />
+                </div>
+                <CustomDropdown
+                  label="Subtask Assignees"
+                  fullWidth
+                  multiple={true}
+                  value={newSubAssigneeIds}
+                  onChange={(val) => setNewSubAssigneeIds(val as string[])}
+                  placeholder="Unassigned"
+                  searchable={true}
+                  searchPlaceholder="Search members..."
+                  options={
+                    teamMembers?.map((m) => ({
+                      value: m.id,
+                      label: m.name,
+                    })) || []
+                  }
+                />
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddSubForm(false)}
+                    className="px-2.5 py-1 text-xs font-semibold text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAddSubtask}
+                    className="px-3 py-1 text-xs font-semibold bg-black text-white dark:bg-white dark:text-black rounded-lg"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-end gap-3">

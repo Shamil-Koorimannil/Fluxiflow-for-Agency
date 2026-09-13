@@ -262,17 +262,21 @@ export interface TaskComment {
   updated_at: string;
 }
 
+export type AttachmentType = 'file' | 'link';
+
 export interface TaskAttachment {
   id: string;
   task: string;
   subtask: string | null;
-  file: string;
+  attachment_type?: AttachmentType;
+  file?: string | null;
+  url?: string | null;
   original_name: string;
-  mime_type: string;
-  size: number;
+  mime_type?: string | null;
+  size?: number | null;
   uploaded_by: string;
   uploaded_by_detail: User;
-  download_url: string;
+  download_url?: string | null;
   created_at: string;
   updated_at: string;
 }

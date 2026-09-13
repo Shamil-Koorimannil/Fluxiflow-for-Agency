@@ -361,48 +361,79 @@ class TaskViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
             
-        # Check permission: Admin/OrgAdmin, or Member assigned to the task
         from apps.accounts.tenant_context import is_admin_or_org_admin
-        is_assigned = TaskAssignee.objects.filter(task=task, user=user).exists()
-        if not is_admin_or_org_admin(user, request=request) and not is_assigned:
-            return Response({"detail": "You cannot complete a task that is not assigned to you."}, status=status.HTTP_403_FORBIDDEN)
-            
         from apps.notifications.services import NotificationService
+
+        is_admin = is_admin_or_org_admin(user, request=request)
+        target_user_id = request.data.get('user_id')
+        
+        target_user = None
+        if target_user_id:
+            if not is_admin:
+                return Response({"detail": "You cannot complete tasks for other users."}, status=status.HTTP_403_FORBIDDEN)
+            try:
+                target_user = User.objects.get(id=target_user_id)
+            except User.DoesNotExist:
+                return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+        
+        user_assignee_rel = TaskAssignee.objects.filter(task=task, user=user).first()
+        is_assigned = user_assignee_rel is not None
+
+        if not is_admin and not is_assigned:
+            return Response({"detail": "You cannot complete a task that is not assigned to you."}, status=status.HTTP_403_FORBIDDEN)
 
         # Set user context for logging
         task._status_change_user = user
 
-        # Freeze timer if currently running
-        if task.timer_status == 'RUNNING' and task.timer_started_at:
-            delta = (timezone.now() - task.timer_started_at).total_seconds()
-            duration_secs = int(delta)
-            task.elapsed_seconds += duration_secs
-            task.timer_started_at = None
-            TaskTimeLog.objects.create(
-                task=task,
-                user=user,
-                started_at=task.timer_started_at or timezone.now(),
-                paused_at=timezone.now(),
-                duration_seconds=duration_secs
-            )
+        now_dt = timezone.now()
 
-        task.actual_duration_seconds = task.elapsed_seconds
-        task.timer_status = 'COMPLETED'
-        task.status = 'COMPLETED'
-        task.completed_by = user
-        task.completed_at = timezone.now()
-        task.save(update_fields=['status', 'completed_by', 'completed_at', 'elapsed_seconds', 'timer_started_at', 'timer_status', 'actual_duration_seconds'])
-        task.refresh_from_db()
+        if target_user:
+            assignee_rel = TaskAssignee.objects.filter(task=task, user=target_user).first()
+            if not assignee_rel:
+                return Response({"detail": "Target user is not assigned to this task."}, status=status.HTTP_400_BAD_REQUEST)
+            assignee_rel.completed = True
+            assignee_rel.completed_at = now_dt
+            assignee_rel.save()
+        elif is_assigned:
+            user_assignee_rel.completed = True
+            user_assignee_rel.completed_at = now_dt
+            user_assignee_rel.save()
+        else:
+            # Admin completing task globally (or completing for all assignees)
+            for rel in task.assignee_relationships.all():
+                if not rel.completed:
+                    rel.completed = True
+                    rel.completed_at = now_dt
+                    rel.save()
 
-        # Update all assignees to completed (synchronized metadata only)
-        for assignee in task.assignee_relationships.all():
-            assignee.completed = True
-            assignee.completed_at = timezone.now()
-            assignee.save()
+        # Check if all assignees are completed (or no assignees exist)
+        incomplete_exists = task.assignee_relationships.filter(completed=False).exists()
 
-        logger.info(f"Task {task.id}: PENDING -> COMPLETED via complete action by {user.email} at {timezone.now()}")
+        if not incomplete_exists:
+            # Freeze timer if currently running
+            if task.timer_status == 'RUNNING' and task.timer_started_at:
+                delta = (now_dt - task.timer_started_at).total_seconds()
+                duration_secs = int(delta)
+                task.elapsed_seconds += duration_secs
+                task.timer_started_at = None
+                TaskTimeLog.objects.create(
+                    task=task,
+                    user=user,
+                    started_at=task.timer_started_at or now_dt,
+                    paused_at=now_dt,
+                    duration_seconds=duration_secs
+                )
 
-        # Notify admins that user completed task if they are assigned
+            task.actual_duration_seconds = task.elapsed_seconds
+            task.timer_status = 'COMPLETED'
+            task.status = 'COMPLETED'
+            task.completed_by = user
+            task.completed_at = now_dt
+            task.save(update_fields=['status', 'completed_by', 'completed_at', 'elapsed_seconds', 'timer_started_at', 'timer_status', 'actual_duration_seconds'])
+            task.refresh_from_db()
+
+        logger.info(f"Task {task.id}: PENDING -> COMPLETED via complete action by {user.email} at {now_dt}")
+
         if is_assigned:
             NotificationService.notify_admins(
                 notification_type='TASK_COMPLETED',
@@ -413,17 +444,16 @@ class TaskViewSet(viewsets.ModelViewSet):
                 related_user=user
             )
 
-        # Notify admins that entire task is completed
-        NotificationService.notify_admins(
-            notification_type='TASK_COMPLETED',
-            title='Task Completed',
-            message=f"{task.name} has been completed.",
-            related_task=task,
-            related_project=task.project,
-            related_user=user
-        )
-        
-        # Log activity
+        if not incomplete_exists:
+            NotificationService.notify_admins(
+                notification_type='TASK_COMPLETED',
+                title='Task Completed',
+                message=f"{task.name} has been completed.",
+                related_task=task,
+                related_project=task.project,
+                related_user=user
+            )
+
         ActivityLog.objects.create(
             user=user,
             organization=task.organization,
@@ -432,7 +462,7 @@ class TaskViewSet(viewsets.ModelViewSet):
             entity_id=task.id,
             description=f"{user.name} completed task '{task.name}'."
         )
-        
+
         task.refresh_from_db()
         serializer = self.get_serializer(task)
         return Response(serializer.data)
@@ -517,33 +547,61 @@ class TaskViewSet(viewsets.ModelViewSet):
         task.refresh_from_db()
         user = request.user
         
-        # Check permission: Admin/OrgAdmin, or Member assigned to the task
         from apps.accounts.tenant_context import is_admin_or_org_admin
-        is_assigned = TaskAssignee.objects.filter(task=task, user=user).exists()
-        if not is_admin_or_org_admin(user, request=request) and not is_assigned:
-            return Response({"detail": "You cannot reopen a task that is not assigned to you."}, status=status.HTTP_403_FORBIDDEN)
-            
         from apps.notifications.services import NotificationService
+
+        is_admin = is_admin_or_org_admin(user, request=request)
+        target_user_id = request.data.get('user_id')
+        
+        target_user = None
+        if target_user_id:
+            if not is_admin:
+                return Response({"detail": "You cannot reopen tasks for other users."}, status=status.HTTP_403_FORBIDDEN)
+            try:
+                target_user = User.objects.get(id=target_user_id)
+            except User.DoesNotExist:
+                return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        user_assignee_rel = TaskAssignee.objects.filter(task=task, user=user).first()
+        is_assigned = user_assignee_rel is not None
+
+        if not is_admin and not is_assigned:
+            return Response({"detail": "You cannot reopen a task that is not assigned to you."}, status=status.HTTP_403_FORBIDDEN)
 
         # Set user context for logging
         task._status_change_user = user
 
-        task.status = 'PENDING'
-        task.completed_by = None
-        task.completed_at = None
-        task.timer_status = 'PAUSED'
-        task.save(update_fields=['status', 'completed_by', 'completed_at', 'timer_status'])
-        task.refresh_from_db()
+        if target_user:
+            assignee_rel = TaskAssignee.objects.filter(task=task, user=target_user).first()
+            if not assignee_rel:
+                return Response({"detail": "Target user is not assigned to this task."}, status=status.HTTP_400_BAD_REQUEST)
+            assignee_rel.completed = False
+            assignee_rel.completed_at = None
+            assignee_rel.save()
+        elif is_assigned:
+            user_assignee_rel.completed = False
+            user_assignee_rel.completed_at = None
+            user_assignee_rel.save()
+        else:
+            # Admin reopening globally
+            for rel in task.assignee_relationships.all():
+                rel.completed = False
+                rel.completed_at = None
+                rel.save()
 
-        # Mark all assignee relationships as not completed (synchronized metadata only)
-        for assignee in task.assignee_relationships.all():
-            assignee.completed = False
-            assignee.completed_at = None
-            assignee.save()
+        # Recalculate parent task status: if any assignee is incomplete, task becomes PENDING
+        incomplete_exists = task.assignee_relationships.filter(completed=False).exists()
+        if incomplete_exists or not task.assignee_relationships.exists():
+            task.status = 'PENDING'
+            task.completed_by = None
+            task.completed_at = None
+            if task.timer_status == 'COMPLETED':
+                task.timer_status = 'PAUSED'
+            task.save(update_fields=['status', 'completed_by', 'completed_at', 'timer_status'])
+            task.refresh_from_db()
 
         logger.info(f"Task {task.id}: COMPLETED -> PENDING via reopen action by {user.email} at {timezone.now()}")
 
-        # Notify relevant assignees
         for assignee_rel in task.assignee_relationships.all():
             NotificationService.create_notification(
                 recipient=assignee_rel.user,
@@ -555,7 +613,6 @@ class TaskViewSet(viewsets.ModelViewSet):
                 related_user=user
             )
         
-        # Log activity
         ActivityLog.objects.create(
             user=user,
             organization=task.organization,
@@ -1207,22 +1264,8 @@ class TaskAttachmentViewSet(viewsets.ModelViewSet):
         ).distinct().select_related('uploaded_by', 'task')
 
     def create(self, request, *args, **kwargs):
-        uploaded_file = request.FILES.get('file')
-        if not uploaded_file:
-            return Response({"detail": "Unable to upload the file."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # File size check
-        if uploaded_file.size > self.MAX_FILE_SIZE:
-            return Response({"detail": "File is too large."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # File extension check
-        raw_name = uploaded_file.name or ""
-        ext = raw_name.rsplit('.', 1)[-1].lower() if '.' in raw_name else ""
-        if ext in self.EXECUTABLE_EXTENSIONS or ext not in self.ALLOWED_EXTENSIONS:
-            return Response({"detail": "This file type is not supported."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Sanitize filename
-        clean_filename = get_valid_filename(raw_name) or f"file_{timezone.now().timestamp()}"
+        attachment_type = request.data.get('attachment_type')
+        url_input = request.data.get('url')
 
         task_id = request.data.get('task')
         subtask_id = request.data.get('subtask')
@@ -1247,9 +1290,34 @@ class TaskAttachmentViewSet(viewsets.ModelViewSet):
         if not user_has_task_access(request.user, task_obj):
             return Response({"detail": "You do not have permission to access this file."}, status=status.HTTP_403_FORBIDDEN)
 
+        if attachment_type == 'link' or url_input:
+            serializer = self.get_serializer(data=request.data)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            attachment = serializer.save(uploaded_by=request.user, task=task_obj, subtask=subtask_obj)
+            return Response(self.get_serializer(attachment).data, status=status.HTTP_201_CREATED)
+
+        uploaded_file = request.FILES.get('file')
+        if not uploaded_file:
+            return Response({"detail": "Unable to upload the file."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # File size check
+        if uploaded_file.size > self.MAX_FILE_SIZE:
+            return Response({"detail": "File is too large."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # File extension check
+        raw_name = uploaded_file.name or ""
+        ext = raw_name.rsplit('.', 1)[-1].lower() if '.' in raw_name else ""
+        if ext in self.EXECUTABLE_EXTENSIONS or ext not in self.ALLOWED_EXTENSIONS:
+            return Response({"detail": "This file type is not supported."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Sanitize filename
+        clean_filename = get_valid_filename(raw_name) or f"file_{timezone.now().timestamp()}"
+
         attachment = TaskAttachment.objects.create(
             task=task_obj,
             subtask=subtask_obj,
+            attachment_type='file',
             file=uploaded_file,
             original_name=clean_filename,
             mime_type=uploaded_file.content_type or 'application/octet-stream',
@@ -1270,12 +1338,16 @@ class TaskAttachmentViewSet(viewsets.ModelViewSet):
         if not user_has_task_access(request.user, attachment.task):
             return Response({"detail": "You do not have permission to access this file."}, status=status.HTTP_403_FORBIDDEN)
 
+        if attachment.attachment_type == 'link' or not attachment.file:
+            return Response({"detail": "File not found."}, status=status.HTTP_404_NOT_FOUND)
+
         try:
             response = FileResponse(attachment.file.open('rb'), content_type=attachment.mime_type)
             response['Content-Disposition'] = f'inline; filename="{attachment.original_name}"'
             return response
         except Exception:
             return Response({"detail": "Unable to upload the file."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
     def destroy(self, request, *args, **kwargs):
         try:

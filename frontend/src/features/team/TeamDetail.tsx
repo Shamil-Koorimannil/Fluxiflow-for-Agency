@@ -87,16 +87,22 @@ export const TeamDetail: React.FC = () => {
 
   const YEARS = useMemo(() => Array.from({ length: 10 }, (_, i) => currentYearVal - 5 + i), [currentYearVal]);
 
-  type PeriodType = 'CURRENT_MONTH' | 'SELECT_MONTH' | 'MONTH_RANGE' | 'LAST_3_MONTHS' | 'CUSTOM_RANGE' | 'CURRENT_YEAR' | 'ALL';
+  type PeriodType = 'THIS_DATE' | 'THIS_WEEK' | 'THIS_MONTH' | 'SELECT_MONTH' | 'LAST_3_MONTHS' | 'THIS_YEAR' | 'CUSTOM_RANGE' | 'ALL';
 
   const PERIOD_OPTIONS: DropdownOption<PeriodType>[] = useMemo(() => [
-    { value: 'CURRENT_MONTH', label: 'Current Month' },
+    { value: 'THIS_DATE', label: 'This Date' },
+    { value: 'THIS_WEEK', label: 'This Week' },
+    { value: 'THIS_MONTH', label: 'This Month' },
     { value: 'SELECT_MONTH', label: 'Select Month' },
-    { value: 'MONTH_RANGE', label: 'Month Range' },
     { value: 'LAST_3_MONTHS', label: 'Last 3 Months' },
+    { value: 'THIS_YEAR', label: 'This Year' },
     { value: 'CUSTOM_RANGE', label: 'Custom Range' },
-    { value: 'CURRENT_YEAR', label: 'Current Year' },
     { value: 'ALL', label: 'All Time' },
+  ], []);
+
+  const SORT_OPTIONS: DropdownOption<'newest' | 'oldest'>[] = useMemo(() => [
+    { value: 'newest', label: 'Newest First' },
+    { value: 'oldest', label: 'Oldest First' },
   ], []);
 
   const MONTH_OPTIONS: DropdownOption<number>[] = useMemo(() => MONTH_NAMES.map((m, idx) => ({
@@ -109,48 +115,52 @@ export const TeamDetail: React.FC = () => {
     label: String(y),
   })), [YEARS]);
 
-  const [periodType, setPeriodType] = useState<PeriodType>('CURRENT_MONTH');
+  const [periodType, setPeriodType] = useState<PeriodType>('THIS_MONTH');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest'>('newest');
   const [selectMonth, setSelectMonth] = useState<number>(currentMonthVal);
   const [selectYear, setSelectYear] = useState<number>(currentYearVal);
 
-  const [startMonth, setStartMonth] = useState<number>(currentMonthVal);
-  const [startYear, setStartYear] = useState<number>(currentYearVal);
-  const [endMonth, setEndMonth] = useState<number>(currentMonthVal);
-  const [endYear, setEndYear] = useState<number>(currentYearVal);
 
   const [customStartDate, setCustomStartDate] = useState<string>('');
   const [customEndDate, setCustomEndDate] = useState<string>('');
 
   const { periodQueryParams, periodLabel, validationError } = useMemo(() => {
-    let params: Record<string, any> = {};
-    let label = 'Current Month';
+    let params: Record<string, any> = { period_type: periodType, sort_by: sortBy };
+    let label = 'This Month';
     let err: string | null = null;
 
     const now = new Date();
 
-    if (periodType === 'CURRENT_MONTH') {
+    if (periodType === 'THIS_DATE') {
       const yr = now.getFullYear();
       const mo = now.getMonth() + 1;
-      params = { start_month: mo, start_year: yr, end_month: mo, end_year: yr };
+      const da = now.getDate();
+      const dateStr = `${yr}-${String(mo).padStart(2, '0')}-${String(da).padStart(2, '0')}`;
+      params = { ...params, start_date: dateStr, end_date: dateStr };
+      label = `This Date (${dateStr})`;
+    } else if (periodType === 'THIS_WEEK') {
+      const day = now.getDay();
+      const diffToMon = now.getDate() - day + (day === 0 ? -6 : 1);
+      const mon = new Date(now.setDate(diffToMon));
+      const sun = new Date(mon);
+      sun.setDate(mon.getDate() + 6);
+      const monStr = mon.toISOString().split('T')[0];
+      const sunStr = sun.toISOString().split('T')[0];
+      params = { ...params, start_date: monStr, end_date: sunStr };
+      label = `This Week (${monStr} – ${sunStr})`;
+    } else if (periodType === 'THIS_MONTH') {
+      const yr = now.getFullYear();
+      const mo = now.getMonth() + 1;
+      params = { ...params, start_month: mo, start_year: yr, end_month: mo, end_year: yr };
       label = `${MONTH_NAMES[mo - 1]} ${yr}`;
     } else if (periodType === 'SELECT_MONTH') {
-      params = { start_month: selectMonth, start_year: selectYear, end_month: selectMonth, end_year: selectYear };
+      params = { ...params, start_month: selectMonth, start_year: selectYear, end_month: selectMonth, end_year: selectYear };
       label = `${MONTH_NAMES[selectMonth - 1]} ${selectYear}`;
-    } else if (periodType === 'MONTH_RANGE') {
-      if ((startYear > endYear) || (startYear === endYear && startMonth > endMonth)) {
-        err = 'Invalid month range: Start period cannot be after End period.';
-      } else {
-        params = { start_month: startMonth, start_year: startYear, end_month: endMonth, end_year: endYear };
-        if (startMonth === endMonth && startYear === endYear) {
-          label = `${MONTH_NAMES[startMonth - 1]} ${startYear}`;
-        } else {
-          label = `${MONTH_NAMES[startMonth - 1]} ${startYear} – ${MONTH_NAMES[endMonth - 1]} ${endYear}`;
-        }
-      }
     } else if (periodType === 'LAST_3_MONTHS') {
       const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
       const start = new Date(now.getFullYear(), now.getMonth() - 2, 1);
       params = {
+        ...params,
         start_month: start.getMonth() + 1,
         start_year: start.getFullYear(),
         end_month: end.getMonth() + 1,
@@ -161,22 +171,22 @@ export const TeamDetail: React.FC = () => {
       if (customStartDate && customEndDate && customStartDate > customEndDate) {
         err = 'Invalid date range: Start date cannot be after End date.';
       } else if (customStartDate || customEndDate) {
-        params = { start_date: customStartDate, end_date: customEndDate };
+        params = { ...params, start_date: customStartDate, end_date: customEndDate };
         label = `Custom (${customStartDate || 'Start'} to ${customEndDate || 'End'})`;
       } else {
         label = 'Custom Range';
       }
-    } else if (periodType === 'CURRENT_YEAR') {
+    } else if (periodType === 'THIS_YEAR') {
       const yr = now.getFullYear();
-      params = { start_month: 1, start_year: yr, end_month: 12, end_year: yr };
-      label = `Current Year (${yr})`;
+      params = { ...params, start_month: 1, start_year: yr, end_month: 12, end_year: yr };
+      label = `This Year (${yr})`;
     } else if (periodType === 'ALL') {
-      params = {};
+      params = { period_type: 'ALL', sort_by: sortBy };
       label = 'All Time';
     }
 
     return { periodQueryParams: params, periodLabel: label, validationError: err };
-  }, [periodType, selectMonth, selectYear, startMonth, startYear, endMonth, endYear, customStartDate, customEndDate, MONTH_NAMES]);
+  }, [periodType, sortBy, selectMonth, selectYear, customStartDate, customEndDate, MONTH_NAMES]);
 
   // Fetch Member details and workload from backend endpoint
   const { data, isLoading, isError, error, refetch } = useQuery<TeamMemberDetailResponse>({
@@ -293,19 +303,20 @@ export const TeamDetail: React.FC = () => {
     return tasks.filter((t) => t.status === 'COMPLETED');
   }, [tasks]);
 
-  const sortTasksByDueDate = (taskList: Task[]) => {
+  const sortTasks = (taskList: Task[]) => {
     return [...taskList].sort((a, b) => {
-      const dateA = a.due_date ? a.due_date.split('T')[0] : null;
-      const dateB = b.due_date ? b.due_date.split('T')[0] : null;
+      const dateA = a.due_date ? a.due_date.split('T')[0] : a.created_at || '';
+      const dateB = b.due_date ? b.due_date.split('T')[0] : b.created_at || '';
 
-      if (dateA === null && dateB === null) return 0;
-      if (dateA === null) return 1;
-      if (dateB === null) return -1;
-      return dateA.localeCompare(dateB);
+      if (!dateA && !dateB) return 0;
+      if (!dateA) return 1;
+      if (!dateB) return -1;
+
+      return sortBy === 'oldest' ? dateA.localeCompare(dateB) : dateB.localeCompare(dateA);
     });
   };
 
-  // Filtered Incomplete Tasks sorted by due_date ascending (earliest first, no due date last)
+  // Filtered Incomplete Tasks sorted according to sortBy
   const filteredIncompleteTasks = useMemo(() => {
     let list = incompleteTasks;
     if (filter === 'PENDING') {
@@ -317,12 +328,12 @@ export const TeamDetail: React.FC = () => {
     } else if (filter === 'NO_DUE_DATE') {
       list = list.filter((t) => !t.due_date);
     }
-    return sortTasksByDueDate(list);
-  }, [incompleteTasks, pendingTasks, filter, todayStr]);
+    return sortTasks(list);
+  }, [incompleteTasks, pendingTasks, filter, todayStr, sortBy]);
 
   const sortedCompletedTasks = useMemo(() => {
-    return sortTasksByDueDate(completedTasks);
-  }, [completedTasks]);
+    return sortTasks(completedTasks);
+  }, [completedTasks, sortBy]);
 
   const getHealthColor = (score?: number, status?: string) => {
     if (score === undefined || score === null || status === 'no_data') {
@@ -385,15 +396,67 @@ export const TeamDetail: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col bg-zinc-50/50 dark:bg-zinc-950 p-4 sm:p-6 md:p-10">
-      {/* Back Button */}
-      <div className="mb-6">
+      {/* Top Header: Back Button + Global Date Filter Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <button
           onClick={() => navigate('/app/team')}
           className="flex items-center gap-2 text-xs font-semibold text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
         >
           <ArrowLeft className="h-4 w-4" /> Back to Team
         </button>
+
+        {/* Global Date Filter Selector Bar */}
+        <div className="flex flex-wrap items-center gap-2 bg-white dark:bg-zinc-900 p-2 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xs">
+          <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider pl-1 whitespace-nowrap">Period:</span>
+          
+          <CustomDropdown<PeriodType>
+            options={PERIOD_OPTIONS}
+            value={periodType}
+            onChange={(val) => setPeriodType(val)}
+            size="sm"
+          />
+
+          {periodType === 'SELECT_MONTH' && (
+            <div className="flex items-center gap-1.5">
+              <CustomDropdown<number>
+                options={MONTH_OPTIONS}
+                value={selectMonth}
+                onChange={(val) => setSelectMonth(val)}
+                size="sm"
+              />
+              <CustomDropdown<number>
+                options={YEAR_OPTIONS}
+                value={selectYear}
+                onChange={(val) => setSelectYear(val)}
+                size="sm"
+              />
+            </div>
+          )}
+
+          {periodType === 'CUSTOM_RANGE' && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <DatePicker
+                value={customStartDate}
+                onChange={(val) => setCustomStartDate(val)}
+                placeholder="Start Date"
+              />
+              <span className="text-xs text-zinc-400 font-bold">to</span>
+              <DatePicker
+                value={customEndDate}
+                onChange={(val) => setCustomEndDate(val)}
+                placeholder="End Date"
+              />
+            </div>
+          )}
+        </div>
       </div>
+
+      {validationError && (
+        <div className="mb-6 p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 text-xs font-semibold rounded-xl flex items-center gap-2">
+          <AlertCircle className="h-4 w-4 shrink-0 text-amber-500" />
+          <span>{validationError}</span>
+        </div>
+      )}
 
       {/* Member Header Card with Workload Health Bar */}
       <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 md:p-8 shadow-sm mb-8 space-y-6">
@@ -429,6 +492,8 @@ export const TeamDetail: React.FC = () => {
               <div className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400 font-medium min-w-0">
                 <Mail className="h-3.5 w-3.5 shrink-0" />
                 <span className="truncate">{memberSummary.email}</span>
+                <span className="text-zinc-300 dark:text-zinc-700">•</span>
+                <span className="font-semibold text-zinc-700 dark:text-zinc-300">{periodLabel}</span>
               </div>
             </div>
           </div>
@@ -436,18 +501,18 @@ export const TeamDetail: React.FC = () => {
           {/* Member Stats Box */}
           <div className="flex items-center gap-4 text-center p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800/80 rounded-2xl w-full sm:w-auto">
             <div className="flex-1">
-              <span className="block text-xl font-bold text-zinc-900 dark:text-zinc-100">{tasks.length}</span>
+              <span className="block text-xl font-bold text-zinc-900 dark:text-zinc-100">{workloadStats?.total_tasks_count ?? tasks.length}</span>
               <span className="text-[11px] text-zinc-400 font-medium whitespace-nowrap">Total Tasks</span>
             </div>
             <div className="flex-1 border-l border-zinc-200 dark:border-zinc-800">
               <span className="block text-xl font-bold text-emerald-600 dark:text-emerald-400">
-                {completedTasks.length}
+                {workloadStats?.completed_tasks_count ?? completedTasks.length}
               </span>
               <span className="text-[11px] text-zinc-400 font-medium whitespace-nowrap">Completed</span>
             </div>
             <div className="flex-1 border-l border-zinc-200 dark:border-zinc-800">
               <span className="block text-xl font-bold text-blue-600 dark:text-blue-400">
-                {incompleteTasks.length}
+                {workloadStats?.active_tasks_count ?? incompleteTasks.length}
               </span>
               <span className="text-[11px] text-zinc-400 font-medium whitespace-nowrap">Incomplete</span>
             </div>
@@ -521,7 +586,7 @@ export const TeamDetail: React.FC = () => {
         /* MEMBER PERFORMANCE REPORT VIEW */
         <div className="space-y-6">
           <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-6">
-            {/* Header + Period Filter Bar */}
+            {/* Header + Period Info */}
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-zinc-100 dark:border-zinc-800 pb-4">
               <div>
                 <h3 className="text-base font-extrabold text-zinc-900 dark:text-zinc-100">
@@ -532,115 +597,23 @@ export const TeamDetail: React.FC = () => {
                 </p>
               </div>
 
-              {/* Period Selector Controls */}
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider whitespace-nowrap">Period:</span>
-                
-                {/* Main Period Selector */}
-                <CustomDropdown<PeriodType>
-                  options={PERIOD_OPTIONS}
-                  value={periodType}
-                  onChange={(val) => setPeriodType(val)}
-                  size="sm"
-                />
-
-                {/* Sub-controls for SELECT_MONTH */}
-                {periodType === 'SELECT_MONTH' && (
-                  <div className="flex items-center gap-1.5">
-                    <CustomDropdown<number>
-                      options={MONTH_OPTIONS}
-                      value={selectMonth}
-                      onChange={(val) => setSelectMonth(val)}
-                      size="sm"
-                    />
-                    <CustomDropdown<number>
-                      options={YEAR_OPTIONS}
-                      value={selectYear}
-                      onChange={(val) => setSelectYear(val)}
-                      size="sm"
-                    />
-                  </div>
+              {/* Download Report Button */}
+              <button
+                type="button"
+                onClick={handleDownloadReport}
+                disabled={isDownloading || Boolean(validationError)}
+                aria-label="Download report"
+                title="Download report"
+                className="flex items-center justify-center px-4 py-2 bg-black dark:bg-white text-white dark:text-black hover:bg-zinc-900 dark:hover:bg-zinc-100 disabled:opacity-50 text-xs font-semibold rounded-xl transition-all shadow-xs shrink-0 cursor-pointer gap-2"
+              >
+                {isDownloading ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
                 )}
-
-                {/* Sub-controls for MONTH_RANGE */}
-                {periodType === 'MONTH_RANGE' && (
-                  <div className="flex flex-wrap items-center gap-2 bg-zinc-50 dark:bg-zinc-950 p-1.5 rounded-2xl border border-zinc-200 dark:border-zinc-800">
-                    <div className="flex items-center gap-1">
-                      <span className="text-[11px] font-bold text-zinc-400">From:</span>
-                      <CustomDropdown<number>
-                        options={MONTH_OPTIONS}
-                        value={startMonth}
-                        onChange={(val) => setStartMonth(val)}
-                        size="sm"
-                      />
-                      <CustomDropdown<number>
-                        options={YEAR_OPTIONS}
-                        value={startYear}
-                        onChange={(val) => setStartYear(val)}
-                        size="sm"
-                      />
-                    </div>
-
-                    <div className="flex items-center gap-1">
-                      <span className="text-[11px] font-bold text-zinc-400">To:</span>
-                      <CustomDropdown<number>
-                        options={MONTH_OPTIONS}
-                        value={endMonth}
-                        onChange={(val) => setEndMonth(val)}
-                        size="sm"
-                      />
-                      <CustomDropdown<number>
-                        options={YEAR_OPTIONS}
-                        value={endYear}
-                        onChange={(val) => setEndYear(val)}
-                        size="sm"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* Sub-controls for CUSTOM_RANGE */}
-                {periodType === 'CUSTOM_RANGE' && (
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <DatePicker
-                      value={customStartDate}
-                      onChange={(val) => setCustomStartDate(val)}
-                      placeholder="Start Date"
-                    />
-                    <span className="text-xs text-zinc-400 font-bold">to</span>
-                    <DatePicker
-                      value={customEndDate}
-                      onChange={(val) => setCustomEndDate(val)}
-                      placeholder="End Date"
-                    />
-                  </div>
-                )}
-
-                {/* Download Report Button */}
-                <button
-                  type="button"
-                  onClick={handleDownloadReport}
-                  disabled={isDownloading || Boolean(validationError)}
-                  aria-label="Download report"
-                  title="Download report"
-                  className="flex items-center justify-center h-8 w-8 bg-black dark:bg-white text-white dark:text-black hover:bg-zinc-900 dark:hover:bg-zinc-100 disabled:opacity-50 text-xs font-semibold rounded-xl transition-all shadow-xs shrink-0 cursor-pointer"
-                >
-                  {isDownloading ? (
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Download className="h-4 w-4" />
-                  )}
-                </button>
-              </div>
+                <span>Download Report PDF</span>
+              </button>
             </div>
-
-            {/* Inline Validation Alert */}
-            {validationError && (
-              <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 text-xs font-semibold rounded-xl flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 shrink-0 text-amber-500" />
-                <span>{validationError}</span>
-              </div>
-            )}
 
             {/* Metric Cards Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -650,11 +623,11 @@ export const TeamDetail: React.FC = () => {
               </div>
               <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
                 <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">Completed</span>
-                <span className="block text-xl font-black text-emerald-500 mt-1">{memberSummary.completed_this_month ?? 0}</span>
+                <span className="block text-xl font-black text-emerald-500 mt-1">{completedTasks.length}</span>
               </div>
               <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
-                <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">Pending</span>
-                <span className="block text-xl font-black text-amber-500 mt-1">{memberSummary.total_pending ?? 0}</span>
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">Incomplete</span>
+                <span className="block text-xl font-black text-amber-500 mt-1">{incompleteTasks.length}</span>
               </div>
               <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
                 <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">On-Time Rate</span>
@@ -675,11 +648,11 @@ export const TeamDetail: React.FC = () => {
             {/* Member Task History Log */}
             <div className="space-y-3 pt-2">
               <h4 className="text-xs font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">
-                Member Activity & Work Log
+                Member Activity & Work Log ({tasks.length})
               </h4>
               <div className="divide-y divide-zinc-100 dark:divide-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden">
                 {tasks.length === 0 ? (
-                  <div className="p-6 text-center text-xs text-zinc-400 font-medium">No activity logged for this member.</div>
+                  <div className="p-6 text-center text-xs text-zinc-400 font-medium">No activity logged for this member in selected date range.</div>
                 ) : (
                   tasks.slice(0, 15).map((t) => (
                     <div key={t.id} className="p-3.5 bg-white dark:bg-zinc-950 flex items-center justify-between gap-4 text-xs">
@@ -711,9 +684,9 @@ export const TeamDetail: React.FC = () => {
       ) : (
         /* ASSIGNED WORK VIEW */
         <div className="space-y-6">
-          <div className="flex items-center justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800 pb-3">
-            {/* Filter Bar */}
-            <div className="flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar w-full">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800 pb-3">
+            {/* Status Filter Tabs */}
+            <div className="flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar w-full sm:w-auto">
               {[
                 { key: 'ALL', label: `All Tasks (${tasks.length})` },
                 { key: 'PENDING', label: `Pending (${pendingTasks.length})` },
@@ -726,7 +699,7 @@ export const TeamDetail: React.FC = () => {
                 <button
                   key={tab.key}
                   onClick={() => setFilter(tab.key as any)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap ${
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${
                     filter === tab.key
                       ? 'bg-black dark:bg-white text-white dark:text-black shadow-xs'
                       : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800'
@@ -735,6 +708,17 @@ export const TeamDetail: React.FC = () => {
                   {tab.label}
                 </button>
               ))}
+            </div>
+
+            {/* Task Sorting Selector */}
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider whitespace-nowrap">Sort:</span>
+              <CustomDropdown<'newest' | 'oldest'>
+                options={SORT_OPTIONS}
+                value={sortBy}
+                onChange={(val) => setSortBy(val)}
+                size="sm"
+              />
             </div>
           </div>
 

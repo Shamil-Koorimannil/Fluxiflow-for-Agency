@@ -85,6 +85,25 @@ class SubTaskSerializer(serializers.ModelSerializer):
     def validate_assignee_ids(self, value):
         if not value:
             return value
+
+        request = self.context.get('request')
+        if request and request.user and request.user.is_authenticated:
+            from apps.accounts.tenant_context import get_active_organization
+            from apps.accounts.models import Membership
+            active_org = get_active_organization(request.user, request=request)
+            if active_org:
+                valid_member_ids = set(
+                    Membership.objects.filter(organization=active_org, is_active=True).values_list('user_id', flat=True)
+                )
+                invalid_user_ids = [uid for uid in value if uid not in valid_member_ids]
+                if invalid_user_ids:
+                    cross_tenant = Membership.objects.filter(
+                        user_id__in=invalid_user_ids,
+                        is_active=True
+                    ).exclude(organization=active_org)
+                    if cross_tenant.exists():
+                        raise serializers.ValidationError("Cannot assign members outside the active organization.")
+
         inactive_users = User.objects.filter(id__in=value, is_active=False)
         is_create = self.instance is None
         if is_create:
@@ -603,24 +622,60 @@ class TaskCommentSerializer(serializers.ModelSerializer):
         return attrs
 
 
+from urllib.parse import urlparse
+from django.core.validators import URLValidator
+from django.core.exceptions import ValidationError as DjangoValidationError
+
+def validate_and_normalize_url(url_str):
+    if not url_str or not isinstance(url_str, str) or not url_str.strip():
+        raise serializers.ValidationError({"url": "URL cannot be empty."})
+
+    url_str = url_str.strip()
+    lower_url = url_str.lower()
+
+    # Block dangerous schemes
+    if lower_url.startswith(('javascript:', 'data:', 'vbscript:', 'file:', 'about:')):
+        raise serializers.ValidationError({"url": "Only http:// and https:// URLs are supported."})
+
+    # Prepend https:// if no scheme is provided
+    if not (lower_url.startswith('http://') or lower_url.startswith('https://')):
+        url_str = 'https://' + url_str
+        lower_url = url_str.lower()
+
+    if not (lower_url.startswith('http://') or lower_url.startswith('https://')):
+        raise serializers.ValidationError({"url": "Only http:// and https:// URLs are supported."})
+
+    validator = URLValidator(schemes=['http', 'https'])
+    try:
+        validator(url_str)
+    except DjangoValidationError:
+        raise serializers.ValidationError({"url": "Please enter a valid URL."})
+
+    return url_str
+
+
 class TaskAttachmentSerializer(serializers.ModelSerializer):
     uploaded_by_detail = UserSerializer(source='uploaded_by', read_only=True)
     download_url = serializers.SerializerMethodField()
+    url = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+
 
     class Meta:
         model = TaskAttachment
         fields = [
-            'id', 'task', 'subtask', 'file', 'original_name',
+            'id', 'task', 'subtask', 'attachment_type', 'file', 'url', 'original_name',
             'mime_type', 'size', 'uploaded_by', 'uploaded_by_detail',
             'download_url', 'created_at', 'updated_at'
         ]
         read_only_fields = [
-            'id', 'original_name', 'mime_type', 'size',
+            'id', 'mime_type', 'size',
             'uploaded_by', 'uploaded_by_detail', 'download_url',
             'created_at', 'updated_at'
         ]
 
     def get_download_url(self, obj):
+        if obj.attachment_type == 'link' or not obj.file:
+            return None
         request = self.context.get('request')
         path = f"/api/attachments/{obj.id}/download/"
         if request:
@@ -632,5 +687,18 @@ class TaskAttachmentSerializer(serializers.ModelSerializer):
         subtask = attrs.get('subtask')
         if subtask and task and subtask.task_id != task.id:
             raise serializers.ValidationError({"subtask": "Subtask does not belong to the specified task."})
+
+        attachment_type = attrs.get('attachment_type', 'file')
+        if attachment_type == 'link' or attrs.get('url'):
+            url_val = attrs.get('url')
+            normalized_url = validate_and_normalize_url(url_val)
+            attrs['url'] = normalized_url
+            attrs['attachment_type'] = 'link'
+            if not attrs.get('original_name'):
+                parsed = urlparse(normalized_url)
+                domain = parsed.netloc or parsed.path.split('/')[0]
+                attrs['original_name'] = domain or normalized_url
+
         return attrs
+
 

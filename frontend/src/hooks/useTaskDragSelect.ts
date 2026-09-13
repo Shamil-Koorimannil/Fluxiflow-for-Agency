@@ -218,7 +218,7 @@ export function useTaskDragSelect({
       if (!target) return;
 
       const isInsideTaskUI = target.closest(
-        '[data-task-id], [data-selection-control], [data-no-deselect], .MuiPopover-root, .MuiDialog-root, .MuiMenu-root'
+        '[data-task-id], [data-selection-control], [data-no-deselect], [data-context-menu], .task-context-menu, .MuiPopover-root, .MuiDialog-root, .MuiMenu-root'
       );
       if (!isInsideTaskUI) {
         clearSelection();

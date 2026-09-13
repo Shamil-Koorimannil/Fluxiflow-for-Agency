@@ -160,7 +160,10 @@ export const Tasks: React.FC = () => {
   };
 
   const handleOpenEdit = (task: Task) => {
-    setTaskToEdit(task);
+    const targetTask = task.is_subtask && task.parent_task_id
+      ? deduplicatedTasks.find((p) => p.id === task.parent_task_id) || task
+      : task;
+    setTaskToEdit(targetTask);
     setIsFormModalOpen(true);
   };
 
@@ -245,7 +248,10 @@ export const Tasks: React.FC = () => {
 
   const handleSetStatusSelected = async (targetTask: Task, nextStatus: 'IN_PROGRESS' | 'PENDING') => {
     try {
-      await api.patch(`/tasks/${targetTask.id}/`, { status: nextStatus });
+      const isSubtask = targetTask.is_subtask || targetTask.id.startsWith('subtask_');
+      const realId = isSubtask ? targetTask.id.replace('subtask_', '') : targetTask.id;
+      const endpoint = isSubtask ? `/subtasks/${realId}/` : `/tasks/${realId}/`;
+      await api.patch(endpoint, { status: nextStatus });
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
       queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });

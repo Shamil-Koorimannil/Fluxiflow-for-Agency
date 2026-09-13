@@ -16,11 +16,14 @@ export const TaskDatePicker: React.FC<TaskDatePickerProps> = ({ task, disabled =
 
   const updateDatesMutation = useMutation({
     mutationFn: async (newDate: string | null) => {
+      const isSubtask = task.is_subtask || task.id.startsWith('subtask_');
+      const realId = isSubtask ? task.id.replace('subtask_', '') : task.id;
+      const endpoint = isSubtask ? `/subtasks/${realId}/` : `/tasks/${realId}/`;
       const payload: any = { due_date: newDate };
       if (task.due_time) {
         payload.due_time = task.due_time;
       }
-      const response = await api.patch(`/tasks/${task.id}/`, payload);
+      const response = await api.patch(endpoint, payload);
       return response.data;
     },
     onSuccess: () => {
@@ -36,6 +39,9 @@ export const TaskDatePicker: React.FC<TaskDatePickerProps> = ({ task, disabled =
         queryClient.invalidateQueries({ queryKey: ['project', task.project] });
       }
       queryClient.invalidateQueries({ queryKey: ['task', task.id] });
+      if (task.parent_task_id) {
+        queryClient.invalidateQueries({ queryKey: ['task', task.parent_task_id] });
+      }
     },
   });
 

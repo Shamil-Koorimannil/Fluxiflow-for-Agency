@@ -58,17 +58,18 @@ export function CustomDropdown<T extends string | number = string>({
 
   const checkIsSelected = (optVal: T): boolean => {
     if (multiple) {
-      return Array.isArray(value) && value.includes(optVal);
+      return Array.isArray(value) && value.some((v) => String(v) === String(optVal));
     }
-    return value === optVal;
+    return value !== undefined && value !== null && String(value) === String(optVal);
   };
 
   const handleSelect = (optVal: T) => {
     if (multiple) {
       const currentValues = Array.isArray(value) ? value : [];
+      const isAlreadySelected = currentValues.some((v) => String(v) === String(optVal));
       let newValues: T[];
-      if (currentValues.includes(optVal)) {
-        newValues = currentValues.filter((v) => v !== optVal);
+      if (isAlreadySelected) {
+        newValues = currentValues.filter((v) => String(v) !== String(optVal));
       } else {
         newValues = [...currentValues, optVal];
       }
@@ -151,14 +152,14 @@ export function CustomDropdown<T extends string | number = string>({
   if (!displayText) {
     if (multiple) {
       const selectedValues = Array.isArray(value) ? value : [];
-      const selectedOpts = options.filter((opt) => selectedValues.includes(opt.value));
+      const selectedOpts = options.filter((opt) => selectedValues.some((v) => String(v) === String(opt.value)));
       if (selectedOpts.length === 0) {
         displayText = placeholder;
       } else {
         displayText = selectedOpts.map((opt) => opt.label).join(', ');
       }
     } else {
-      const selectedOption = options.find((opt) => opt.value === value);
+      const selectedOption = options.find((opt) => String(opt.value) === String(value));
       displayText = selectedOption ? `${valuePrefix || ''}${selectedOption.label}` : placeholder;
     }
   }

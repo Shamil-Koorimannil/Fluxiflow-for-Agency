@@ -5,7 +5,7 @@ import { api } from '../../services/api';
 import type { Task, User } from '../../types';
 import { useAuth } from '../auth/AuthContext';
 import { X, CheckSquare, Calendar, Clock, AlertCircle, Trash2, Edit, CheckCircle2, Circle, AlertTriangle, ChevronDown, ChevronRight, Copy } from 'lucide-react';
-import { formatLateDuration, formatDateOnly, formatTimeOnly } from '../../utils/time';
+import { formatLateDuration, formatTimeOnly, formatDueDate, getDueDateStyleClass } from '../../utils/time';
 import { TimePicker } from '../../components/common/TimePicker';
 import { DatePicker } from '../../components/common/DatePicker';
 import { CommentsSection } from './CommentsSection';
@@ -689,11 +689,11 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                                 </span>
 
                                 {(sub.due_date || sub.due_time) && (
-                                  <div className="flex items-center gap-2.5 text-[10px] text-zinc-400 dark:text-zinc-500 font-medium">
+                                  <div className="flex items-center gap-2.5 text-[10px] font-medium">
                                     {sub.due_date && (
-                                      <span className="flex items-center gap-1">
+                                      <span className={`flex items-center gap-1 ${getDueDateStyleClass(sub.due_date, sub.status === 'COMPLETED')}`}>
                                         <Calendar className="h-3 w-3" />
-                                        {formatDateOnly(sub.due_date)}
+                                        {formatDueDate(sub.due_date, sub.status === 'COMPLETED')}
                                       </span>
                                     )}
                                     {sub.due_time && (

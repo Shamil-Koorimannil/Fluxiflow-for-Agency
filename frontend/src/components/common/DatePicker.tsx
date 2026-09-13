@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Popover, IconButton, Typography } from '@mui/material';
 import { Calendar, ChevronLeft, ChevronRight, X, Plus } from 'lucide-react';
-import { formatDateOnly } from '../../utils/time';
+import { formatDateOnly, getBusinessTodayString, getTaskDateStatusDetails } from '../../utils/time';
 
 interface DatePickerProps {
   value?: string; // "YYYY-MM-DD" or "" for single mode
@@ -14,6 +14,7 @@ interface DatePickerProps {
   required?: boolean;
   variant?: 'standard' | 'inline';
   isOverdue?: boolean;
+  timezone?: string;
 }
 
 export const DatePicker: React.FC<DatePickerProps> = ({
@@ -27,6 +28,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
   required = false,
   variant = 'standard',
   isOverdue = false,
+  timezone,
 }) => {
   const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null);
 
@@ -112,9 +114,13 @@ export const DatePicker: React.FC<DatePickerProps> = ({
     }
   };
 
+  const todayStr = getBusinessTodayString(timezone);
+
+  const statusDetails = value ? getTaskDateStatusDetails(value, undefined, false, timezone) : null;
+
   const getDisplayValue = () => {
     if (!value) return '';
-    return formatDateOnly(value);
+    return statusDetails?.label || formatDateOnly(value);
   };
 
   const daysArray: (number | null)[] = [];
@@ -204,14 +210,22 @@ export const DatePicker: React.FC<DatePickerProps> = ({
           <div className="flex items-center gap-2 min-w-0">
             <Calendar
               size={variant === 'inline' ? 13 : 16}
-              className={isOverdue ? 'text-red-500 shrink-0' : 'text-zinc-400 shrink-0'}
+              className={
+                isOverdue || statusDetails?.type === 'yesterday' || statusDetails?.type === 'overdue'
+                  ? 'text-red-500 shrink-0'
+                  : statusDetails?.type === 'today'
+                  ? 'text-green-600 dark:text-green-400 shrink-0'
+                  : statusDetails?.type === 'tomorrow'
+                  ? 'text-amber-600 dark:text-amber-400 shrink-0'
+                  : 'text-zinc-400 shrink-0'
+              }
             />
             <span
               className={
                 isOverdue
                   ? 'text-red-600 dark:text-red-400 font-bold truncate'
-                  : getDisplayValue()
-                  ? 'truncate'
+                  : statusDetails
+                  ? `${statusDetails.colorClass} truncate`
                   : 'text-zinc-400 truncate'
               }
             >
@@ -284,16 +298,30 @@ export const DatePicker: React.FC<DatePickerProps> = ({
                 return <div key={`empty-${idx}`} />;
               }
               const selected = isSelected(day);
+              const dayStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+              const isTodayCell = dayStr === todayStr;
+
+              let cellStyle = 'py-1.5 text-xs font-semibold rounded-md transition-all text-center ';
+              if (selected && isTodayCell) {
+                // Today cell selected: selected background + Today box border
+                cellStyle += 'bg-black text-white dark:bg-white dark:text-black font-bold border-2 border-emerald-600 dark:border-emerald-400 ring-1 ring-emerald-500';
+              } else if (selected) {
+                // Selected cell, non-today
+                cellStyle += 'bg-black text-white dark:bg-white dark:text-black font-bold border-2 border-transparent';
+              } else if (isTodayCell) {
+                // Today cell, non-selected: visible box border
+                cellStyle += 'border-2 border-emerald-600 dark:border-emerald-400 text-emerald-700 dark:text-emerald-400 font-bold hover:bg-emerald-50 dark:hover:bg-emerald-950/40';
+              } else {
+                // Normal cell
+                cellStyle += 'border-2 border-transparent hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200';
+              }
+
               return (
                 <button
                   key={`day-${day}`}
                   type="button"
                   onClick={() => selectDay(day)}
-                  className={`py-1.5 text-xs font-semibold rounded-md transition-all text-center ${
-                    selected
-                      ? 'bg-black text-white dark:bg-white dark:text-black font-bold'
-                      : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200'
-                  }`}
+                  className={cellStyle}
                 >
                   {day}
                 </button>
@@ -321,3 +349,4 @@ export const DatePicker: React.FC<DatePickerProps> = ({
     </div>
   );
 };
+

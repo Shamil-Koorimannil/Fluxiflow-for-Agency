@@ -229,13 +229,20 @@ class TaskComment(models.Model):
 
 
 class TaskAttachment(models.Model):
+    ATTACHMENT_TYPE_CHOICES = (
+        ('file', 'File'),
+        ('link', 'Link'),
+    )
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='attachments')
     subtask = models.ForeignKey(SubTask, on_delete=models.CASCADE, null=True, blank=True, related_name='attachments')
-    file = models.FileField(upload_to='task_attachments/')
-    original_name = models.CharField(max_length=255)
-    mime_type = models.CharField(max_length=100)
-    size = models.BigIntegerField()
+    attachment_type = models.CharField(max_length=20, choices=ATTACHMENT_TYPE_CHOICES, default='file')
+    file = models.FileField(upload_to='task_attachments/', blank=True, null=True)
+    url = models.URLField(max_length=2048, blank=True, null=True)
+    original_name = models.CharField(max_length=255, blank=True, null=True)
+    mime_type = models.CharField(max_length=100, blank=True, null=True)
+    size = models.BigIntegerField(blank=True, null=True)
     uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='uploaded_attachments')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -253,6 +260,10 @@ class TaskAttachment(models.Model):
         super().clean()
         if self.subtask and self.subtask.task_id != self.task_id:
             raise ValidationError("Subtask does not belong to the specified task.")
+        if self.attachment_type == 'file' and not self.file:
+            raise ValidationError("File attachment requires a file.")
+        if self.attachment_type == 'link' and not self.url:
+            raise ValidationError("Link attachment requires a URL.")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -260,5 +271,6 @@ class TaskAttachment(models.Model):
 
     def __str__(self):
         target = f"Subtask {self.subtask_id}" if self.subtask_id else f"Task {self.task_id}"
-        return f"Attachment '{self.original_name}' on {target}"
+        return f"Attachment '{self.original_name or self.url}' on {target}"
+
 

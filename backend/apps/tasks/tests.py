@@ -275,14 +275,41 @@ class FluxiflowAPITests(TestCase):
         self.set_auth(self.member1_token)
         url = reverse('task-detail', args=[self.task.id])
         
+        # 1. Tomorrow -> Tomorrow label, amber color
         self.task.due_date = timezone.now().date() + datetime.timedelta(days=1)
         self.task.due_time = datetime.time(10, 0, 0)
         self.task.save()
         
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['date_color'], 'green')
+        self.assertEqual(response.data['date_color'], 'amber')
         self.assertIn('Tomorrow · 10:00 AM', response.data['date_display'])
+
+        # 2. Today -> Today label, green color
+        self.task.due_date = timezone.now().date()
+        self.task.save()
+        response = self.client.get(url)
+        self.assertEqual(response.data['date_color'], 'green')
+        self.assertIn('Today · 10:00 AM', response.data['date_display'])
+
+        # 3. Yesterday -> Yesterday label, red color
+        self.task.due_date = timezone.now().date() - datetime.timedelta(days=1)
+        self.task.save()
+        response = self.client.get(url)
+        self.assertEqual(response.data['date_color'], 'red')
+        self.assertIn('Yesterday · 10:00 AM', response.data['date_display'])
+
+        # 4. Older Overdue -> Actual date, red color
+        self.task.due_date = timezone.now().date() - datetime.timedelta(days=3)
+        self.task.save()
+        response = self.client.get(url)
+        self.assertEqual(response.data['date_color'], 'red')
+
+        # 5. Future (> Tomorrow) -> Actual date, gray color
+        self.task.due_date = timezone.now().date() + datetime.timedelta(days=3)
+        self.task.save()
+        response = self.client.get(url)
+        self.assertEqual(response.data['date_color'], 'gray')
 
     def test_admin_can_create_unassigned_task(self):
         url = reverse('task-list')
@@ -2785,6 +2812,459 @@ class TaskDataScopingTests(TestCase):
         t.refresh_from_db()
         self.assertEqual(t.status, 'IN_PROGRESS')
         self.assertEqual(res_timer.data['overall_status'], 'IN_PROGRESS')
+
+
+class MultiAssigneeTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        from apps.accounts.models import CustomUser as User, Membership, Organization
+        
+        self.org1 = Organization.objects.create(name='Org 1', slug='org-1')
+        self.org2 = Organization.objects.create(name='Org 2', slug='org-2')
+
+        self.admin = User.objects.create_superuser(email='admin@org1.com', name='Admin User', password='password123')
+        self.rayan = User.objects.create_user(email='rayan@org1.com', name='Rayan', password='password123')
+        self.sarah = User.objects.create_user(email='sarah@org1.com', name='Sarah', password='password123')
+        self.alex = User.objects.create_user(email='alex@org1.com', name='Alex', password='password123')
+        self.outsider = User.objects.create_user(email='outsider@org2.com', name='Outsider', password='password123')
+
+        Membership.objects.create(organization=self.org1, user=self.admin, role='ORG_ADMIN', is_active=True)
+        Membership.objects.create(organization=self.org1, user=self.rayan, role='MEMBER', is_active=True)
+        Membership.objects.create(organization=self.org1, user=self.sarah, role='MEMBER', is_active=True)
+        Membership.objects.create(organization=self.org1, user=self.alex, role='MEMBER', is_active=True)
+        Membership.objects.create(organization=self.org2, user=self.outsider, role='MEMBER', is_active=True)
+
+        self.admin.active_organization = self.org1
+        self.admin.save(update_fields=['active_organization'])
+        self.rayan.active_organization = self.org1
+        self.rayan.save(update_fields=['active_organization'])
+        self.alex.active_organization = self.org1
+        self.alex.save(update_fields=['active_organization'])
+
+        self.project = Project.objects.create(name='Project 1', organization=self.org1, created_by=self.admin)
+
+    def get_token(self, user):
+        refresh = RefreshToken.for_user(user)
+        refresh['email'] = user.email
+        refresh['name'] = user.name
+        refresh['role'] = user.role
+        if user.active_organization_id:
+            refresh['org_id'] = str(user.active_organization_id)
+        return str(refresh.access_token)
+
+    def set_auth(self, user):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.get_token(user)}')
+
+    def test_multi_assignee_late_submission_independence(self):
+        # Due date: 2 days ago
+        due_date = timezone.now().date() - datetime.timedelta(days=2)
+        task = Task.objects.create(
+            name='Design Poster',
+            project=self.project,
+            organization=self.org1,
+            due_date=due_date,
+            due_time=datetime.time(17, 0),
+            created_by=self.admin
+        )
+        rel_rayan = TaskAssignee.objects.create(task=task, user=self.rayan)
+        rel_alex = TaskAssignee.objects.create(task=task, user=self.alex)
+
+        # Rayan completed 3 days ago (BEFORE due date)
+        completed_on_time = timezone.now() - datetime.timedelta(days=3)
+        rel_rayan.completed = True
+        rel_rayan.completed_at = completed_on_time
+        rel_rayan.save()
+
+        # Alex completed yesterday (AFTER due date)
+        completed_late = timezone.now() - datetime.timedelta(days=1)
+        rel_alex.completed = True
+        rel_alex.completed_at = completed_late
+        rel_alex.save()
+
+        task.status = 'COMPLETED'
+        task.completed_at = completed_late
+        task.save()
+
+        self.set_auth(self.admin)
+        res = self.client.get(f'/api/tasks/{task.id}/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        assignees_data = {a['id']: a for a in res.data['assignees']}
+        rayan_data = assignees_data[str(self.rayan.id)]
+        alex_data = assignees_data[str(self.alex.id)]
+
+        self.assertTrue(rayan_data['completed'])
+        self.assertEqual(rayan_data['submission_status'], 'COMPLETED_ON_TIME')
+        self.assertEqual(rayan_data['late_by_minutes'], 0)
+
+        self.assertTrue(alex_data['completed'])
+        self.assertEqual(alex_data['submission_status'], 'LATE')
+        self.assertGreater(alex_data['late_by_minutes'], 0)
+
+    def test_multi_assignee_pending_and_overdue_independence(self):
+        due_date = timezone.now().date() - datetime.timedelta(days=2)
+        task = Task.objects.create(
+            name='Multi Status Task',
+            project=self.project,
+            organization=self.org1,
+            due_date=due_date,
+            due_time=datetime.time(17, 0),
+            created_by=self.admin
+        )
+        rel_rayan = TaskAssignee.objects.create(task=task, user=self.rayan)
+        rel_sarah = TaskAssignee.objects.create(task=task, user=self.sarah)
+        rel_alex = TaskAssignee.objects.create(task=task, user=self.alex)
+
+        # Rayan completed on time
+        rel_rayan.completed = True
+        rel_rayan.completed_at = timezone.now() - datetime.timedelta(days=3)
+        rel_rayan.save()
+
+        # Alex completed late
+        rel_alex.completed = True
+        rel_alex.completed_at = timezone.now() - datetime.timedelta(days=1)
+        rel_alex.save()
+
+        # Sarah is incomplete
+        self.set_auth(self.admin)
+        res = self.client.get(f'/api/tasks/{task.id}/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        assignees_data = {a['id']: a for a in res.data['assignees']}
+        sarah_data = assignees_data[str(self.sarah.id)]
+
+        self.assertFalse(sarah_data['completed'])
+        self.assertEqual(sarah_data['submission_status'], 'OVERDUE')
+        self.assertNotEqual(sarah_data['submission_status'], 'LATE')
+
+    def test_edit_task_remove_and_add_assignees(self):
+        self.set_auth(self.admin)
+        # Create task with Rayan, Sarah, Alex
+        create_res = self.client.post('/api/tasks/', {
+            'name': 'Edit Assignees Task',
+            'project': str(self.project.id),
+            'assignee_ids': [str(self.rayan.id), str(self.sarah.id), str(self.alex.id)]
+        }, format='json')
+        self.assertEqual(create_res.status_code, status.HTTP_201_CREATED)
+        task_id = create_res.data['id']
+
+        self.assertEqual(TaskAssignee.objects.filter(task_id=task_id).count(), 3)
+
+        # Remove Sarah
+        patch_res = self.client.patch(f'/api/tasks/{task_id}/', {
+            'assignee_ids': [str(self.rayan.id), str(self.alex.id)]
+        }, format='json')
+        self.assertEqual(patch_res.status_code, status.HTTP_200_OK)
+
+        remaining_ids = set(TaskAssignee.objects.filter(task_id=task_id).values_list('user_id', flat=True))
+        self.assertEqual(remaining_ids, {self.rayan.id, self.alex.id})
+        self.assertNotIn(self.sarah.id, remaining_ids)
+
+        # Add Sarah back
+        patch_res2 = self.client.patch(f'/api/tasks/{task_id}/', {
+            'assignee_ids': [str(self.rayan.id), str(self.alex.id), str(self.sarah.id)]
+        }, format='json')
+        self.assertEqual(patch_res2.status_code, status.HTTP_200_OK)
+        final_ids = set(TaskAssignee.objects.filter(task_id=task_id).values_list('user_id', flat=True))
+        self.assertEqual(final_ids, {self.rayan.id, self.alex.id, self.sarah.id})
+        self.assertEqual(TaskAssignee.objects.filter(task_id=task_id).count(), 3)
+
+    def test_individual_reopen_independence(self):
+        due_date = timezone.now().date() + datetime.timedelta(days=1)
+        task = Task.objects.create(
+            name='Reopen Task',
+            project=self.project,
+            organization=self.org1,
+            due_date=due_date,
+            created_by=self.admin,
+            status='COMPLETED'
+        )
+        rel_rayan = TaskAssignee.objects.create(task=task, user=self.rayan, completed=True, completed_at=timezone.now())
+        rel_alex = TaskAssignee.objects.create(task=task, user=self.alex, completed=True, completed_at=timezone.now())
+
+        # Rayan reopens his assignment
+        self.set_auth(self.rayan)
+        reopen_res = self.client.post(f'/api/tasks/{task.id}/reopen/')
+        self.assertEqual(reopen_res.status_code, status.HTTP_200_OK)
+
+        rel_rayan.refresh_from_db()
+        rel_alex.refresh_from_db()
+        task.refresh_from_db()
+
+        self.assertFalse(rel_rayan.completed)
+        self.assertIsNone(rel_rayan.completed_at)
+
+        # Alex remains completed
+        self.assertTrue(rel_alex.completed)
+        self.assertIsNotNone(rel_alex.completed_at)
+
+        # Task overall status becomes PENDING
+        self.assertEqual(task.status, 'PENDING')
+
+    def test_cross_organization_assignment_rejection(self):
+        self.set_auth(self.admin)
+        res = self.client.post('/api/tasks/', {
+            'name': 'Malicious Task',
+            'project': str(self.project.id),
+            'assignee_ids': [str(self.outsider.id)]
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_subtask_creation_and_editing_flow(self):
+        self.set_auth(self.admin)
+        # 1. Create parent task
+        task = Task.objects.create(
+            name='Parent Task with Subtasks',
+            project=self.project,
+            organization=self.org1,
+            created_by=self.admin
+        )
+        
+        # 2. Add subtask via /api/subtasks/
+        sub_res = self.client.post('/api/subtasks/', {
+            'task': str(task.id),
+            'name': 'Subtask 1',
+            'due_date': '2026-09-20',
+            'due_time': '14:00:00',
+            'assignee_ids': [str(self.rayan.id)]
+        }, format='json')
+        self.assertEqual(sub_res.status_code, status.HTTP_201_CREATED)
+        subtask_id = sub_res.data['id']
+        
+        # Verify assignee attached
+        self.assertTrue(SubTaskAssignee.objects.filter(subtask_id=subtask_id, user=self.rayan).exists())
+
+        # 3. Edit subtask
+        patch_res = self.client.patch(f'/api/subtasks/{subtask_id}/', {
+            'name': 'Updated Subtask 1',
+            'due_date': '2026-09-25'
+        }, format='json')
+        self.assertEqual(patch_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(patch_res.data['name'], 'Updated Subtask 1')
+
+        # 4. Delete subtask
+        del_res = self.client.delete(f'/api/subtasks/{subtask_id}/')
+        self.assertEqual(del_res.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(SubTask.objects.filter(id=subtask_id).exists())
+
+    def test_inline_subtask_and_task_date_update(self):
+        self.set_auth(self.admin)
+        task = Task.objects.create(
+            name='Task for Date Update',
+            project=self.project,
+            organization=self.org1,
+            due_date=datetime.date(2026, 9, 10),
+            created_by=self.admin
+        )
+
+        subtask = SubTask.objects.create(
+            task=task,
+            name='Subtask for Date Update',
+            due_date=datetime.date(2026, 9, 10)
+        )
+
+        # Update task date
+        task_date_res = self.client.patch(f'/api/tasks/{task.id}/', {
+            'due_date': '2026-09-15'
+        }, format='json')
+        self.assertEqual(task_date_res.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(str(task.due_date), '2026-09-15')
+
+        # Update subtask date
+        sub_date_res = self.client.patch(f'/api/subtasks/{subtask.id}/', {
+            'due_date': '2026-09-15'
+        }, format='json')
+        self.assertEqual(sub_date_res.status_code, status.HTTP_200_OK)
+        subtask.refresh_from_db()
+        self.assertEqual(str(subtask.due_date), '2026-09-15')
+
+    def test_bulk_delete_tasks_and_subtasks(self):
+        self.set_auth(self.admin)
+        task = Task.objects.create(
+            name='Task to Bulk Delete',
+            project=self.project,
+            organization=self.org1,
+            created_by=self.admin
+        )
+        subtask = SubTask.objects.create(
+            task=task,
+            name='Subtask to Bulk Delete'
+        )
+
+        bulk_res = self.client.post('/api/tasks/bulk-delete/', {
+            'task_ids': [str(task.id), f'subtask_{subtask.id}']
+        }, format='json')
+        self.assertEqual(bulk_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(bulk_res.data['deleted_count'], 2)
+        self.assertFalse(Task.objects.filter(id=task.id).exists())
+        self.assertFalse(SubTask.objects.filter(id=subtask.id).exists())
+
+    def test_cross_organization_subtask_assignment_rejection(self):
+        self.set_auth(self.admin)
+        task = Task.objects.create(
+            name='Org Task',
+            project=self.project,
+            organization=self.org1,
+            created_by=self.admin
+        )
+        res = self.client.post('/api/subtasks/', {
+            'task': str(task.id),
+            'name': 'Malicious Subtask',
+            'assignee_ids': [str(self.outsider.id)]
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+from django.core.files.uploadedfile import SimpleUploadedFile
+from apps.tasks.models import TaskAttachment
+
+class AttachmentTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_superuser(
+            email='attachment_admin@test.com',
+            name='Attachment Admin',
+            password='password123'
+        )
+        self.outsider = User.objects.create_user(
+            email='outsider_attachment@test.com',
+            name='Outsider User',
+            password='password123'
+        )
+        from apps.accounts.models import Organization, Membership
+        self.org1 = Organization.objects.create(name='Org One Attachment', slug='org-one-att')
+        self.org2 = Organization.objects.create(name='Org Two Attachment', slug='org-two-att')
+
+        Membership.objects.create(organization=self.org1, user=self.admin, role='ORG_ADMIN', is_active=True)
+        Membership.objects.create(organization=self.org2, user=self.outsider, role='ORG_ADMIN', is_active=True)
+
+        self.admin.active_organization = self.org1
+        self.admin.save()
+        self.outsider.active_organization = self.org2
+        self.outsider.save()
+
+        self.project = Project.objects.create(name='Attachment Project', organization=self.org1, created_by=self.admin)
+        self.task = Task.objects.create(name='Attachment Task', project=self.project, organization=self.org1, created_by=self.admin)
+        self.subtask = SubTask.objects.create(name='Attachment SubTask', task=self.task)
+
+        self.admin_token = self.get_jwt_token(self.admin.email)
+        self.outsider_token = self.get_jwt_token(self.outsider.email)
+
+    def get_jwt_token(self, email):
+        user = User.objects.get(email=email)
+        refresh = RefreshToken.for_user(user)
+        refresh['email'] = user.email
+        refresh['name'] = user.name
+        refresh['role'] = user.role
+        if user.active_organization_id:
+            refresh['org_id'] = str(user.active_organization_id)
+        return str(refresh.access_token)
+
+    def set_auth(self, token):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+    def test_create_file_and_link_attachments_task(self):
+        self.set_auth(self.admin_token)
+
+        # 1. Create File Attachment
+        dummy_file = SimpleUploadedFile("brief.pdf", b"pdf content", content_type="application/pdf")
+        res_file = self.client.post('/api/attachments/', {
+            'task': str(self.task.id),
+            'file': dummy_file
+        }, format='multipart')
+        self.assertEqual(res_file.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res_file.data['attachment_type'], 'file')
+        self.assertEqual(res_file.data['original_name'], 'brief.pdf')
+
+        # 2. Create Link Attachment
+        res_link = self.client.post('/api/attachments/', {
+            'task': str(self.task.id),
+            'attachment_type': 'link',
+            'url': 'https://figma.com/file/abc1234'
+        }, format='json')
+        self.assertEqual(res_link.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res_link.data['attachment_type'], 'link')
+        self.assertEqual(res_link.data['url'], 'https://figma.com/file/abc1234')
+
+        # 3. Retrieve attachments
+        get_res = self.client.get(f'/api/attachments/?task={self.task.id}')
+        self.assertEqual(get_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(get_res.data), 2)
+
+    def test_subtask_link_attachment(self):
+        self.set_auth(self.admin_token)
+        res_link = self.client.post('/api/attachments/', {
+            'task': str(self.task.id),
+            'subtask': str(self.subtask.id),
+            'attachment_type': 'link',
+            'url': 'https://drive.google.com/file/d/xyz/view'
+        }, format='json')
+        self.assertEqual(res_link.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(str(res_link.data['subtask']), str(self.subtask.id))
+        self.assertEqual(res_link.data['url'], 'https://drive.google.com/file/d/xyz/view')
+
+    def test_url_validation_and_normalization(self):
+        self.set_auth(self.admin_token)
+
+        # Prepend https:// for domain without scheme
+        res_norm = self.client.post('/api/attachments/', {
+            'task': str(self.task.id),
+            'attachment_type': 'link',
+            'url': 'example.com/docs'
+        }, format='json')
+        self.assertEqual(res_norm.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res_norm.data['url'], 'https://example.com/docs')
+
+        # Reject unsafe scheme javascript:
+        res_js = self.client.post('/api/attachments/', {
+            'task': str(self.task.id),
+            'attachment_type': 'link',
+            'url': 'javascript:alert(1)'
+        }, format='json')
+        self.assertEqual(res_js.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Reject empty URL
+        res_empty = self.client.post('/api/attachments/', {
+            'task': str(self.task.id),
+            'attachment_type': 'link',
+            'url': '   '
+        }, format='json')
+        self.assertEqual(res_empty.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_cross_tenant_attachment_access_prevention(self):
+        # Admin creates link attachment
+        self.set_auth(self.admin_token)
+        res_link = self.client.post('/api/attachments/', {
+            'task': str(self.task.id),
+            'attachment_type': 'link',
+            'url': 'https://example.com'
+        }, format='json')
+        att_id = res_link.data['id']
+
+        # Outsider (org2) attempts to list, view or delete attachment
+        self.set_auth(self.outsider_token)
+
+        # Listing attachments for org1 task should return empty list
+        get_res = self.client.get(f'/api/attachments/?task={self.task.id}')
+        self.assertEqual(get_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(get_res.data), 0)
+
+        # Outsider attempting to create attachment on org1 task should fail
+        create_res = self.client.post('/api/attachments/', {
+            'task': str(self.task.id),
+            'attachment_type': 'link',
+            'url': 'https://hacker.com'
+        }, format='json')
+        self.assertEqual(create_res.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Outsider attempting to delete org1 attachment should be rejected (404/403)
+        del_res = self.client.delete(f'/api/attachments/{att_id}/')
+        self.assertIn(del_res.status_code, [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND])
+
+
+
+
 
 
 
