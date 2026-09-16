@@ -220,7 +220,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
 
           {/* Tertiary: Project Name */}
           {task.project_detail && (
-            <div className="text-[10px] font-normal text-zinc-400 dark:text-zinc-500 tracking-wide">
+            <div className="text-xs font-bold text-zinc-600 dark:text-zinc-400 tracking-wide">
               {task.project_detail.name}
             </div>
           )}

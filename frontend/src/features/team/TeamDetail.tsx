@@ -698,7 +698,7 @@ export const TeamDetail: React.FC = () => {
                       <div>
                         <span className="font-bold text-zinc-900 dark:text-zinc-100 block">{t.name}</span>
                         {t.project_detail && (
-                          <span className="text-[10px] text-zinc-400 font-medium">{t.project_detail.name}</span>
+                          <span className="text-xs text-zinc-600 dark:text-zinc-400 font-bold block">{t.project_detail.name}</span>
                         )}
                       </div>
                       <div className="flex items-center gap-3">

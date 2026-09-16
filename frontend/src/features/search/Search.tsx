@@ -212,7 +212,7 @@ export const Search: React.FC = () => {
                       </h4>
 
                       {task.project_detail && (
-                        <div className="text-[10px] font-bold text-zinc-450 dark:text-zinc-550 uppercase tracking-widest leading-none">
+                        <div className="text-xs font-bold text-zinc-600 dark:text-zinc-400 tracking-wide">
                           {task.project_detail.name}
                         </div>
                       )}
