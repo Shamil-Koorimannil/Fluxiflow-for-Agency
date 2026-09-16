@@ -1,3 +1,4 @@
+import uuid
 from django.db.models import Q
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
@@ -34,9 +35,11 @@ class ProjectTemplateViewSet(viewsets.ReadOnlyModelViewSet):
         # Industry filter
         industry_param = self.request.query_params.get('industry')
         if industry_param:
-            qs = qs.filter(
-                Q(industry_id=industry_param) | Q(industry__name__iexact=industry_param)
-            )
+            try:
+                uuid_val = uuid.UUID(str(industry_param))
+                qs = qs.filter(industry_id=uuid_val)
+            except ValueError:
+                qs = qs.filter(industry__name__iexact=industry_param)
 
         # Case-insensitive search across template name, description, industry name, task names, subtask names
         search_query = self.request.query_params.get('search', '').strip()
