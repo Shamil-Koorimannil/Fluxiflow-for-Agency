@@ -186,58 +186,484 @@ ADVERTISING_TEMPLATES_DATA = [
 ]
 
 
+SOFTWARE_TECHNOLOGY_TEMPLATES_DATA = [
+    {
+        "name": "Software Development",
+        "description": "Comprehensive software development workflow covering requirement planning, UI/UX design, core modules, API integrations, testing, and production launch.",
+        "icon": "code",
+        "tasks": [
+            {
+                "name": "Requirement & Product Planning",
+                "subtasks": [
+                    "Requirements & Scope",
+                    "Functional Specification",
+                    "Technical Specification",
+                ],
+            },
+            {
+                "name": "UI/UX Design",
+                "subtasks": [
+                    "User Interface",
+                    "User Experience",
+                    "Design System",
+                    "Prototype",
+                ],
+            },
+            {
+                "name": "User & Authentication Module",
+                "subtasks": [
+                    "Registration & Login",
+                    "User Profiles",
+                    "Roles & Permissions",
+                    "Authentication & Security",
+                ],
+            },
+            {
+                "name": "Core Application Modules",
+                "subtasks": [
+                    "Module 1 — Based on project requirements",
+                    "Module 2 — Based on project requirements",
+                    "Module 3 — Based on project requirements",
+                    "Module 4 — Based on project requirements",
+                ],
+            },
+            {
+                "name": "Admin & Management Module",
+                "subtasks": [
+                    "Admin Dashboard",
+                    "User Management",
+                    "System Management",
+                    "Reports & Controls",
+                ],
+            },
+            {
+                "name": "API & Integration Module",
+                "subtasks": [
+                    "APIs",
+                    "Third-party Integrations",
+                    "Notifications",
+                    "External Services",
+                ],
+            },
+            {
+                "name": "Database & Backend",
+                "subtasks": [
+                    "Database",
+                    "Backend Services",
+                    "Business Logic",
+                ],
+            },
+            {
+                "name": "Testing & QA",
+                "subtasks": [
+                    "Functional Testing",
+                    "Integration Testing",
+                    "Performance & Security Testing",
+                    "Bug Resolution",
+                ],
+            },
+            {
+                "name": "Deployment & Launch",
+                "subtasks": [
+                    "Production Setup",
+                    "Deployment",
+                    "Final Verification",
+                ],
+            },
+        ],
+    },
+    {
+        "name": "Web Application",
+        "description": "Full-stack web application development blueprint from requirements and interface design to admin panel, integrations, and deployment.",
+        "icon": "globe",
+        "tasks": [
+            {
+                "name": "Requirement Gathering",
+                "subtasks": [
+                    "Business Requirements",
+                    "Functional Requirements",
+                    "User Roles & User Flows",
+                    "Feature Scope",
+                ],
+            },
+            {
+                "name": "UI/UX Design",
+                "subtasks": [
+                    "Website / Application Interface",
+                    "Dashboard Interface",
+                    "Responsive Design",
+                    "Design System",
+                ],
+            },
+            {
+                "name": "Authentication & User Management",
+                "subtasks": [
+                    "Registration & Login",
+                    "User Profile",
+                    "Roles & Permissions",
+                    "Account Management",
+                ],
+            },
+            {
+                "name": "Core Web Application",
+                "subtasks": [
+                    "Dashboard",
+                    "Main Application Module",
+                    "User-facing Modules",
+                    "Data Management Modules",
+                    "Reports / Analytics",
+                ],
+            },
+            {
+                "name": "Admin Panel",
+                "subtasks": [
+                    "Admin Dashboard",
+                    "User Management",
+                    "Content / Data Management",
+                    "Reports & Settings",
+                ],
+            },
+            {
+                "name": "Backend & API",
+                "subtasks": [
+                    "Backend System",
+                    "Database",
+                    "API",
+                    "Business Logic",
+                ],
+            },
+            {
+                "name": "Integrations",
+                "subtasks": [
+                    "Payment Integration",
+                    "Communication Integration",
+                    "Third-party APIs",
+                    "Analytics / Tracking",
+                ],
+            },
+            {
+                "name": "Testing & QA",
+                "subtasks": [
+                    "Application Testing",
+                    "Browser & Device Testing",
+                    "Security & Performance Testing",
+                    "Bug Resolution",
+                ],
+            },
+            {
+                "name": "Deployment & Launch",
+                "subtasks": [
+                    "Hosting & Server",
+                    "Domain & SSL",
+                    "Production Deployment",
+                    "Final Launch",
+                ],
+            },
+        ],
+    },
+    {
+        "name": "Mobile Application",
+        "description": "iOS and Android mobile app development workflow covering planning, design, core features, OS-specific builds, and store releases.",
+        "icon": "smartphone",
+        "tasks": [
+            {
+                "name": "Requirement & Product Planning",
+                "subtasks": [
+                    "Product Requirements",
+                    "Feature Scope",
+                    "User Flows",
+                    "Platform Requirements",
+                ],
+            },
+            {
+                "name": "UI/UX Design",
+                "subtasks": [
+                    "Mobile App Interface",
+                    "User Experience",
+                    "Design System",
+                    "Prototype",
+                ],
+            },
+            {
+                "name": "Authentication & User Management",
+                "subtasks": [
+                    "Registration & Login",
+                    "User Profile",
+                    "Roles & Permissions",
+                    "Account Management",
+                ],
+            },
+            {
+                "name": "Core Mobile Application",
+                "subtasks": [
+                    "Home / Dashboard",
+                    "Main Application Module",
+                    "User Features",
+                    "Content / Data Modules",
+                    "Notifications",
+                    "Settings",
+                ],
+            },
+            {
+                "name": "Backend & API",
+                "subtasks": [
+                    "Backend System",
+                    "Database",
+                    "API",
+                    "Business Logic",
+                ],
+            },
+            {
+                "name": "Admin Panel",
+                "subtasks": [
+                    "Admin Dashboard",
+                    "User Management",
+                    "Content / Data Management",
+                    "Reports & Settings",
+                ],
+            },
+            {
+                "name": "Integrations",
+                "subtasks": [
+                    "Payment",
+                    "Push Notifications",
+                    "Maps / Location",
+                    "Third-party APIs",
+                    "Analytics",
+                ],
+            },
+            {
+                "name": "iOS Application",
+                "subtasks": [
+                    "iOS Implementation",
+                    "iOS Testing",
+                    "App Store Build",
+                ],
+            },
+            {
+                "name": "Android Application",
+                "subtasks": [
+                    "Android Implementation",
+                    "Android Testing",
+                    "Play Store Build",
+                ],
+            },
+            {
+                "name": "Testing & QA",
+                "subtasks": [
+                    "Functional Testing",
+                    "Device & OS Testing",
+                    "Performance Testing",
+                    "Security Testing",
+                    "Bug Resolution",
+                ],
+            },
+            {
+                "name": "App Launch & Handover",
+                "subtasks": [
+                    "Store Submission",
+                    "Production Release",
+                    "Final Verification",
+                    "Documentation & Handover",
+                ],
+            },
+        ],
+    },
+    {
+        "name": "SaaS Product",
+        "description": "End-to-end multi-tenant SaaS product creation covering discovery, design, multi-tenancy, subscription billing, cloud infrastructure, and customer onboarding.",
+        "icon": "layers",
+        "tasks": [
+            {
+                "name": "Product Discovery & Requirements",
+                "subtasks": [
+                    "Business Requirements",
+                    "Product Scope",
+                    "User Personas & Roles",
+                    "Feature Requirements",
+                ],
+            },
+            {
+                "name": "UI/UX Design",
+                "subtasks": [
+                    "SaaS Dashboard",
+                    "Application Interface",
+                    "User Onboarding",
+                    "Account & Settings",
+                    "Design System",
+                ],
+            },
+            {
+                "name": "Authentication & Account Management",
+                "subtasks": [
+                    "Registration & Login",
+                    "User Profiles",
+                    "Organisation / Workspace",
+                    "Roles & Permissions",
+                    "Account Settings",
+                ],
+            },
+            {
+                "name": "Core SaaS Modules",
+                "subtasks": [
+                    "Dashboard",
+                    "Core Product Module 1",
+                    "Core Product Module 2",
+                    "Core Product Module 3",
+                    "Core Product Module 4",
+                    "Reports / Analytics",
+                ],
+            },
+            {
+                "name": "Subscription & Billing",
+                "subtasks": [
+                    "Pricing Plans",
+                    "Subscription Management",
+                    "Payment & Billing",
+                    "Invoices",
+                    "Upgrade / Downgrade / Cancellation",
+                ],
+            },
+            {
+                "name": "Admin & Management",
+                "subtasks": [
+                    "Super Admin",
+                    "Customer Management",
+                    "User Management",
+                    "Subscription Management",
+                    "System Settings",
+                    "Reports",
+                ],
+            },
+            {
+                "name": "Backend & API",
+                "subtasks": [
+                    "Backend System",
+                    "Database",
+                    "API",
+                    "Business Logic",
+                    "Multi-tenant Architecture",
+                ],
+            },
+            {
+                "name": "Integrations",
+                "subtasks": [
+                    "Payment Services",
+                    "Communication Services",
+                    "Third-party APIs",
+                    "Analytics",
+                    "Webhooks",
+                ],
+            },
+            {
+                "name": "Security & Infrastructure",
+                "subtasks": [
+                    "Security",
+                    "Data Protection",
+                    "Cloud Infrastructure",
+                    "Backup & Recovery",
+                    "Monitoring",
+                ],
+            },
+            {
+                "name": "Testing & QA",
+                "subtasks": [
+                    "Product Testing",
+                    "Module Testing",
+                    "Integration Testing",
+                    "Security & Performance Testing",
+                    "Bug Resolution",
+                ],
+            },
+            {
+                "name": "Beta & Launch",
+                "subtasks": [
+                    "Beta Release",
+                    "User Feedback",
+                    "Production Release",
+                    "Customer Onboarding",
+                ],
+            },
+            {
+                "name": "Product Maintenance",
+                "subtasks": [
+                    "Product Updates",
+                    "New Modules",
+                    "Bug Fixes",
+                    "Performance Optimisation",
+                    "Security Updates",
+                ],
+            },
+        ],
+    },
+]
+
+
 class Command(BaseCommand):
-    help = "Seed V1 Advertising project templates into the database"
+    help = "Seed V1 Advertising and Software & Technology project templates into the database"
 
     def handle(self, *args, **options):
+        industries_data = [
+            {
+                "name": "Advertising",
+                "description": "Advertising agency services and campaign workflows.",
+                "templates": ADVERTISING_TEMPLATES_DATA,
+            },
+            {
+                "name": "Software & Technology",
+                "description": "Software & technology product workflows and engineering pipelines.",
+                "templates": SOFTWARE_TECHNOLOGY_TEMPLATES_DATA,
+            },
+        ]
+
+        total_tpl_count = 0
+        total_task_count = 0
+        total_subtask_count = 0
+
         with transaction.atomic():
-            industry, created = Industry.objects.get_or_create(
-                name="Advertising",
-                defaults={"description": "Advertising agency services and campaign workflows.", "is_active": True}
-            )
-            if not created and not industry.is_active:
-                industry.is_active = True
-                industry.save()
-
-            tpl_count = 0
-            task_count = 0
-            subtask_count = 0
-
-            for tpl_data in ADVERTISING_TEMPLATES_DATA:
-                template, _ = ProjectTemplate.objects.update_or_create(
-                    industry=industry,
-                    name=tpl_data["name"],
-                    defaults={
-                        "description": tpl_data.get("description", ""),
-                        "icon": tpl_data.get("icon", ""),
-                        "is_active": True,
-                    }
+            for ind_data in industries_data:
+                industry, created = Industry.objects.get_or_create(
+                    name=ind_data["name"],
+                    defaults={"description": ind_data["description"], "is_active": True}
                 )
-                tpl_count += 1
+                if not created and not industry.is_active:
+                    industry.is_active = True
+                    industry.save()
 
-                # To ensure idempotency without creating duplicate tasks/subtasks on multiple runs,
-                # delete existing tasks for this template and recreate them according to order
-                template.tasks.all().delete()
-
-                for t_idx, task_info in enumerate(tpl_data["tasks"]):
-                    t_obj = TemplateTask.objects.create(
-                        template=template,
-                        name=task_info["name"],
-                        position=t_idx,
-                        priority="MEDIUM",
+                for tpl_data in ind_data["templates"]:
+                    template, _ = ProjectTemplate.objects.update_or_create(
+                        industry=industry,
+                        name=tpl_data["name"],
+                        defaults={
+                            "description": tpl_data.get("description", ""),
+                            "icon": tpl_data.get("icon", ""),
+                            "is_active": True,
+                        }
                     )
-                    task_count += 1
+                    total_tpl_count += 1
 
-                    for st_idx, st_name in enumerate(task_info.get("subtasks", [])):
-                        TemplateSubTask.objects.create(
-                            template_task=t_obj,
-                            name=st_name,
-                            position=st_idx,
+                    # Ensure idempotency without duplicate tasks/subtasks on multiple runs
+                    template.tasks.all().delete()
+
+                    for t_idx, task_info in enumerate(tpl_data["tasks"]):
+                        t_obj = TemplateTask.objects.create(
+                            template=template,
+                            name=task_info["name"],
+                            position=t_idx,
+                            priority="MEDIUM",
                         )
-                        subtask_count += 1
+                        total_task_count += 1
+
+                        for st_idx, st_name in enumerate(task_info.get("subtasks", [])):
+                            TemplateSubTask.objects.create(
+                                template_task=t_obj,
+                                name=st_name,
+                                position=st_idx,
+                            )
+                            total_subtask_count += 1
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"Successfully seeded {tpl_count} templates, {task_count} tasks, and {subtask_count} subtasks for Advertising industry."
+                f"Successfully seeded {total_tpl_count} templates, {total_task_count} tasks, and {total_subtask_count} subtasks across {len(industries_data)} industries."
             )
         )

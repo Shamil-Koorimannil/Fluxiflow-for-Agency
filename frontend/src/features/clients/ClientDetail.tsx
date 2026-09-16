@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
-  ArrowLeft, Edit, Plus, Folder, FileText, Download, Trash2, Mail, Phone, Globe, MapPin,
+  ArrowLeft, Edit, Folder, FileText, Download, Trash2, Mail, Phone, Globe, MapPin,
   RefreshCw, AlertCircle, Upload, Link2, ExternalLink, Unlink, ArrowUpDown, Calendar,
   Filter, MoreVertical, ChevronRight, FolderPlus, Edit2, MoveRight, Eye
 } from 'lucide-react';

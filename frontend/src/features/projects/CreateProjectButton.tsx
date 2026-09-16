@@ -4,6 +4,7 @@ import { Plus, ChevronDown, FolderPlus, Sparkles } from 'lucide-react';
 interface CreateProjectButtonProps {
   onSelectBlankProject: () => void;
   onSelectTemplates: () => void;
+  label?: string;
   className?: string;
   size?: 'sm' | 'md';
 }
@@ -11,6 +12,7 @@ interface CreateProjectButtonProps {
 export const CreateProjectButton: React.FC<CreateProjectButtonProps> = ({
   onSelectBlankProject,
   onSelectTemplates,
+  label,
   className,
   size = 'md'
 }) => {
@@ -42,8 +44,14 @@ export const CreateProjectButton: React.FC<CreateProjectButtonProps> = ({
         className={className || `flex items-center gap-1.5 ${buttonPadding} bg-black dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-100 text-white dark:text-black font-medium rounded-xl transition-colors shadow-sm select-none`}
       >
         <Plus className="h-4 w-4 shrink-0" />
-        <span className="hidden md:inline">Create Project</span>
-        <span className="inline md:hidden">Project</span>
+        {label ? (
+          <span>{label}</span>
+        ) : (
+          <>
+            <span className="hidden md:inline">Create Project</span>
+            <span className="inline md:hidden">Project</span>
+          </>
+        )}
         <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
