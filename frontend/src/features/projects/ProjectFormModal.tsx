@@ -6,6 +6,7 @@ import type { Client, Project } from '../../types';
 import { api } from '../../services/api';
 
 import { CustomDropdown } from '../../components/common/CustomDropdown';
+import { TemplateLibraryModal } from '../templates/TemplateLibraryModal';
 
 interface ProjectFormModalProps {
   isOpen: boolean;
@@ -34,6 +35,9 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [projectType, setProjectType] = useState<'blank' | 'templates'>('blank');
+  const [isTemplateLibraryOpen, setIsTemplateLibraryOpen] = useState(false);
+
   useEffect(() => {
     if (preselectedClientId) {
       setSelectedClientId(preselectedClientId);
@@ -50,6 +54,14 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   }, [isOpen, isAdmin]);
 
   if (!isOpen) return null;
+
+  const handleProjectTypeChange = (val: string) => {
+    if (val === 'templates') {
+      setIsTemplateLibraryOpen(true);
+    } else {
+      setProjectType('blank');
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,6 +89,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       setDescription('');
       setProjectDate('');
       setSelectedClientId(preselectedClientId || '');
+      setProjectType('blank');
     } catch (err: any) {
       if (err.response?.data?.name) {
         setError(err.response.data.name[0]);
@@ -88,48 +101,64 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     }
   };
 
-  return ReactDOM.createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-in zoom-in-95 duration-150 flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50">
-          <div className="flex items-center gap-2">
-            <Folder className="h-5 w-5 text-blue-500" />
-            <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
-              Create New Project
-            </h2>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs">
-          {error && (
-            <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 rounded-xl">
-              <AlertCircle className="h-4 w-4 flex-shrink-0" />
-              <span>{error}</span>
+  return (
+    <>
+      {ReactDOM.createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-in zoom-in-95 duration-150 flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50">
+              <div className="flex items-center gap-2">
+                <Folder className="h-5 w-5 text-blue-500" />
+                <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
+                  Create New Project
+                </h2>
+              </div>
+              <button
+                onClick={onClose}
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
             </div>
-          )}
 
-          {/* Project Name */}
-          <div>
-            <label className="block font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-              Project Name <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Website Redesign"
-              required
-              className="w-full px-3.5 py-2.5 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm outline-none focus:border-black dark:focus:border-white transition-colors"
-            />
-          </div>
+            {/* Form */}
+            <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs">
+              {error && (
+                <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 rounded-xl">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
+
+              {/* Project Type Selector */}
+              <div>
+                <CustomDropdown
+                  label="Project Type"
+                  fullWidth
+                  value={projectType}
+                  onChange={handleProjectTypeChange}
+                  options={[
+                    { value: 'blank', label: 'Blank Project' },
+                    { value: 'templates', label: 'Templates' }
+                  ]}
+                />
+              </div>
+
+              {/* Project Name */}
+              <div>
+                <label className="block font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
+                  Project Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Website Redesign"
+                  required
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm outline-none focus:border-black dark:focus:border-white transition-colors"
+                />
+              </div>
 
           {/* Client Selection (Admin Only) */}
           {isAdmin && (
@@ -202,5 +231,20 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       </div>
     </div>,
     document.body
+  )}
+  <TemplateLibraryModal
+    isOpen={isTemplateLibraryOpen}
+    preselectedClientId={preselectedClientId}
+    onClose={() => {
+      setIsTemplateLibraryOpen(false);
+      setProjectType('blank');
+    }}
+    onProjectCreated={() => {
+      setIsTemplateLibraryOpen(false);
+      onClose();
+      if (onProjectCreated) onProjectCreated();
+    }}
+  />
+</>
   );
 };

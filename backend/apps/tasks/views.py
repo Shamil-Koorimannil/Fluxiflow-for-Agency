@@ -37,6 +37,13 @@ class TaskViewSet(viewsets.ModelViewSet):
         if self.action == 'list':
             if project_id:
                 queryset = base_qs.filter(project_id=project_id)
+            elif tab_param == 'pending_approval':
+                if is_admin_or_org_admin(user, request=self.request):
+                    queryset = base_qs.filter(approval_status='PENDING')
+                else:
+                    queryset = base_qs.filter(approval_status='PENDING').filter(
+                        Q(approver=user) | Q(assignee_relationships__user=user)
+                    )
             else:
                 # Main Tasks section: return ONLY tasks assigned to the authenticated user ("My Tasks")
                 queryset = base_qs.filter(assignee_relationships__user=user)
@@ -48,11 +55,19 @@ class TaskViewSet(viewsets.ModelViewSet):
         if status_not_param:
             queryset = queryset.exclude(status=status_not_param)
         if tab_param == 'incompleted':
-            queryset = queryset.exclude(status='COMPLETED')
+            queryset = queryset.filter(
+                Q(assignee_relationships__user=user, assignee_relationships__completed=False) |
+                ~Q(assignee_relationships__user=user)
+            ).exclude(status='COMPLETED')
+        elif tab_param == 'pending_approval':
+            queryset = queryset.filter(approval_status='PENDING')
         elif tab_param == 'no_due_date':
             queryset = queryset.filter(due_date__isnull=True)
         elif tab_param == 'completed':
-            queryset = queryset.filter(status='COMPLETED')
+            queryset = queryset.filter(
+                Q(assignee_relationships__user=user, assignee_relationships__completed=True) |
+                Q(status='COMPLETED')
+            )
 
         return queryset.distinct().order_by('due_date', 'due_time', 'created_at')
 
@@ -429,8 +444,29 @@ class TaskViewSet(viewsets.ModelViewSet):
             task.status = 'COMPLETED'
             task.completed_by = user
             task.completed_at = now_dt
-            task.save(update_fields=['status', 'completed_by', 'completed_at', 'elapsed_seconds', 'timer_started_at', 'timer_status', 'actual_duration_seconds'])
-            task.refresh_from_db()
+            
+            enable_approval = getattr(task.organization, 'enable_task_approval', True) if task.organization else True
+            if task.approval_required and enable_approval:
+                task.approval_status = 'PENDING'
+                task.save(update_fields=['status', 'completed_by', 'completed_at', 'elapsed_seconds', 'timer_started_at', 'timer_status', 'actual_duration_seconds', 'approval_status'])
+                task.refresh_from_db()
+                
+                if task.approver:
+                    NotificationService.create_notification(
+                        recipient=task.approver,
+                        notification_type='TASK_PENDING_APPROVAL',
+                        title='Task Submitted for Approval',
+                        message=f'"{task.name}" has been submitted for approval.',
+                        related_task=task,
+                        related_project=task.project,
+                        related_user=user
+                    )
+            else:
+                task.approval_status = 'NOT_REQUIRED'
+                task.save(update_fields=['status', 'completed_by', 'completed_at', 'elapsed_seconds', 'timer_started_at', 'timer_status', 'actual_duration_seconds', 'approval_status'])
+                task.refresh_from_db()
+                from .recurrence_service import RecurrenceService
+                RecurrenceService.materialize_next_occurrence(task)
 
         logger.info(f"Task {task.id}: PENDING -> COMPLETED via complete action by {user.email} at {now_dt}")
 
@@ -595,9 +631,15 @@ class TaskViewSet(viewsets.ModelViewSet):
             task.status = 'PENDING'
             task.completed_by = None
             task.completed_at = None
+            if task.approval_required:
+                task.approval_status = 'NOT_STARTED'
+            else:
+                task.approval_status = 'NOT_REQUIRED'
+            task.approved_by = None
+            task.approved_at = None
             if task.timer_status == 'COMPLETED':
                 task.timer_status = 'PAUSED'
-            task.save(update_fields=['status', 'completed_by', 'completed_at', 'timer_status'])
+            task.save(update_fields=['status', 'approval_status', 'approved_by', 'approved_at', 'completed_by', 'completed_at', 'timer_status'])
             task.refresh_from_db()
 
         logger.info(f"Task {task.id}: COMPLETED -> PENDING via reopen action by {user.email} at {timezone.now()}")
@@ -625,6 +667,77 @@ class TaskViewSet(viewsets.ModelViewSet):
         task.refresh_from_db()
         serializer = self.get_serializer(task)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['POST'])
+    def approve(self, request, pk=None):
+        task = self.get_object()
+        task.refresh_from_db()
+        user = request.user
+
+        from apps.accounts.tenant_context import is_admin_or_org_admin
+        is_authorized = (task.approver_id == user.id) or is_admin_or_org_admin(user, request=request)
+        if not is_authorized:
+            return Response({"detail": "You are not authorized to approve this task."}, status=status.HTTP_403_FORBIDDEN)
+
+        if task.approval_status != 'PENDING':
+            return Response({"detail": "Task is not pending approval."}, status=status.HTTP_400_BAD_REQUEST)
+
+        now_dt = timezone.now()
+        task.approval_status = 'APPROVED'
+        task.approved_by = user
+        task.approved_at = now_dt
+        task.status = 'COMPLETED'
+        task.save(update_fields=['approval_status', 'approved_by', 'approved_at', 'status'])
+
+        # Materialize next recurring instance if applicable
+        from .recurrence_service import RecurrenceService
+        RecurrenceService.materialize_next_occurrence(task)
+
+        # Notify assignees
+        from apps.notifications.services import NotificationService
+        for rel in task.assignee_relationships.all():
+            NotificationService.create_notification(
+                recipient=rel.user,
+                notification_type='TASK_APPROVED',
+                title='Task Approved',
+                message=f'"{task.name}" was approved by {user.name}.',
+                related_task=task,
+                related_project=task.project,
+                related_user=user
+            )
+
+        ActivityLog.objects.create(
+            user=user,
+            organization=task.organization,
+            action='TASK_UPDATED',
+            entity_type='Task',
+            entity_id=task.id,
+            description=f"{user.name} approved task '{task.name}'."
+        )
+
+        serializer = self.get_serializer(task)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+
+    @action(detail=True, methods=['POST'], url_path='mark-read')
+    def mark_task_read(self, request, pk=None):
+        task = self.get_object()
+        user = request.user
+        from apps.accounts.tenant_context import get_active_organization
+        active_org = get_active_organization(user, request=request)
+        if not active_org:
+            return Response({"detail": "No active organization."}, status=status.HTTP_400_BAD_REQUEST)
+
+        from apps.notifications.models import Notification
+        updated_count = Notification.objects.filter(
+            recipient=user,
+            organization=active_org,
+            related_task=task,
+            is_read=False
+        ).update(is_read=True, read_at=timezone.now())
+
+        return Response({"detail": f"Marked {updated_count} notification(s) as read for task."}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['POST'], url_path='timer/start')
     def timer_start(self, request, pk=None):
@@ -1199,7 +1312,29 @@ class TaskCommentViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
-            serializer.save(author=request.user, task=task)
+            comment = serializer.save(author=request.user, task=task)
+            from apps.notifications.services import NotificationService
+            if task.approver and request.user != task.approver:
+                NotificationService.create_notification(
+                    recipient=task.approver,
+                    notification_type='TASK_COMMENT_ADDED',
+                    title='New Task Comment',
+                    message=f'{request.user.name} commented on "{task.name}".',
+                    related_task=task,
+                    related_project=task.project,
+                    related_user=request.user
+                )
+            if task.approver and request.user == task.approver:
+                for rel in task.assignee_relationships.exclude(user=request.user):
+                    NotificationService.create_notification(
+                        recipient=rel.user,
+                        notification_type='TASK_COMMENT_ADDED',
+                        title='New Task Comment',
+                        message=f'{request.user.name} commented on "{task.name}".',
+                        related_task=task,
+                        related_project=task.project,
+                        related_user=request.user
+                    )
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1295,6 +1430,17 @@ class TaskAttachmentViewSet(viewsets.ModelViewSet):
             if not serializer.is_valid():
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
             attachment = serializer.save(uploaded_by=request.user, task=task_obj, subtask=subtask_obj)
+            from apps.notifications.services import NotificationService
+            if task_obj.approver and request.user != task_obj.approver:
+                NotificationService.create_notification(
+                    recipient=task_obj.approver,
+                    notification_type='TASK_LINK_ADDED',
+                    title='New Reference Link Added',
+                    message=f'{request.user.name} added a link to "{task_obj.name}".',
+                    related_task=task_obj,
+                    related_project=task_obj.project,
+                    related_user=request.user
+                )
             return Response(self.get_serializer(attachment).data, status=status.HTTP_201_CREATED)
 
         uploaded_file = request.FILES.get('file')
@@ -1324,6 +1470,18 @@ class TaskAttachmentViewSet(viewsets.ModelViewSet):
             size=uploaded_file.size,
             uploaded_by=request.user
         )
+
+        from apps.notifications.services import NotificationService
+        if task_obj.approver and request.user != task_obj.approver:
+            NotificationService.create_notification(
+                recipient=task_obj.approver,
+                notification_type='TASK_ATTACHMENT_ADDED',
+                title='New File Attachment Added',
+                message=f'{request.user.name} added an attachment to "{task_obj.name}".',
+                related_task=task_obj,
+                related_project=task_obj.project,
+                related_user=request.user
+            )
 
         serializer = self.get_serializer(attachment)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -1429,6 +1587,7 @@ class OrganizationSettingsView(viewsets.ViewSet):
             "effective_name": org.effective_name,
             "logo_url": request.build_absolute_uri(org.logo.url) if org.logo else None,
             "enable_task_types": org.enable_task_types,
+            "enable_task_approval": org.enable_task_approval,
             "weekly_capacity_hours": org.weekly_capacity_hours,
         })
 
@@ -1444,6 +1603,7 @@ class OrganizationSettingsView(viewsets.ViewSet):
         display_name = request.data.get('display_name')
         name = request.data.get('name')
         enable_task_types = request.data.get('enable_task_types')
+        enable_task_approval = request.data.get('enable_task_approval')
         weekly_capacity_hours = request.data.get('weekly_capacity_hours')
         logo_file = request.FILES.get('logo')
 
@@ -1456,6 +1616,8 @@ class OrganizationSettingsView(viewsets.ViewSet):
             org.name = name.strip()
         if enable_task_types is not None:
             org.enable_task_types = str(enable_task_types).lower() in ('true', '1')
+        if enable_task_approval is not None:
+            org.enable_task_approval = str(enable_task_approval).lower() in ('true', '1')
         if weekly_capacity_hours is not None:
             try:
                 org.weekly_capacity_hours = int(weekly_capacity_hours)
@@ -1472,6 +1634,7 @@ class OrganizationSettingsView(viewsets.ViewSet):
             "effective_name": org.effective_name,
             "logo_url": request.build_absolute_uri(org.logo.url) if org.logo else None,
             "enable_task_types": org.enable_task_types,
+            "enable_task_approval": org.enable_task_approval,
             "weekly_capacity_hours": org.weekly_capacity_hours,
         })
 

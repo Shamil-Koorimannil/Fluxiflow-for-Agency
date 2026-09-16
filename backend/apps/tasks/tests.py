@@ -497,7 +497,7 @@ class FluxiflowHealthAPITests(TestCase):
         metrics = calculate_user_health_metrics(self.member1)
         self.assertEqual(metrics['health_score'], 100)
         
-    def test_today_pending_task_small_penalty(self):
+    def test_today_pending_task_no_penalty(self):
         task = Task.objects.create(
             project=self.project,
             name='Today Task',
@@ -508,8 +508,41 @@ class FluxiflowHealthAPITests(TestCase):
         TaskAssignee.objects.create(task=task, user=self.member1)
         
         metrics = calculate_user_health_metrics(self.member1)
-        self.assertEqual(metrics['health_score'], 99)
-        
+        self.assertEqual(metrics['health_score'], 100)
+
+    def test_today_tasks_comparison_user_a_and_user_b(self):
+        """User A has 0 today tasks, User B has 5 incomplete today tasks. Both should have equal Health Score (100)."""
+        for i in range(5):
+            t = Task.objects.create(
+                project=self.project,
+                name=f'Today Task {i}',
+                due_date=timezone.now().date(),
+                created_by=self.admin
+            )
+            TaskAssignee.objects.create(task=t, user=self.member2)
+
+        metrics_a = calculate_user_health_metrics(self.member1)
+        metrics_b = calculate_user_health_metrics(self.member2)
+
+        self.assertEqual(metrics_a['health_score'], 100)
+        self.assertEqual(metrics_b['health_score'], 100)
+        self.assertEqual(metrics_a['health_score'], metrics_b['health_score'])
+
+    def test_completed_today_tasks_no_deduction(self):
+        """Completed tasks due today should not create any deduction."""
+        task = Task.objects.create(
+            project=self.project,
+            name='Today Completed Task',
+            due_date=timezone.now().date(),
+            status='COMPLETED',
+            completed_at=timezone.now(),
+            created_by=self.admin
+        )
+        TaskAssignee.objects.create(task=task, user=self.member1, completed=True, completed_at=timezone.now())
+
+        metrics = calculate_user_health_metrics(self.member1)
+        self.assertEqual(metrics['health_score'], 100)
+
     def test_overdue_task_large_penalty(self):
         task = Task.objects.create(
             project=self.project,
@@ -3261,6 +3294,301 @@ class AttachmentTests(TestCase):
         # Outsider attempting to delete org1 attachment should be rejected (404/403)
         del_res = self.client.delete(f'/api/attachments/{att_id}/')
         self.assertIn(del_res.status_code, [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND])
+
+
+class IndependentMultiAssigneeTaskCompletionTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.password = 'password123'
+
+        # Organization A
+        from apps.accounts.models import Organization, Membership
+        self.org_a, _ = Organization.objects.get_or_create(slug='org-a', defaults={'name': 'Org A'})
+
+        self.rayan = User.objects.create_user(email='rayan@orga.com', name='Rayan', password=self.password, role='MEMBER')
+        self.sarah = User.objects.create_user(email='sarah@orga.com', name='Sarah', password=self.password, role='MEMBER')
+        self.alex = User.objects.create_user(email='alex@orga.com', name='Alex', password=self.password, role='MEMBER')
+
+        for u in [self.rayan, self.sarah, self.alex]:
+            Membership.objects.create(organization=self.org_a, user=u, role='MEMBER', is_active=True)
+            u.active_organization = self.org_a
+            u.save()
+
+        # Organization B
+        self.org_b, _ = Organization.objects.get_or_create(slug='org-b', defaults={'name': 'Org B'})
+        self.user_b = User.objects.create_user(email='userb@orgb.com', name='User B', password=self.password, role='MEMBER')
+        Membership.objects.create(organization=self.org_b, user=self.user_b, role='MEMBER', is_active=True)
+        self.user_b.active_organization = self.org_b
+        self.user_b.save()
+
+        # Create Task A in Org A assigned to Rayan, Sarah, Alex
+        self.project_a = Project.objects.create(name='Project A', organization=self.org_a, created_by=self.rayan)
+        self.task = Task.objects.create(
+            project=self.project_a,
+            organization=self.org_a,
+            name='Prepare Campaign',
+            status='PENDING',
+            created_by=self.rayan
+        )
+        self.rel_rayan = TaskAssignee.objects.create(task=self.task, user=self.rayan, completed=False)
+        self.rel_sarah = TaskAssignee.objects.create(task=self.task, user=self.sarah, completed=False)
+        self.rel_alex = TaskAssignee.objects.create(task=self.task, user=self.alex, completed=False)
+
+        # Tokens
+        self.token_rayan = self.get_jwt_token(self.rayan)
+        self.token_sarah = self.get_jwt_token(self.sarah)
+        self.token_alex = self.get_jwt_token(self.alex)
+        self.token_b = self.get_jwt_token(self.user_b)
+
+    def get_jwt_token(self, user):
+        refresh = RefreshToken.for_user(user)
+        refresh['email'] = user.email
+        refresh['name'] = user.name
+        refresh['role'] = user.role
+        if user.active_organization_id:
+            refresh['org_id'] = str(user.active_organization_id)
+        return str(refresh.access_token)
+
+    def set_auth(self, token):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+    def test_1_one_assignee_completes(self):
+        """TEST 1: One assignee completes -> Rayan = True, Sarah = False, Alex = False."""
+        self.set_auth(self.token_rayan)
+        res = self.client.post(reverse('task-complete', args=[self.task.id]))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        self.rel_rayan.refresh_from_db()
+        self.rel_sarah.refresh_from_db()
+        self.rel_alex.refresh_from_db()
+        self.task.refresh_from_db()
+
+        self.assertTrue(self.rel_rayan.completed)
+        self.assertFalse(self.rel_sarah.completed)
+        self.assertFalse(self.rel_alex.completed)
+        self.assertNotEqual(self.task.status, 'COMPLETED')
+
+    def test_2_second_assignee_completes(self):
+        """TEST 2: Second assignee completes -> Rayan = True, Sarah = True, Alex = False."""
+        self.set_auth(self.token_rayan)
+        self.client.post(reverse('task-complete', args=[self.task.id]))
+
+        self.set_auth(self.token_sarah)
+        res = self.client.post(reverse('task-complete', args=[self.task.id]))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        self.rel_rayan.refresh_from_db()
+        self.rel_sarah.refresh_from_db()
+        self.rel_alex.refresh_from_db()
+        self.task.refresh_from_db()
+
+        self.assertTrue(self.rel_rayan.completed)
+        self.assertTrue(self.rel_sarah.completed)
+        self.assertFalse(self.rel_alex.completed)
+        self.assertNotEqual(self.task.status, 'COMPLETED')
+
+    def test_3_one_assignee_reopens(self):
+        """TEST 3: One assignee reopens -> Rayan = False, Sarah = True, Alex = False."""
+        self.set_auth(self.token_rayan)
+        self.client.post(reverse('task-complete', args=[self.task.id]))
+        self.set_auth(self.token_sarah)
+        self.client.post(reverse('task-complete', args=[self.task.id]))
+
+        self.set_auth(self.token_rayan)
+        res = self.client.post(reverse('task-reopen', args=[self.task.id]))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        self.rel_rayan.refresh_from_db()
+        self.rel_sarah.refresh_from_db()
+        self.rel_alex.refresh_from_db()
+
+        self.assertFalse(self.rel_rayan.completed)
+        self.assertTrue(self.rel_sarah.completed)
+        self.assertFalse(self.rel_alex.completed)
+
+    def test_4_api_serializer_user_completed(self):
+        """TEST 4: Serializer user_completed matches requesting user and assignees array exposes independent states."""
+        self.set_auth(self.token_rayan)
+        self.client.post(reverse('task-complete', args=[self.task.id]))
+
+        url = reverse('task-detail', args=[self.task.id])
+
+        self.set_auth(self.token_rayan)
+        res_rayan = self.client.get(url)
+        self.assertEqual(res_rayan.status_code, status.HTTP_200_OK)
+        self.assertTrue(res_rayan.data['user_completed'])
+
+        self.set_auth(self.token_sarah)
+        res_sarah = self.client.get(url)
+        self.assertEqual(res_sarah.status_code, status.HTTP_200_OK)
+        self.assertFalse(res_sarah.data['user_completed'])
+
+        assignees = res_sarah.data['assignees']
+        rayan_data = next(a for a in assignees if a['id'] == str(self.rayan.id))
+        sarah_data = next(a for a in assignees if a['id'] == str(self.sarah.id))
+        self.assertTrue(rayan_data['completed'])
+        self.assertFalse(sarah_data['completed'])
+
+    def test_5_completed_incompleted_tab_filtering(self):
+        """TEST 5: Completed/incompleted tab filtering per requesting user."""
+        self.set_auth(self.token_rayan)
+        self.client.post(reverse('task-complete', args=[self.task.id]))
+
+        list_url = reverse('task-list')
+
+        self.set_auth(self.token_rayan)
+        res_r_comp = self.client.get(f"{list_url}?tab=completed")
+        self.assertIn(str(self.task.id), [t['id'] for t in res_r_comp.data])
+
+        res_r_incomp = self.client.get(f"{list_url}?tab=incompleted")
+        self.assertNotIn(str(self.task.id), [t['id'] for t in res_r_incomp.data])
+
+        self.set_auth(self.token_sarah)
+        res_s_comp = self.client.get(f"{list_url}?tab=completed")
+        self.assertNotIn(str(self.task.id), [t['id'] for t in res_s_comp.data])
+
+        res_s_incomp = self.client.get(f"{list_url}?tab=incompleted")
+        self.assertIn(str(self.task.id), [t['id'] for t in res_s_incomp.data])
+
+    def test_6_late_submission_independence(self):
+        """TEST 6: Late submission calculated independently for each assignment."""
+        from apps.tasks.helpers import calculate_assignee_submission_status
+        due_date = timezone.now().date() - datetime.timedelta(days=1)
+        due_time = datetime.time(12, 0, 0)
+        due_dt = timezone.make_aware(datetime.datetime.combine(due_date, due_time))
+
+        self.task.due_date = due_date
+        self.task.due_time = due_time
+        self.task.save()
+
+        self.rel_rayan.completed = True
+        self.rel_rayan.completed_at = due_dt + datetime.timedelta(hours=3)
+        self.rel_rayan.save()
+
+        self.rel_sarah.completed = True
+        self.rel_sarah.completed_at = due_dt - datetime.timedelta(hours=2)
+        self.rel_sarah.save()
+
+        self.rel_alex.completed = False
+        self.rel_alex.completed_at = None
+        self.rel_alex.save()
+
+        status_r, _ = calculate_assignee_submission_status(self.rel_rayan, due_date, due_time)
+        status_s, _ = calculate_assignee_submission_status(self.rel_sarah, due_date, due_time)
+        status_a, _ = calculate_assignee_submission_status(self.rel_alex, due_date, due_time)
+
+        self.assertEqual(status_r, "LATE")
+        self.assertEqual(status_s, "COMPLETED_ON_TIME")
+        self.assertEqual(status_a, "OVERDUE")
+
+    def test_7_parent_task_status_transition(self):
+        """TEST 7: Parent Task status becomes COMPLETED only when ALL assignees complete."""
+        self.set_auth(self.token_rayan)
+        self.client.post(reverse('task-complete', args=[self.task.id]))
+        self.task.refresh_from_db()
+        self.assertNotEqual(self.task.status, 'COMPLETED')
+
+        self.set_auth(self.token_sarah)
+        self.client.post(reverse('task-complete', args=[self.task.id]))
+        self.task.refresh_from_db()
+        self.assertNotEqual(self.task.status, 'COMPLETED')
+
+        self.set_auth(self.token_alex)
+        self.client.post(reverse('task-complete', args=[self.task.id]))
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, 'COMPLETED')
+
+    def test_8_tenant_isolation(self):
+        """TEST 8: Cross-organization completion/reopen rejected."""
+        self.set_auth(self.token_b)
+        url_complete = reverse('task-complete', args=[self.task.id])
+        res_c = self.client.post(url_complete)
+        self.assertIn(res_c.status_code, [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND])
+
+        url_reopen = reverse('task-reopen', args=[self.task.id])
+        res_r = self.client.post(url_reopen)
+        self.assertIn(res_r.status_code, [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND])
+
+    def test_single_assignee_task_completion_and_reopen(self):
+        """Regression Test: Single-assignee Task works as expected."""
+        single_task = Task.objects.create(
+            project=self.project_a,
+            organization=self.org_a,
+            name='Single Task',
+            status='PENDING',
+            created_by=self.rayan
+        )
+        rel = TaskAssignee.objects.create(task=single_task, user=self.rayan, completed=False)
+
+        self.set_auth(self.token_rayan)
+        res_comp = self.client.post(reverse('task-complete', args=[single_task.id]))
+        self.assertEqual(res_comp.status_code, status.HTTP_200_OK)
+
+        single_task.refresh_from_db()
+        rel.refresh_from_db()
+        self.assertTrue(rel.completed)
+        self.assertEqual(single_task.status, 'COMPLETED')
+
+        res_reopen = self.client.post(reverse('task-reopen', args=[single_task.id]))
+        self.assertEqual(res_reopen.status_code, status.HTTP_200_OK)
+
+        single_task.refresh_from_db()
+        rel.refresh_from_db()
+        self.assertFalse(rel.completed)
+        self.assertEqual(single_task.status, 'PENDING')
+
+    def test_completing_one_assignee_does_not_change_another_completed_at(self):
+        """Regression Test: Completing one assignee does not modify another's completed_at."""
+        t1 = timezone.now() - datetime.timedelta(hours=2)
+        self.rel_rayan.completed = True
+        self.rel_rayan.completed_at = t1
+        self.rel_rayan.save()
+
+        self.set_auth(self.token_sarah)
+        self.client.post(reverse('task-complete', args=[self.task.id]))
+
+        self.rel_rayan.refresh_from_db()
+        self.assertEqual(self.rel_rayan.completed_at, t1)
+
+    def test_reopening_one_assignee_does_not_clear_another_completed_at(self):
+        """Regression Test: Reopening one assignee does not clear another's completed_at."""
+        t1 = timezone.now() - datetime.timedelta(hours=2)
+        self.rel_rayan.completed = True
+        self.rel_rayan.completed_at = t1
+        self.rel_rayan.save()
+
+        self.rel_sarah.completed = True
+        self.rel_sarah.completed_at = t1
+        self.rel_sarah.save()
+
+        self.set_auth(self.token_sarah)
+        self.client.post(reverse('task-reopen', args=[self.task.id]))
+
+        self.rel_rayan.refresh_from_db()
+        self.assertTrue(self.rel_rayan.completed)
+        self.assertEqual(self.rel_rayan.completed_at, t1)
+
+        self.rel_sarah.refresh_from_db()
+        self.assertFalse(self.rel_sarah.completed)
+        self.assertIsNone(self.rel_sarah.completed_at)
+
+    def test_subtask_independent_assignee_completion(self):
+        """Regression Test: Subtask assignee completion is independent."""
+        sub = SubTask.objects.create(task=self.task, name='Sub 1', status='PENDING')
+        sub_r = SubTaskAssignee.objects.create(subtask=sub, user=self.rayan, completed=False)
+        sub_s = SubTaskAssignee.objects.create(subtask=sub, user=self.sarah, completed=False)
+
+        self.set_auth(self.token_rayan)
+        res = self.client.post(reverse('subtask-complete', args=[sub.id]))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        sub_r.refresh_from_db()
+        sub_s.refresh_from_db()
+        sub.refresh_from_db()
+
+        self.assertTrue(sub_r.completed)
+        self.assertFalse(sub_s.completed)
+        self.assertNotEqual(sub.status, 'COMPLETED')
 
 
 

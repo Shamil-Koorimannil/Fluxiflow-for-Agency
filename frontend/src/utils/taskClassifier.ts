@@ -27,15 +27,28 @@ export function getTaskDueDateTime(task: Task): Date | null {
   return new Date(`${datePart}T23:59:59`);
 }
 
-export function isTaskPending(task: Task, now: Date = new Date()): boolean {
-  if (task.status === 'COMPLETED') return false;
+export function isTaskUserCompleted(task: Task, currentUserId?: string): boolean {
+  if (typeof task.user_completed === 'boolean') {
+    return task.user_completed;
+  }
+  if (currentUserId && Array.isArray(task.assignees)) {
+    const myAssignee = task.assignees.find((a) => String(a.id) === String(currentUserId));
+    if (myAssignee && typeof myAssignee.completed === 'boolean') {
+      return myAssignee.completed;
+    }
+  }
+  return task.status === 'COMPLETED';
+}
+
+export function isTaskPending(task: Task, now: Date = new Date(), currentUserId?: string): boolean {
+  if (isTaskUserCompleted(task, currentUserId)) return false;
   const dueDt = getTaskDueDateTime(task);
   if (!dueDt) return false;
   return dueDt < now;
 }
 
-export function classifyTask(task: Task, now: Date = new Date()): TaskCategory {
-  if (task.status === 'COMPLETED') {
+export function classifyTask(task: Task, now: Date = new Date(), currentUserId?: string): TaskCategory {
+  if (isTaskUserCompleted(task, currentUserId)) {
     return 'completed';
   }
 

@@ -9,6 +9,7 @@ export interface Organization {
   logo_url: string | null;
   description?: string | null;
   enable_task_types?: boolean;
+  enable_task_approval?: boolean;
   weekly_capacity_hours?: number;
   is_active?: boolean;
   created_at?: string;
@@ -121,6 +122,7 @@ export interface TaskType {
 
 export interface OrganizationSettings {
   enable_task_types: boolean;
+  enable_task_approval?: boolean;
   weekly_capacity_hours: number;
 }
 
@@ -154,6 +156,7 @@ export interface Task {
   due_time: string | null;
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | null;
   status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
+  user_completed?: boolean;
   created_by: string;
   created_by_detail: User;
   completed_by: string | null;
@@ -174,6 +177,17 @@ export interface Task {
   parent_task_id?: string;
   parent_task_name?: string;
 
+  // Approval fields
+  approval_required?: boolean;
+  approval_status?: 'NOT_STARTED' | 'PENDING' | 'APPROVED' | 'NOT_REQUIRED';
+  approver?: string | null;
+  approver_detail?: User | null;
+  approved_by?: string | null;
+  approved_by_detail?: User | null;
+  approved_at?: string | null;
+  has_unread_activity?: boolean;
+  unread_activity_types?: ('PENDING_APPROVAL' | 'APPROVED' | 'COMMENT' | 'ATTACHMENT' | 'LINK')[];
+
   // Task Type & Timer fields
   task_type?: string | null;
   task_type_detail?: TaskType | null;
@@ -186,6 +200,20 @@ export interface Task {
   remaining_seconds?: number;
   is_overtime?: boolean;
   overtime_seconds?: number;
+
+  // Recurrence fields
+  is_recurring?: boolean;
+  recurrence?: RecurrenceConfig | null;
+}
+
+export interface RecurrenceConfig {
+  frequency: 'day' | 'week' | 'month' | 'year';
+  interval: number;
+  weekdays?: string[];
+  month_day?: number | null;
+  end_type: 'never' | 'on' | 'after';
+  end_date?: string | null;
+  occurrence_count?: number | null;
 }
 
 export interface ActivityLog {
@@ -460,6 +488,46 @@ export interface ClientBrandAsset {
   uploaded_by_name?: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface Industry {
+  id: string;
+  name: string;
+  description?: string | null;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface TemplateSubTask {
+  id?: string;
+  name: string;
+  description?: string | null;
+  position?: number;
+}
+
+export interface TemplateTask {
+  id?: string;
+  name: string;
+  description?: string | null;
+  position?: number;
+  priority?: 'LOW' | 'MEDIUM' | 'HIGH';
+  subtasks: TemplateSubTask[];
+}
+
+export interface ProjectTemplate {
+  id: string;
+  industry: string;
+  industry_name: string;
+  name: string;
+  description?: string | null;
+  icon?: string | null;
+  is_active: boolean;
+  task_count: number;
+  subtask_count: number;
+  tasks?: TemplateTask[];
+  created_at?: string;
+  updated_at?: string;
 }
 
 

@@ -123,12 +123,12 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
       return deduplicated;
     }
     if (activeFilter === 'incompleted') {
-      return deduplicated.filter((task) => task.status !== 'COMPLETED');
+      return deduplicated.filter((task) => !(typeof task.user_completed === 'boolean' ? task.user_completed : task.status === 'COMPLETED'));
     }
     if (activeFilter === 'pending') {
-      return deduplicated.filter((task) => isTaskPending(task));
+      return deduplicated.filter((task) => isTaskPending(task, new Date(), memberId || undefined));
     }
-    return deduplicated.filter((task) => classifyTask(task) === activeFilter);
+    return deduplicated.filter((task) => classifyTask(task, new Date(), memberId || undefined) === activeFilter);
   }, [allTasksRaw, activeFilter]);
 
   const tasks = processedTasks;
@@ -338,7 +338,7 @@ export const TeamDetailDrawer: React.FC<TeamDetailDrawerProps> = ({
                       <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
                         Workload Health
                       </span>
-                      <Tooltip title="Health is based on on-time task completion (70%) and current overdue/today pending penalties (30%) calculated over the last 30 days.">
+                      <Tooltip title="Health is based on on-time task completion (70%) and current overdue penalties (30%) calculated over the last 30 days.">
                         <HelpCircle size={13} className="text-zinc-400 cursor-help" />
                       </Tooltip>
                     </Box>

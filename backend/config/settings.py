@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     'apps.reports.apps.ReportsConfig',
     'apps.keep.apps.KeepConfig',
     'apps.clients.apps.ClientsConfig',
+    'apps.templates.apps.TemplatesConfig',
 ]
 
 MIDDLEWARE = [

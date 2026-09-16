@@ -24,6 +24,49 @@ class TaskType(models.Model):
         return f"{self.name} ({self.allocated_seconds}s)"
 
 
+class RecurringTaskSeries(models.Model):
+    FREQUENCY_CHOICES = (
+        ('DAY', 'Day'),
+        ('WEEK', 'Week'),
+        ('MONTH', 'Month'),
+        ('YEAR', 'Year'),
+    )
+    END_TYPE_CHOICES = (
+        ('NEVER', 'Never'),
+        ('ON', 'On Date'),
+        ('AFTER', 'After Occurrences'),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, related_name='recurring_task_series')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='created_recurring_series')
+    
+    frequency = models.CharField(max_length=10, choices=FREQUENCY_CHOICES, default='WEEK')
+    interval = models.PositiveIntegerField(default=1)
+    weekdays = models.JSONField(blank=True, default=list)
+    month_day = models.PositiveIntegerField(blank=True, null=True)
+    start_date = models.DateField()
+    
+    end_type = models.CharField(max_length=10, choices=END_TYPE_CHOICES, default='NEVER')
+    end_date = models.DateField(blank=True, null=True)
+    occurrence_count = models.PositiveIntegerField(blank=True, null=True)
+    
+    current_occurrence_number = models.PositiveIntegerField(default=1)
+    timezone = models.CharField(max_length=100, default='UTC')
+    is_active = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = models.Manager()
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"RecurringSeries {self.id} ({self.frequency})"
+
+
 class Task(models.Model):
     PRIORITY_CHOICES = (
         ('LOW', 'Low'),
@@ -42,6 +85,13 @@ class Task(models.Model):
         ('COMPLETED', 'Completed'),
     )
     
+    APPROVAL_STATUS_CHOICES = (
+        ('NOT_STARTED', 'Not Started'),
+        ('PENDING', 'Pending Approval'),
+        ('APPROVED', 'Approved'),
+        ('NOT_REQUIRED', 'Not Required'),
+    )
+    
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     project = models.ForeignKey(Project, on_delete=models.CASCADE, blank=True, null=True, related_name='tasks')
     organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, related_name='tasks', null=True, blank=True)
@@ -55,6 +105,18 @@ class Task(models.Model):
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='created_tasks')
     completed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, blank=True, null=True, related_name='completed_tasks')
     completed_at = models.DateTimeField(blank=True, null=True)
+
+    # Approval fields
+    approval_required = models.BooleanField(default=False)
+    approval_status = models.CharField(max_length=20, choices=APPROVAL_STATUS_CHOICES, default='NOT_STARTED')
+    approver = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, blank=True, null=True, related_name='tasks_to_approve')
+    approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, blank=True, null=True, related_name='approved_tasks')
+    approved_at = models.DateTimeField(blank=True, null=True)
+
+    # Recurrence fields
+    recurring_series = models.ForeignKey(RecurringTaskSeries, on_delete=models.SET_NULL, blank=True, null=True, related_name='instances')
+    recurrence_instance_date = models.DateField(blank=True, null=True)
+    occurrence_index = models.PositiveIntegerField(blank=True, null=True)
 
     # Timer & Duration tracking fields
     allocated_seconds = models.IntegerField(blank=True, null=True)
@@ -75,6 +137,9 @@ class Task(models.Model):
             models.Index(fields=['due_date']),
             models.Index(fields=['project']),
             models.Index(fields=['created_by']),
+            models.Index(fields=['recurring_series']),
+            models.Index(fields=['approval_status']),
+            models.Index(fields=['approver']),
         ]
 
     def save(self, *args, **kwargs):

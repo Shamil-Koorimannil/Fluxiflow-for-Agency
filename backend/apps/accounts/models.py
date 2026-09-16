@@ -11,6 +11,7 @@ class Organization(models.Model):
     logo = models.ImageField(upload_to='org_logos/', null=True, blank=True)
     description = models.TextField(blank=True, default='')
     enable_task_types = models.BooleanField(default=True)
+    enable_task_approval = models.BooleanField(default=True)
     weekly_capacity_hours = models.IntegerField(default=40)
     timezone = models.CharField(max_length=100, default='UTC', blank=True)
     is_active = models.BooleanField(default=True)

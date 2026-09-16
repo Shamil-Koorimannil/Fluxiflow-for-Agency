@@ -247,9 +247,13 @@ class TaskSerializer(serializers.ModelSerializer):
         write_only=True,
         required=False
     )
-    project_detail = ProjectSerializer(source='project', read_only=True)
     created_by_detail = UserSerializer(source='created_by', read_only=True)
     completed_by_detail = UserSerializer(source='completed_by', read_only=True)
+    approver_detail = UserSerializer(source='approver', read_only=True)
+    approved_by_detail = UserSerializer(source='approved_by', read_only=True)
+    project_detail = ProjectSerializer(source='project', read_only=True)
+    has_unread_activity = serializers.SerializerMethodField()
+    unread_activity_types = serializers.SerializerMethodField()
     
     # Task Type & Timer fields
     task_type_detail = TaskTypeSerializer(source='task_type', read_only=True)
@@ -257,6 +261,9 @@ class TaskSerializer(serializers.ModelSerializer):
     remaining_seconds = serializers.SerializerMethodField()
     is_overtime = serializers.SerializerMethodField()
     overtime_seconds = serializers.SerializerMethodField()
+    user_completed = serializers.SerializerMethodField()
+    is_recurring = serializers.SerializerMethodField()
+    recurrence = serializers.SerializerMethodField()
 
     dates = serializers.ListField(
         child=serializers.DateField(),
@@ -269,17 +276,48 @@ class TaskSerializer(serializers.ModelSerializer):
         model = Task
         fields = [
             'id', 'project', 'name', 'description', 'due_date', 'due_time', 'dates',
-            'priority', 'status', 'created_by', 'created_by_detail', 'completed_by', 'completed_by_detail',
+            'priority', 'status', 'user_completed', 'created_by', 'created_by_detail', 'completed_by', 'completed_by_detail',
             'completed_at', 'created_at', 'updated_at', 'subtasks', 'assignees', 'assignee_ids',
             'project_detail',
+            'approval_required', 'approval_status', 'approver', 'approver_detail', 'approved_by', 'approved_by_detail', 'approved_at',
+            'has_unread_activity', 'unread_activity_types',
             'task_type', 'task_type_detail', 'allocated_seconds', 'elapsed_seconds', 'timer_started_at',
             'timer_status', 'actual_duration_seconds', 'current_elapsed_seconds', 'remaining_seconds',
-            'is_overtime', 'overtime_seconds'
+            'is_overtime', 'overtime_seconds',
+            'is_recurring', 'recurrence'
         ]
         read_only_fields = [
             'id', 'created_by', 'completed_by', 'completed_at', 'created_at', 'updated_at',
-            'project_detail', 'created_by_detail', 'completed_by_detail', 'task_type_detail'
+            'project_detail', 'created_by_detail', 'completed_by_detail', 'task_type_detail',
+            'approval_status', 'approver_detail', 'approved_by', 'approved_by_detail', 'approved_at'
         ]
+
+    def get_is_recurring(self, obj):
+        return bool(obj.recurring_series_id and obj.recurring_series.is_active)
+
+    def get_recurrence(self, obj):
+        if obj.recurring_series_id and obj.recurring_series.is_active:
+            s = obj.recurring_series
+            return {
+                "frequency": s.frequency.lower(),
+                "interval": s.interval,
+                "weekdays": s.weekdays or [],
+                "month_day": s.month_day,
+                "end_type": s.end_type.lower(),
+                "end_date": s.end_date.isoformat() if s.end_date else None,
+                "occurrence_count": s.occurrence_count
+            }
+        return None
+
+    def get_user_completed(self, obj):
+        request = self.context.get('request')
+        target_user = self.context.get('target_user')
+        user_to_check = target_user or (request.user if request and request.user.is_authenticated else None)
+        if user_to_check:
+            assignee = TaskAssignee.objects.filter(task=obj, user=user_to_check).first()
+            if assignee:
+                return assignee.completed
+        return obj.status == 'COMPLETED'
 
     def get_current_elapsed_seconds(self, obj):
         if obj.timer_status == 'RUNNING' and obj.timer_started_at:
@@ -322,6 +360,52 @@ class TaskSerializer(serializers.ModelSerializer):
             data.append(user_data)
         return data
 
+    def get_has_unread_activity(self, obj):
+        request = self.context.get('request')
+        if not request or not request.user or not request.user.is_authenticated:
+            return False
+        from apps.notifications.models import Notification
+        from apps.accounts.tenant_context import get_active_organization
+        active_org = get_active_organization(request.user, request=request)
+        if not active_org:
+            return False
+        return Notification.objects.filter(
+            recipient=request.user,
+            organization=active_org,
+            related_task=obj,
+            is_read=False
+        ).exists()
+
+    def get_unread_activity_types(self, obj):
+        request = self.context.get('request')
+        if not request or not request.user or not request.user.is_authenticated:
+            return []
+        from apps.notifications.models import Notification
+        from apps.accounts.tenant_context import get_active_organization
+        active_org = get_active_organization(request.user, request=request)
+        if not active_org:
+            return []
+        notifs = Notification.objects.filter(
+            recipient=request.user,
+            organization=active_org,
+            related_task=obj,
+            is_read=False
+        ).values_list('type', flat=True).distinct()
+
+        type_map = {
+            'TASK_PENDING_APPROVAL': 'PENDING_APPROVAL',
+            'TASK_APPROVED': 'APPROVED',
+            'TASK_COMMENT_ADDED': 'COMMENT',
+            'TASK_ATTACHMENT_ADDED': 'ATTACHMENT',
+            'TASK_LINK_ADDED': 'LINK',
+        }
+        res = []
+        for n_type in notifs:
+            mapped = type_map.get(n_type)
+            if mapped and mapped not in res:
+                res.append(mapped)
+        return res
+
     def validate(self, attrs):
         is_create = self.instance is None
         project = attrs.get('project')
@@ -336,6 +420,13 @@ class TaskSerializer(serializers.ModelSerializer):
                 )
 
         request = self.context.get('request')
+        if hasattr(self, 'initial_data') and 'recurrence' in self.initial_data:
+            from .recurrence_service import RecurrenceService
+            rec_input = self.initial_data.get('recurrence')
+            has_subtasks = bool(self.instance and self.instance.subtasks.exists())
+            RecurrenceService.validate_recurrence_data(rec_input, has_subtasks=has_subtasks)
+
+        active_org = None
         if request and request.user and request.user.is_authenticated:
             from apps.accounts.tenant_context import get_active_organization
             active_org = get_active_organization(request.user, request=request)
@@ -345,6 +436,44 @@ class TaskSerializer(serializers.ModelSerializer):
                 task_type = attrs.get('task_type')
                 if task_type and task_type.organization_id != active_org.id:
                     raise serializers.ValidationError({"task_type": "Selected task type belongs to another organization."})
+
+        # Approval validation & default handling
+        if active_org and not active_org.enable_task_approval:
+            if attrs.get('approval_required'):
+                raise serializers.ValidationError({"approval_required": "Task approval feature is disabled for this organization."})
+            attrs['approval_required'] = False
+            attrs['approver'] = None
+            attrs['approval_status'] = 'NOT_REQUIRED'
+        else:
+            approval_req = attrs.get('approval_required')
+            if approval_req is None:
+                if self.instance is not None:
+                    approval_req = self.instance.approval_required
+                else:
+                    approval_req = False
+                    attrs['approval_required'] = False
+
+            if approval_req:
+                approver = attrs.get('approver')
+                if approver is None and self.instance:
+                    approver = self.instance.approver
+                if not approver and request and request.user and request.user.is_authenticated:
+                    approver = request.user
+                    attrs['approver'] = approver
+
+                if not approver:
+                    raise serializers.ValidationError({"approver": "Approver is required when approval is required."})
+
+                if active_org:
+                    from apps.accounts.models import Membership
+                    if not Membership.objects.filter(organization=active_org, user=approver, is_active=True).exists():
+                        raise serializers.ValidationError({"approver": "Assigned approver must belong to the active organization."})
+
+                if is_create or (self.instance and not self.instance.approval_required):
+                    attrs['approval_status'] = 'NOT_STARTED'
+            else:
+                attrs['approver'] = None
+                attrs['approval_status'] = 'NOT_REQUIRED'
 
         return attrs
 
@@ -425,6 +554,14 @@ class TaskSerializer(serializers.ModelSerializer):
         with transaction.atomic():
             task = Task.objects.create(**validated_data)
 
+            if hasattr(self, 'initial_data') and 'recurrence' in self.initial_data:
+                from .recurrence_service import RecurrenceService
+                rec_input = self.initial_data.get('recurrence')
+                from apps.accounts.tenant_context import get_active_organization
+                active_org = task.organization or (get_active_organization(request.user, request=request) if (request and request.user) else None)
+                user = request.user if (request and request.user) else task.created_by
+                RecurrenceService.apply_recurrence(task, rec_input, user, active_org, request=request)
+
         from apps.notifications.services import NotificationService
 
         current_assignees = []
@@ -473,10 +610,17 @@ class TaskSerializer(serializers.ModelSerializer):
         target_user = self.context.get('target_user')
         user_to_check = target_user or (request.user if request and request.user.is_authenticated else None)
         
-        is_completed = instance.status == 'COMPLETED'
-        completed_at_val = instance.completed_at
+        assignee = TaskAssignee.objects.filter(task=instance, user=user_to_check).first() if user_to_check else None
+        if assignee:
+            is_completed = assignee.completed
+            completed_at_val = assignee.completed_at
+        else:
+            is_completed = instance.status == 'COMPLETED'
+            completed_at_val = instance.completed_at
         
-        from apps.tasks.helpers import calculate_submission_status, get_task_due_datetime, get_task_due_datetime as get_due_dt_helper
+        rep['user_completed'] = is_completed
+        
+        from apps.tasks.helpers import calculate_submission_status, get_task_due_datetime as get_due_dt_helper
         
         if instance.due_date:
             due_dt = get_due_dt_helper(instance.due_date, instance.due_time)
@@ -484,46 +628,16 @@ class TaskSerializer(serializers.ModelSerializer):
         else:
             rep['due_datetime'] = None
         
-        if user_to_check:
-            assignee = TaskAssignee.objects.filter(task=instance, user=user_to_check).first()
-            if assignee:
-                sub_status, late_mins = calculate_submission_status(assignee)
-                rep['submission_status'] = sub_status
-                rep['late_by_minutes'] = late_mins
-            else:
-                # Calculate based on overall task details
-                if not instance.due_date:
-                    sub_status = "COMPLETED_ON_TIME" if is_completed else "PENDING"
-                    late_mins = 0
-                else:
-                    from apps.tasks.helpers import get_task_due_datetime
-                    due_dt_task = get_task_due_datetime(instance.due_date, instance.due_time)
-                    if not is_completed:
-                        now = timezone.now()
-                        sub_status = "OVERDUE" if due_dt_task < now else "PENDING"
-                        late_mins = 0
-                    else:
-                        comp_at = completed_at_val or timezone.now()
-                        if comp_at > due_dt_task:
-                            sub_status = "LATE"
-                            late_mins = int((comp_at - due_dt_task).total_seconds() // 60)
-                        else:
-                            sub_status = "COMPLETED_ON_TIME"
-                            late_mins = 0
-                
-                rep['submission_status'] = sub_status
-                rep['late_by_minutes'] = late_mins
+        if assignee:
+            sub_status, late_mins = calculate_submission_status(assignee)
+            rep['submission_status'] = sub_status
+            rep['late_by_minutes'] = late_mins
         else:
-            is_completed = instance.status == 'COMPLETED'
-            completed_at_val = instance.completed_at
-            
-            # Calculate based on overall task details
             if not instance.due_date:
                 sub_status = "COMPLETED_ON_TIME" if is_completed else "PENDING"
                 late_mins = 0
             else:
-                from apps.tasks.helpers import get_task_due_datetime
-                due_dt_task = get_task_due_datetime(instance.due_date, instance.due_time)
+                due_dt_task = get_due_dt_helper(instance.due_date, instance.due_time)
                 if not is_completed:
                     now = timezone.now()
                     sub_status = "OVERDUE" if due_dt_task < now else "PENDING"
@@ -542,8 +656,6 @@ class TaskSerializer(serializers.ModelSerializer):
 
         # Calculate date representation
         from apps.tasks.helpers import calculate_date_display_color
-        request = self.context.get('request')
-        target_user = self.context.get('target_user')
         org = instance.organization or (instance.project.organization if instance.project else None)
 
         date_display, date_color = calculate_date_display_color(
@@ -553,7 +665,7 @@ class TaskSerializer(serializers.ModelSerializer):
             completed_at_val=completed_at_val,
             request=request,
             organization=org,
-            user=target_user or (request.user if request and request.user.is_authenticated else None)
+            user=user_to_check
         )
 
         rep['date_display'] = date_display
@@ -575,6 +687,15 @@ class TaskSerializer(serializers.ModelSerializer):
 
         with transaction.atomic():
             instance = super().update(instance, validated_data)
+
+            if hasattr(self, 'initial_data') and 'recurrence' in self.initial_data:
+                from .recurrence_service import RecurrenceService
+                rec_input = self.initial_data.get('recurrence')
+                request = self.context.get('request')
+                from apps.accounts.tenant_context import get_active_organization
+                user = (request.user if (request and request.user and request.user.is_authenticated) else instance.created_by)
+                active_org = instance.organization or (get_active_organization(user, request=request) if user else None)
+                RecurrenceService.apply_recurrence(instance, rec_input, user, active_org, request=request)
 
             if assignee_ids is not None:
                 from apps.notifications.services import NotificationService

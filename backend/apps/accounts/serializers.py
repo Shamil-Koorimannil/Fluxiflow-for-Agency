@@ -112,7 +112,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Organization
-        fields = ['id', 'name', 'display_name', 'effective_name', 'slug', 'logo', 'logo_url', 'description', 'enable_task_types', 'weekly_capacity_hours', 'timezone', 'is_active', 'created_at', 'role']
+        fields = ['id', 'name', 'display_name', 'effective_name', 'slug', 'logo', 'logo_url', 'description', 'enable_task_types', 'enable_task_approval', 'weekly_capacity_hours', 'timezone', 'is_active', 'created_at', 'role']
         read_only_fields = ['id', 'created_at', 'slug', 'effective_name']
 
     def get_logo_url(self, obj):

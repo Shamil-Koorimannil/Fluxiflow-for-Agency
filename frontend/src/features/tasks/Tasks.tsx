@@ -12,17 +12,18 @@ import { getLocalDateString } from '../../utils/time';
 import { PasteTasksModal } from './PasteTasksModal';
 import { TaskCard } from './TaskCard';
 import { TaskContextMenu } from './TaskContextMenu';
+import { TaskAnimationWrapper } from './TaskAnimationWrapper';
 import { useTaskDragSelect } from '../../hooks/useTaskDragSelect';
 
 import { useOrganization } from '../../context/OrganizationContext';
 import { useConfirm } from '../../context/ConfirmDialogContext';
 
-type FilterType = 'all' | 'incompleted' | 'pending' | 'today' | 'tomorrow' | 'upcoming' | 'no_due_date' | 'completed' | 'late';
+type FilterType = 'all' | 'incompleted' | 'pending' | 'pending_approval' | 'today' | 'tomorrow' | 'upcoming' | 'no_due_date' | 'completed' | 'late';
 
 export const Tasks: React.FC = () => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const { isAdmin } = useOrganization();
+  const { activeOrganization, isAdmin } = useOrganization();
   const { confirm, showAlert } = useConfirm();
 
   const [searchParams, setSearchParams] = useSearchParams();
@@ -38,6 +39,9 @@ export const Tasks: React.FC = () => {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
+
+  const [completingTaskIds, setCompletingTaskIds] = useState<Set<string>>(new Set());
+  const [restoringTaskIds, setRestoringTaskIds] = useState<Set<string>>(new Set());
 
 
 
@@ -175,25 +179,42 @@ export const Tasks: React.FC = () => {
     }
   };
 
+  const isTaskCompletedForUser = (t: Task) => {
+    if (typeof t.user_completed === 'boolean') return t.user_completed;
+    const myAssignee = t.assignees?.find((a) => String(a.id) === String(user?.id));
+    return myAssignee ? myAssignee.completed : t.status === 'COMPLETED';
+  };
+
+  // Helper to ensure exiting tasks stay in active view during slide-left animation
+  const classifyTaskForView = (t: Task) => {
+    if (completingTaskIds.has(t.id)) {
+      const cloned = { ...t, user_completed: false, status: 'PENDING' as const };
+      return classifyTask(cloned, new Date(), user?.id);
+    }
+    return classifyTask(t, new Date(), user?.id);
+  };
+
   // Grouping and Sorting Logic using the classifier
   const deduplicatedTasks = tasks ? Array.from(new Map(tasks.map(t => [t.id, t])).values()) : [];
   let filteredTasks = deduplicatedTasks;
 
   if (activeFilter === 'late') {
-    filteredTasks = deduplicatedTasks.filter((t) => t.status === 'COMPLETED' && t.submission_status === 'LATE');
+    filteredTasks = deduplicatedTasks.filter((t) => (isTaskCompletedForUser(t) && t.submission_status === 'LATE') || completingTaskIds.has(t.id));
   } else if (activeFilter === 'incompleted') {
-    filteredTasks = deduplicatedTasks.filter((t) => t.status !== 'COMPLETED');
+    filteredTasks = deduplicatedTasks.filter((t) => !isTaskCompletedForUser(t) || completingTaskIds.has(t.id));
   } else if (activeFilter === 'pending') {
-    filteredTasks = deduplicatedTasks.filter((t) => isTaskPending(t));
+    filteredTasks = deduplicatedTasks.filter((t) => isTaskPending(t, new Date(), user?.id) || completingTaskIds.has(t.id));
+  } else if (activeFilter === 'pending_approval') {
+    filteredTasks = deduplicatedTasks.filter((t) => (t.approval_required && t.approval_status === 'PENDING') || completingTaskIds.has(t.id));
   } else if (activeFilter === 'upcoming') {
     const tomorrowDate = new Date();
     tomorrowDate.setDate(tomorrowDate.getDate() + 1);
     const tomorrowStr = getLocalDateString(tomorrowDate);
     filteredTasks = deduplicatedTasks.filter(
-      (t) => t.status !== 'COMPLETED' && t.due_date && t.due_date >= tomorrowStr
+      (t) => (!isTaskCompletedForUser(t) && t.due_date && t.due_date >= tomorrowStr) || completingTaskIds.has(t.id)
     );
   } else if (activeFilter !== 'all') {
-    filteredTasks = deduplicatedTasks.filter((t) => classifyTask(t) === activeFilter);
+    filteredTasks = deduplicatedTasks.filter((t) => classifyTaskForView(t) === activeFilter || completingTaskIds.has(t.id));
   }
 
   const dragSelect = useTaskDragSelect({
@@ -280,8 +301,9 @@ export const Tasks: React.FC = () => {
   const noDueDateList: Task[] = [];
 
   deduplicatedTasks.forEach((task) => {
-    const category = classifyTask(task);
-    if (category === 'completed') {
+    const isCompleting = completingTaskIds.has(task.id);
+    const category = isCompleting ? classifyTaskForView(task) : classifyTask(task, new Date(), user?.id);
+    if (category === 'completed' && !isCompleting) {
       completedList.push(task);
     } else if (category === 'today') {
       todayList.push(task);
@@ -365,6 +387,62 @@ export const Tasks: React.FC = () => {
     }
   };
 
+  const handleToggleCompleteTask = async (targetTask: Task) => {
+    const isCompleted = isTaskCompletedForUser(targetTask);
+    const taskId = targetTask.id;
+
+    if (isCompleted) {
+      try {
+        await reopenTaskMutation.mutateAsync(taskId);
+      } catch (err: any) {
+        showAlert({
+          title: 'Reopen Failed',
+          message: err?.response?.data?.detail || 'Failed to reopen task.',
+          variant: 'warning',
+        });
+      }
+    } else {
+      if (completingTaskIds.has(taskId)) return;
+
+      // Mark task as completing
+      setCompletingTaskIds((prev) => new Set(prev).add(taskId));
+
+      // Keep task in completing state for full 420ms animation duration
+      const exitTimer = setTimeout(() => {
+        setCompletingTaskIds((prev) => {
+          const next = new Set(prev);
+          next.delete(taskId);
+          return next;
+        });
+      }, 420);
+
+      try {
+        await completeTaskMutation.mutateAsync(taskId);
+      } catch (err: any) {
+        clearTimeout(exitTimer);
+        setCompletingTaskIds((prev) => {
+          const next = new Set(prev);
+          next.delete(taskId);
+          return next;
+        });
+        setRestoringTaskIds((prev) => new Set(prev).add(taskId));
+        setTimeout(() => {
+          setRestoringTaskIds((prev) => {
+            const next = new Set(prev);
+            next.delete(taskId);
+            return next;
+          });
+        }, 300);
+
+        showAlert({
+          title: 'Completion Failed',
+          message: err?.response?.data?.detail || 'Failed to complete task. Restoring state.',
+          variant: 'warning',
+        });
+      }
+    }
+  };
+
   const handleToggleCompleteSelected = () => {
     const selected = deduplicatedTasks.filter((t) => dragSelect.isSelected(t.id));
     if (selected.length === 0) return;
@@ -373,41 +451,46 @@ export const Tasks: React.FC = () => {
       if (allCompleted) {
         reopenTaskMutation.mutate(t.id);
       } else if (t.status !== 'COMPLETED') {
-        completeTaskMutation.mutate(t.id);
+        handleToggleCompleteTask(t);
       }
     });
   };
 
-  const renderTaskCard = (task: Task) => (
-    <TaskCard
-      key={task.id}
-      task={task}
-      currentUser={user}
-      isAdmin={isAdmin}
-      onOpenDetail={handleOpenDetail}
-      onEdit={(t) => {
-        setTaskToEdit(t);
-        setIsFormModalOpen(true);
-      }}
-      onToggleComplete={(targetTask) => {
-        if (targetTask.status === 'COMPLETED') {
-          reopenTaskMutation.mutate(targetTask.id);
-        } else {
-          completeTaskMutation.mutate(targetTask.id);
-        }
-      }}
-      isMutating={completeTaskMutation.isPending || reopenTaskMutation.isPending}
-      isSelected={dragSelect.isSelected(task.id)}
-      onToggleSelect={(id, shift) => dragSelect.toggleSelect(id, shift)}
-      onPointerDown={dragSelect.handlePointerDown}
-      onPointerMove={dragSelect.handlePointerMove}
-      onPointerUp={dragSelect.handlePointerUpOrCancel}
-      onPointerCancel={dragSelect.handlePointerUpOrCancel}
-      onCardClick={dragSelect.handleCardClick}
-      isSelectionActive={dragSelect.isSelectionActive}
-      onContextMenu={handleTaskContextMenu}
-    />
-  );
+  const renderTaskCard = (task: Task) => {
+    const isCompleting = completingTaskIds.has(task.id);
+    const isRestoring = restoringTaskIds.has(task.id);
+
+    return (
+      <TaskAnimationWrapper
+        key={task.id}
+        isCompleting={isCompleting}
+        isRestoring={isRestoring}
+      >
+        <TaskCard
+          task={task}
+          currentUser={user}
+          isAdmin={isAdmin}
+          onOpenDetail={handleOpenDetail}
+          onEdit={(t) => {
+            setTaskToEdit(t);
+            setIsFormModalOpen(true);
+          }}
+          onToggleComplete={handleToggleCompleteTask}
+          isMutating={completeTaskMutation.isPending || reopenTaskMutation.isPending}
+          isCompleting={isCompleting}
+          isSelected={dragSelect.isSelected(task.id)}
+          onToggleSelect={(id, shift) => dragSelect.toggleSelect(id, shift)}
+          onPointerDown={dragSelect.handlePointerDown}
+          onPointerMove={dragSelect.handlePointerMove}
+          onPointerUp={dragSelect.handlePointerUpOrCancel}
+          onPointerCancel={dragSelect.handlePointerUpOrCancel}
+          onCardClick={dragSelect.handleCardClick}
+          isSelectionActive={dragSelect.isSelectionActive}
+          onContextMenu={handleTaskContextMenu}
+        />
+      </TaskAnimationWrapper>
+    );
+  };
 
   const renderSection = (title: string, list: Task[], isPending = false) => {
     if (list.length === 0) return null;
@@ -459,6 +542,9 @@ export const Tasks: React.FC = () => {
     { value: 'all', label: 'All' },
     { value: 'incompleted', label: 'Incompleted Tasks' },
     { value: 'pending', label: 'Pending' },
+    ...(activeOrganization?.enable_task_approval !== false
+      ? [{ value: 'pending_approval' as FilterType, label: 'Pending Approval' }]
+      : []),
     { value: 'today', label: 'Today' },
     { value: 'tomorrow', label: 'Tomorrow' },
     { value: 'upcoming', label: 'Upcoming' },

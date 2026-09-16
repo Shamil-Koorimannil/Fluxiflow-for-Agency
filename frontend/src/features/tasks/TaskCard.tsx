@@ -1,6 +1,6 @@
 import React from 'react';
 import type { Task, User } from '../../types';
-import { CheckCircle2, Circle, Check, Pencil } from 'lucide-react';
+import { CheckCircle2, Circle, Check, Pencil, Repeat, MessageSquare, Paperclip, Link, Clock } from 'lucide-react';
 import { TaskDatePicker } from './TaskDatePicker';
 import { TaskTypeBadge } from './TaskTypeBadge';
 import { getLocalDateString, getTaskDateStatusDetails } from '../../utils/time';
@@ -13,6 +13,7 @@ export interface TaskCardProps {
   onToggleComplete: (task: Task) => void;
   onEdit?: (task: Task) => void;
   isMutating?: boolean;
+  isCompleting?: boolean;
   isSelected?: boolean;
   onToggleSelect?: (taskId: string, isShiftKey: boolean) => void;
   onPointerDown?: (e: React.PointerEvent, taskId: string) => void;
@@ -32,6 +33,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   onToggleComplete,
   onEdit,
   isMutating = false,
+  isCompleting = false,
   isSelected = false,
   onPointerDown,
   onPointerMove,
@@ -40,9 +42,13 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   onCardClick,
   onContextMenu,
 }) => {
-  const isAssigned = task.assignees?.some((a) => a.id === currentUser?.id);
+  const isAssigned = task.assignees?.some((a) => String(a.id) === String(currentUser?.id));
   const canComplete = isAdmin || isAssigned;
-  const isCompleted = task.status === 'COMPLETED';
+  const myAssignee = task.assignees?.find((a) => String(a.id) === String(currentUser?.id));
+  const isCompleted = myAssignee
+    ? myAssignee.completed
+    : (typeof task.user_completed === 'boolean' ? task.user_completed : task.status === 'COMPLETED');
+  const showCompleted = isCompleted || isCompleting;
 
   const formatLateDuration = (minutes: number) => {
     if (minutes < 60) return `${minutes}m`;
@@ -149,10 +155,12 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           ? onCardClick(e, task.id, task.is_subtask ? task.parent_task_id! : task.id)
           : onOpenDetail(task.is_subtask ? task.parent_task_id! : task.id)
       }
-      className={`bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 flex items-center justify-between gap-4 hover:border-black dark:hover:border-white transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-sm animate-slide-up ${
+      className={`bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 flex items-center justify-between gap-4 hover:border-black dark:hover:border-white transition-[border-color,background-color,box-shadow] duration-200 cursor-pointer hover:-translate-y-0.5 hover:shadow-sm ${
+        isCompleting ? 'border-green-500/40' : ''
+      } ${
         task.is_subtask ? 'ml-6 md:ml-8 border-dashed' : ''
       } ${getPriorityBorder(task.priority)} ${
-        isCompleted ? 'bg-zinc-50/50 dark:bg-zinc-950/40' : ''
+        showCompleted ? 'bg-zinc-50/50 dark:bg-zinc-950/40' : ''
       } ${
         isSelected
           ? 'ring-2 ring-blue-500 border-blue-500 bg-blue-50/30 dark:bg-blue-950/30 shadow-md'
@@ -160,21 +168,23 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       }`}
     >
       <div className="flex items-start md:items-center gap-3 min-w-0 flex-1">
-        {/* Completion Checkbox Button with smooth 300ms transition */}
+        {/* Completion Checkbox Button with smooth transition */}
         <button
           type="button"
-          disabled={!canComplete || isMutating}
+          disabled={!canComplete || isMutating || isCompleting}
           onClick={(e) => {
             e.stopPropagation();
-            onToggleComplete(task);
+            if (!isCompleting && !isMutating) {
+              onToggleComplete(task);
+            }
           }}
-          className={`shrink-0 disabled:opacity-50 transition-all duration-300 ease-in-out transform active:scale-90 hover:scale-110 mt-0.5 md:mt-0 ${
-            isCompleted ? 'text-green-550 dark:text-green-400' : 'text-zinc-400 hover:text-black dark:hover:text-white'
+          className={`shrink-0 disabled:opacity-50 transition-all duration-200 ease-in-out transform active:scale-90 hover:scale-110 mt-0.5 md:mt-0 ${
+            showCompleted ? 'text-green-550 dark:text-green-400' : 'text-zinc-400 hover:text-black dark:hover:text-white'
           }`}
-          title={isCompleted ? 'Reopen task' : 'Complete task'}
+          title={showCompleted ? 'Reopen task' : 'Complete task'}
         >
-          {isCompleted ? (
-            <CheckCircle2 className="h-4.5 w-4.5 text-green-550 dark:text-green-400 animate-in zoom-in-75 duration-300" />
+          {showCompleted ? (
+            <CheckCircle2 className="h-4.5 w-4.5 text-green-550 dark:text-green-400 animate-check-pop" />
           ) : (
             <Circle className="h-4.5 w-4.5 transition-transform duration-200" />
           )}
@@ -239,11 +249,76 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               </span>
             )}
 
+            {/* Recurring Task Badge */}
+            {task.is_recurring && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 text-[10px] font-semibold" title="Recurring Task">
+                <Repeat className="h-3 w-3" />
+                <span>Repeat</span>
+              </span>
+            )}
+
             {/* Task Type Badge */}
             <TaskTypeBadge
               taskType={task.task_type_detail}
               allocatedSeconds={task.allocated_seconds}
             />
+
+            {/* Approval Status Badges */}
+            {task.approval_status === 'PENDING' && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60" title="Pending approval" aria-label="Pending approval">
+                <Clock className="w-3 h-3 text-amber-500" />
+                <span>Pending approval</span>
+              </span>
+            )}
+            {task.approval_status === 'APPROVED' && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60" title="Approved" aria-label="Approved">
+                <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                <span>Approved</span>
+              </span>
+            )}
+
+            {/* Unread Activity Indicators (Subtle icon + ~4-5px dot) */}
+            {task.has_unread_activity && (
+              <div className="flex items-center gap-2 text-zinc-500 dark:text-zinc-400">
+                {task.unread_activity_types?.includes('COMMENT') && (
+                  <span className="relative inline-flex items-center" title="New comment" aria-label="New comment">
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    <span className="absolute -top-0.5 -right-1 w-1.5 h-1.5 rounded-full bg-blue-500" />
+                  </span>
+                )}
+                {task.unread_activity_types?.includes('ATTACHMENT') && (
+                  <span className="relative inline-flex items-center" title="New attachment" aria-label="New attachment">
+                    <Paperclip className="w-3.5 h-3.5" />
+                    <span className="absolute -top-0.5 -right-1 w-1.5 h-1.5 rounded-full bg-blue-500" />
+                  </span>
+                )}
+                {task.unread_activity_types?.includes('LINK') && (
+                  <span className="relative inline-flex items-center" title="New link" aria-label="New link">
+                    <Link className="w-3.5 h-3.5" />
+                    <span className="absolute -top-0.5 -right-1 w-1.5 h-1.5 rounded-full bg-blue-500" />
+                  </span>
+                )}
+                {task.unread_activity_types?.includes('PENDING_APPROVAL') && !task.unread_activity_types?.includes('COMMENT') && !task.unread_activity_types?.includes('ATTACHMENT') && !task.unread_activity_types?.includes('LINK') && (
+                  <span className="relative inline-flex items-center" title="Pending approval" aria-label="Pending approval">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span className="absolute -top-0.5 -right-1 w-1.5 h-1.5 rounded-full bg-blue-500" />
+                  </span>
+                )}
+                {task.unread_activity_types?.includes('APPROVED') && !task.unread_activity_types?.includes('COMMENT') && !task.unread_activity_types?.includes('ATTACHMENT') && !task.unread_activity_types?.includes('LINK') && (
+                  <span className="relative inline-flex items-center" title="Approved" aria-label="Approved">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span className="absolute -top-0.5 -right-1 w-1.5 h-1.5 rounded-full bg-blue-500" />
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Approver Badge */}
+            {task.approver_detail && (
+              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
+                Approver: {task.approver_detail.name}
+              </span>
+            )}
 
             {/* Priority, Subtask & Overall Status Badges */}
             {task.priority && (

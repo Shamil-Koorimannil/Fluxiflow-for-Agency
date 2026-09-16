@@ -11,6 +11,7 @@ import { ArrowLeft, Plus, Upload, Trash2, CheckSquare, X, Pencil, Download, Load
 import { BulkUploadModal } from './BulkUploadModal';
 import { PasteTasksModal } from '../tasks/PasteTasksModal';
 import { TaskCard } from '../tasks/TaskCard';
+import { TaskAnimationWrapper } from '../tasks/TaskAnimationWrapper';
 import { useTaskDragSelect } from '../../hooks/useTaskDragSelect';
 import { classifyTask } from '../../utils/taskClassifier';
 import { formatDateOnly } from '../../utils/time';
@@ -43,6 +44,9 @@ export const ProjectDetail: React.FC = () => {
 
   const [isPasteModalOpen, setIsPasteModalOpen] = useState(false);
   const [copiedTasksCount, setCopiedTasksCount] = useState(0);
+
+  const [completingTaskIds, setCompletingTaskIds] = useState<Set<string>>(new Set());
+  const [restoringTaskIds, setRestoringTaskIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const updateCount = () => {
@@ -225,12 +229,18 @@ export const ProjectDetail: React.FC = () => {
   const deduplicatedTasks = tasks ? Array.from(new Map(tasks.map(t => [t.id, t])).values()) : [];
   let filteredTasks = deduplicatedTasks;
 
+  const isTaskCompletedForUser = (t: Task) => {
+    if (typeof t.user_completed === 'boolean') return t.user_completed;
+    const myAssignee = t.assignees?.find((a) => String(a.id) === String(user?.id));
+    return myAssignee ? myAssignee.completed : t.status === 'COMPLETED';
+  };
+
   if (activeFilter === 'assigned_to_me') {
-    filteredTasks = deduplicatedTasks.filter((t) => t.assignees.some((a) => a.id === user?.id));
+    filteredTasks = deduplicatedTasks.filter((t) => t.assignees.some((a) => String(a.id) === String(user?.id)));
   } else if (activeFilter === 'incompleted' || activeFilter === 'pending') {
-    filteredTasks = deduplicatedTasks.filter((t) => t.status !== 'COMPLETED');
+    filteredTasks = deduplicatedTasks.filter((t) => !isTaskCompletedForUser(t) || completingTaskIds.has(t.id));
   } else if (activeFilter !== 'all') {
-    filteredTasks = deduplicatedTasks.filter((t) => classifyTask(t) === activeFilter);
+    filteredTasks = deduplicatedTasks.filter((t) => classifyTask(t, new Date(), user?.id) === activeFilter || completingTaskIds.has(t.id));
   }
 
   const dragSelect = useTaskDragSelect({
@@ -271,35 +281,90 @@ export const ProjectDetail: React.FC = () => {
     );
   }
 
-  const renderTaskTile = (task: Task) => (
-    <TaskCard
-      key={task.id}
-      task={task}
-      currentUser={user}
-      isAdmin={isAdmin}
-      onOpenDetail={(id) => setSelectedTaskId(id)}
-      onEdit={(t) => {
-        setTaskToEdit(t);
-        setIsTaskModalOpen(false);
-      }}
-      onToggleComplete={(targetTask) => {
-        if (targetTask.status === 'COMPLETED') {
-          reopenTaskMutation.mutate(targetTask.id);
-        } else {
-          completeTaskMutation.mutate(targetTask.id);
-        }
-      }}
-      isMutating={completeTaskMutation.isPending || reopenTaskMutation.isPending}
-      isSelected={dragSelect.isSelected(task.id)}
-      onToggleSelect={(id, shift) => dragSelect.toggleSelect(id, shift)}
-      onPointerDown={dragSelect.handlePointerDown}
-      onPointerMove={dragSelect.handlePointerMove}
-      onPointerUp={dragSelect.handlePointerUpOrCancel}
-      onPointerCancel={dragSelect.handlePointerUpOrCancel}
-      onCardClick={dragSelect.handleCardClick}
-      isSelectionActive={dragSelect.isSelectionActive}
-    />
-  );
+  const handleToggleCompleteProjectTask = async (targetTask: Task) => {
+    const taskId = targetTask.id;
+    if (targetTask.status === 'COMPLETED') {
+      try {
+        await reopenTaskMutation.mutateAsync(taskId);
+      } catch (err: any) {
+        showAlert({
+          title: 'Reopen Failed',
+          message: err?.response?.data?.detail || 'Failed to reopen task.',
+          variant: 'warning',
+        });
+      }
+    } else {
+      if (completingTaskIds.has(taskId)) return;
+      setCompletingTaskIds((prev) => new Set(prev).add(taskId));
+
+      const exitTimer = setTimeout(() => {
+        setCompletingTaskIds((prev) => {
+          const next = new Set(prev);
+          next.delete(taskId);
+          return next;
+        });
+      }, 420);
+
+      try {
+        await completeTaskMutation.mutateAsync(taskId);
+      } catch (err: any) {
+        clearTimeout(exitTimer);
+        setCompletingTaskIds((prev) => {
+          const next = new Set(prev);
+          next.delete(taskId);
+          return next;
+        });
+        setRestoringTaskIds((prev) => new Set(prev).add(taskId));
+        setTimeout(() => {
+          setRestoringTaskIds((prev) => {
+            const next = new Set(prev);
+            next.delete(taskId);
+            return next;
+          });
+        }, 300);
+        showAlert({
+          title: 'Completion Failed',
+          message: err?.response?.data?.detail || 'Failed to complete task.',
+          variant: 'warning',
+        });
+      }
+    }
+  };
+
+  const renderTaskTile = (task: Task) => {
+    const isCompleting = completingTaskIds.has(task.id);
+    const isRestoring = restoringTaskIds.has(task.id);
+
+    return (
+      <TaskAnimationWrapper
+        key={task.id}
+        isCompleting={isCompleting}
+        isRestoring={isRestoring}
+      >
+        <TaskCard
+          task={task}
+          currentUser={user}
+          isAdmin={isAdmin}
+          onOpenDetail={(id) => setSelectedTaskId(id)}
+          onEdit={(t) => {
+            setTaskToEdit(t);
+            setIsTaskModalOpen(false);
+          }}
+          onToggleComplete={handleToggleCompleteProjectTask}
+          isMutating={completeTaskMutation.isPending || reopenTaskMutation.isPending}
+          isCompleting={isCompleting}
+          isSelected={dragSelect.isSelected(task.id)}
+          onToggleSelect={(id, shift) => dragSelect.toggleSelect(id, shift)}
+          onPointerDown={dragSelect.handlePointerDown}
+          onPointerMove={dragSelect.handlePointerMove}
+          onPointerUp={dragSelect.handlePointerUpOrCancel}
+          onPointerCancel={dragSelect.handlePointerUpOrCancel}
+          onCardClick={dragSelect.handleCardClick}
+          isSelectionActive={dragSelect.isSelectionActive}
+        />
+      </TaskAnimationWrapper>
+    );
+  };
 
   const projectFilters: { value: ProjectFilterType; label: string }[] = [
     { value: 'all', label: 'All' },

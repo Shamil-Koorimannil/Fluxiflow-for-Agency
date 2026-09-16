@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
-import type { Task, Project, User, TaskType, OrganizationSettings } from '../../types';
+import type { Task, Project, User, TaskType, OrganizationSettings, RecurrenceConfig } from '../../types';
 import { X, Tag, Plus, Trash2, Pencil, ListTodo } from 'lucide-react';
 import { TimePicker } from '../../components/common/TimePicker';
 import { DatePicker } from '../../components/common/DatePicker';
 import { CustomDropdown } from '../../components/common/CustomDropdown';
+import { TaskRepeatPicker } from './TaskRepeatPicker';
+import { useOrganization } from '../../context/OrganizationContext';
 
 interface SubtaskItemState {
   id: string;
@@ -54,6 +56,10 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
   const [projectId, setProjectId] = useState<string>('');
   const [selectedTaskTypeId, setSelectedTaskTypeId] = useState<string | null>(null);
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([]);
+  const [recurrence, setRecurrence] = useState<RecurrenceConfig | null>(null);
+  const { activeOrganization } = useOrganization();
+  const [approvalRequired, setApprovalRequired] = useState(true);
+  const [selectedApproverId, setSelectedApproverId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Subtasks state
@@ -86,6 +92,9 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
         setDescription(taskToEdit.description || '');
         setProjectId(taskToEdit.project || projectIdProp || defaultProjectId || '');
         setSelectedTaskTypeId(taskToEdit.task_type || taskToEdit.task_type_detail?.id || null);
+        setRecurrence(taskToEdit.recurrence || null);
+        setApprovalRequired(taskToEdit.approval_required !== false);
+        setSelectedApproverId(taskToEdit.approver || taskToEdit.approver_detail?.id || null);
         setSelectedAssigneeIds(
           taskToEdit.assignees
             ? taskToEdit.assignees.map((a: any) => String(a.id || a.user?.id || a.user_id))
@@ -117,6 +126,9 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
         setProjectId(projectIdProp || defaultProjectId || '');
         setSelectedTaskTypeId(null);
         setSelectedAssigneeIds(defaultAssigneeId ? [defaultAssigneeId] : []);
+        setRecurrence(null);
+        setApprovalRequired(true);
+        setSelectedApproverId(null);
         setSubtasks([]);
       }
       setDeletedSubtaskIds([]);
@@ -327,6 +339,11 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
       return;
     }
 
+    if (activeOrganization?.enable_task_approval !== false && approvalRequired && !selectedApproverId) {
+      setError('Please select an approver.');
+      return;
+    }
+
     const payload: any = {
       name: name.trim(),
       due_date: dates.length > 0 ? dates[0] : null,
@@ -335,6 +352,9 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
       assignee_ids: selectedAssigneeIds,
       project: projectId,
       task_type: selectedTaskTypeId || null,
+      recurrence: subtasks.length > 0 ? null : recurrence,
+      approval_required: activeOrganization?.enable_task_approval !== false ? approvalRequired : false,
+      approver: (activeOrganization?.enable_task_approval !== false && approvalRequired) ? selectedApproverId : null,
     };
 
     if (!isEditMode) {
@@ -457,6 +477,19 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 disabled={submitMutation.isPending}
               />
             </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider block mb-1">
+                Repeat
+              </label>
+              <TaskRepeatPicker
+                value={subtasks.length > 0 ? null : recurrence}
+                onChange={setRecurrence}
+                disabled={submitMutation.isPending}
+                hasSubtasks={subtasks.length > 0}
+                startDate={dates[0] || null}
+              />
+            </div>
           </div>
 
           <div className="space-y-1">
@@ -515,6 +548,69 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
               />
             </div>
           </div>
+
+          {/* APPROVAL SECTION */}
+          {activeOrganization?.enable_task_approval !== false && (
+            <div className="space-y-2 pt-2 border-t border-zinc-200 dark:border-zinc-800">
+              <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider block">
+                Approval
+              </label>
+              <div className="flex items-center gap-6 text-xs font-medium text-zinc-900 dark:text-zinc-100">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="approvalRequired"
+                    checked={approvalRequired}
+                    onChange={() => setApprovalRequired(true)}
+                    disabled={submitMutation.isPending}
+                    className="text-black dark:text-white focus:ring-black dark:focus:ring-white"
+                  />
+                  <span>Need approval</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="approvalRequired"
+                    checked={!approvalRequired}
+                    onChange={() => {
+                      setApprovalRequired(false);
+                      setSelectedApproverId(null);
+                    }}
+                    disabled={submitMutation.isPending}
+                    className="text-black dark:text-white focus:ring-black dark:focus:ring-white"
+                  />
+                  <span>No approval</span>
+                </label>
+              </div>
+
+              {approvalRequired && (
+                <div className="pt-1 space-y-1.5">
+                  <CustomDropdown
+                    label="Approver"
+                    fullWidth
+                    disabled={submitMutation.isPending}
+                    value={selectedApproverId || ''}
+                    onChange={(val) => setSelectedApproverId(val as string)}
+                    placeholder="Select member"
+                    searchable={true}
+                    searchPlaceholder="Search approver by name..."
+                    options={
+                      teamMembers?.map((m) => ({
+                        value: m.id,
+                        label: m.name,
+                        description: m.email,
+                      })) || []
+                    }
+                  />
+                  {selectedApproverId && (
+                    <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+                      Task requires approval from {teamMembers?.find(m => m.id === selectedApproverId)?.name || 'selected approver'}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="space-y-1">
             <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">

@@ -1285,7 +1285,7 @@ class TaskCompletionAndSyncTests(APITestCase):
         task = Task.objects.create(
             name='Task D',
             status='PENDING',
-            due_date=timezone.now().date(),
+            due_date=timezone.now().date() - timezone.timedelta(days=1),
             created_by=self.admin
         )
         TaskAssignee.objects.create(task=task, user=self.member)
@@ -1315,7 +1315,7 @@ class TaskCompletionAndSyncTests(APITestCase):
         task = Task.objects.create(
             name='Task E',
             status='PENDING',
-            due_date=timezone.now().date(),
+            due_date=timezone.now().date() - timezone.timedelta(days=1),
             created_by=self.admin
         )
         TaskAssignee.objects.create(task=task, user=self.member)

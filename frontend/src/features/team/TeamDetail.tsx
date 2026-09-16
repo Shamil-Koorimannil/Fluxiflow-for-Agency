@@ -9,6 +9,7 @@ import type { Task, MemberWorkload } from '../../types';
 import { api } from '../../services/api';
 import { WorkloadMonitor } from './WorkloadMonitor';
 import { TaskCard } from '../tasks/TaskCard';
+import { TaskAnimationWrapper } from '../tasks/TaskAnimationWrapper';
 import { TaskFormModal } from '../tasks/TaskFormModal';
 import { useTaskDragSelect } from '../../hooks/useTaskDragSelect';
 import { getLocalDateString, formatDateOnly } from '../../utils/time';
@@ -271,29 +272,67 @@ export const TeamDetail: React.FC = () => {
     refetch();
   };
 
+  const [completingTaskIds, setCompletingTaskIds] = useState<Set<string>>(new Set());
+  const [restoringTaskIds, setRestoringTaskIds] = useState<Set<string>>(new Set());
+
   const handleToggleComplete = async (task: Task, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    try {
-      if (task.status === 'COMPLETED') {
+    const taskId = task.id;
+    if (task.status === 'COMPLETED') {
+      try {
         await api.post(`/tasks/${task.id}/reopen/`);
-      } else {
-        await api.post(`/tasks/${task.id}/complete/`);
+        invalidateMemberQueries();
+      } catch (err: any) {
+        showAlert({
+          title: 'Error',
+          message: err.response?.data?.detail || 'Failed to update task completion status.',
+          variant: 'warning',
+        });
       }
-      invalidateMemberQueries();
-    } catch (err: any) {
-      showAlert({
-        title: 'Error',
-        message: err.response?.data?.detail || 'Failed to update task completion status.',
-        variant: 'warning',
-      });
+    } else {
+      if (completingTaskIds.has(taskId)) return;
+      setCompletingTaskIds((prev) => new Set(prev).add(taskId));
+
+      const exitTimer = setTimeout(() => {
+        setCompletingTaskIds((prev) => {
+          const next = new Set(prev);
+          next.delete(taskId);
+          return next;
+        });
+      }, 420);
+
+      try {
+        await api.post(`/tasks/${task.id}/complete/`);
+        invalidateMemberQueries();
+      } catch (err: any) {
+        clearTimeout(exitTimer);
+        setCompletingTaskIds((prev) => {
+          const next = new Set(prev);
+          next.delete(taskId);
+          return next;
+        });
+        setRestoringTaskIds((prev) => new Set(prev).add(taskId));
+        setTimeout(() => {
+          setRestoringTaskIds((prev) => {
+            const next = new Set(prev);
+            next.delete(taskId);
+            return next;
+          });
+        }, 300);
+        showAlert({
+          title: 'Error',
+          message: err.response?.data?.detail || 'Failed to complete task.',
+          variant: 'warning',
+        });
+      }
     }
   };
 
   const todayStr = getLocalDateString(new Date());
 
   const incompleteTasks = useMemo(() => {
-    return tasks.filter((t) => t.status !== 'COMPLETED');
-  }, [tasks]);
+    return tasks.filter((t) => t.status !== 'COMPLETED' || completingTaskIds.has(t.id));
+  }, [tasks, completingTaskIds]);
 
   const pendingTasks = useMemo(() => {
     return tasks.filter((t) => isTaskPending(t));
@@ -739,32 +778,38 @@ export const TeamDetail: React.FC = () => {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {filteredIncompleteTasks.map((task) => (
-                  <TaskCard
-                    key={`incomplete-${task.id}`}
-                    task={task}
-                    currentUser={currentUser}
-                    isAdmin={isAdmin}
-                    onOpenDetail={(taskId) => {
-                      const targetTask = tasks.find((t) => t.id === taskId);
-                      if (targetTask) {
-                        setSelectedTask(targetTask);
+                  <TaskAnimationWrapper
+                    key={task.id}
+                    isCompleting={completingTaskIds.has(task.id)}
+                    isRestoring={restoringTaskIds.has(task.id)}
+                  >
+                    <TaskCard
+                      task={task}
+                      currentUser={currentUser}
+                      isAdmin={isAdmin}
+                      isCompleting={completingTaskIds.has(task.id)}
+                      onOpenDetail={(taskId) => {
+                        const targetTask = tasks.find((t) => t.id === taskId);
+                        if (targetTask) {
+                          setSelectedTask(targetTask);
+                          setIsTaskModalOpen(true);
+                        }
+                      }}
+                      onToggleComplete={(t) => handleToggleComplete(t)}
+                      onEdit={(t) => {
+                        setSelectedTask(t);
                         setIsTaskModalOpen(true);
-                      }
-                    }}
-                    onToggleComplete={(t) => handleToggleComplete(t)}
-                    onEdit={(t) => {
-                      setSelectedTask(t);
-                      setIsTaskModalOpen(true);
-                    }}
-                    isSelected={dragSelect.isSelected(task.id)}
-                    onToggleSelect={(taskId, shiftKey) => dragSelect.toggleSelect(taskId, shiftKey)}
-                    onPointerDown={(e, taskId) => dragSelect.handlePointerDown(e, taskId)}
-                    onPointerMove={dragSelect.handlePointerMove}
-                    onPointerUp={dragSelect.handlePointerUpOrCancel}
-                    onPointerCancel={dragSelect.handlePointerUpOrCancel}
-                    onCardClick={(e, taskId) => dragSelect.handleCardClick(e, taskId)}
-                    isSelectionActive={dragSelect.isSelectionActive}
-                  />
+                      }}
+                      isSelected={dragSelect.isSelected(task.id)}
+                      onToggleSelect={(taskId, shiftKey) => dragSelect.toggleSelect(taskId, shiftKey)}
+                      onPointerDown={(e, taskId) => dragSelect.handlePointerDown(e, taskId)}
+                      onPointerMove={dragSelect.handlePointerMove}
+                      onPointerUp={dragSelect.handlePointerUpOrCancel}
+                      onPointerCancel={dragSelect.handlePointerUpOrCancel}
+                      onCardClick={(e, taskId) => dragSelect.handleCardClick(e, taskId)}
+                      isSelectionActive={dragSelect.isSelectionActive}
+                    />
+                  </TaskAnimationWrapper>
                 ))}
               </div>
             )}

@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import type { Task, User } from '../../types';
 import { useAuth } from '../auth/AuthContext';
-import { X, CheckSquare, Calendar, Clock, AlertCircle, Trash2, Edit, CheckCircle2, Circle, AlertTriangle, ChevronDown, ChevronRight, Copy } from 'lucide-react';
+import { X, CheckSquare, Calendar, Clock, AlertCircle, Trash2, Edit, CheckCircle2, Circle, AlertTriangle, ChevronDown, ChevronRight, Copy, Repeat } from 'lucide-react';
 import { formatLateDuration, formatTimeOnly, formatDueDate, getDueDateStyleClass } from '../../utils/time';
 import { TimePicker } from '../../components/common/TimePicker';
 import { DatePicker } from '../../components/common/DatePicker';
@@ -13,6 +13,7 @@ import { AttachmentsSection } from './AttachmentsSection';
 import { TaskTimer } from './TaskTimer';
 import { TaskTypeBadge } from './TaskTypeBadge';
 import { TaskDatePicker } from './TaskDatePicker';
+import { formatRecurrenceSummary } from './TaskRepeatPicker';
 import { useOrganization } from '../../context/OrganizationContext';
 import { useConfirm } from '../../context/ConfirmDialogContext';
 import { CustomDropdown } from '../../components/common/CustomDropdown';
@@ -59,6 +60,39 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
     },
     enabled: !!taskId,
   });
+
+  // Mark task notifications as read on opening detail panel
+  React.useEffect(() => {
+    if (taskId && task?.has_unread_activity) {
+      api.post(`/tasks/${taskId}/mark-read/`).then(() => {
+        queryClient.invalidateQueries({ queryKey: ['task', taskId] });
+        queryClient.invalidateQueries({ queryKey: ['tasks'] });
+        queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      }).catch(() => {});
+    }
+  }, [taskId, task?.has_unread_activity, queryClient]);
+
+  // Approve Task Mutation
+  const approveTaskMutation = useMutation({
+    mutationFn: async () => {
+      const response = await api.post(`/tasks/${taskId}/approve/`);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['task', taskId] });
+      queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
+      queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
+      queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      showAlert({ title: 'Approved', message: 'Task approved successfully.', variant: 'info' });
+    },
+    onError: (err: any) => {
+      showAlert({ title: 'Error', message: err?.response?.data?.detail || 'Failed to approve task.', variant: 'warning' });
+    },
+  });
+
+
 
   // Task Completion Mutation
   const completeTaskMutation = useMutation({
@@ -267,6 +301,7 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
 
   const isAssigned = task?.assignees.some((a) => a.id === user?.id) || false;
   const canComplete = isAdmin || isAssigned;
+  const isApprover = isAdmin || (task?.approver ? task.approver === user?.id : true);
 
   return createPortal(
     <div className="fixed inset-0 z-[9998] flex justify-end bg-black/40 animate-in fade-in duration-200">
@@ -374,6 +409,49 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                 }}
               />
 
+              {/* Approval Status Banner */}
+              {task.approval_required && (
+                <div className={`p-4 rounded-xl text-xs space-y-2.5 border ${
+                  task.approval_status === 'PENDING'
+                    ? 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/40 text-amber-900 dark:text-amber-300'
+                    : task.approval_status === 'APPROVED'
+                    ? 'bg-green-50/60 dark:bg-green-950/20 border-green-200 dark:border-green-900/40 text-green-900 dark:text-green-300'
+                    : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300'
+                }`}>
+                  <div className="flex items-center justify-between font-bold">
+                    <span className="flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
+                      {task.approval_status === 'PENDING' && '⏳ Pending Approval'}
+                      {task.approval_status === 'APPROVED' && '✓ Approved'}
+                      {task.approval_status === 'NOT_STARTED' && 'Approval Required'}
+                    </span>
+                    {task.approver_detail && (
+                      <span className="text-[10px] font-medium opacity-80">
+                        Approver: {task.approver_detail.name}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] leading-relaxed opacity-90">
+                    {task.approval_status === 'PENDING' && `Task requires approval from ${task.approver_detail?.name || 'approver'}`}
+                    {task.approval_status === 'APPROVED' && `Task approved by ${task.approved_by_detail?.name || 'approver'}${task.approved_at ? ` on ${new Date(task.approved_at).toLocaleString()}` : ''}`}
+                    {task.approval_status === 'NOT_STARTED' && `Task requires approval from ${task.approver_detail?.name || 'approver'}`}
+                  </p>
+
+                  {/* Approval action button for Approver or Admin */}
+                  {isApprover && task.approval_status === 'PENDING' && (
+                    <div className="flex items-center gap-2 pt-2 border-t border-current/15">
+                      <button
+                        type="button"
+                        disabled={approveTaskMutation.isPending}
+                        onClick={() => approveTaskMutation.mutate()}
+                        className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg text-xs transition-colors shadow-sm disabled:opacity-50"
+                      >
+                        {approveTaskMutation.isPending ? 'Approving...' : 'Approve Task'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Scope/Due Dates Panel Grid */}
               <div className="grid grid-cols-2 gap-4 border border-zinc-100 dark:border-zinc-855 bg-zinc-50/20 dark:bg-black p-4 rounded-xl text-xs">
                 <div className="space-y-1">
@@ -403,6 +481,18 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                     <span className="font-semibold text-black dark:text-white">
                       {task.project_detail.name}
                     </span>
+                  </div>
+                )}
+
+                {task.is_recurring && task.recurrence && (
+                  <div className="space-y-1 col-span-2 border-t border-zinc-100 dark:border-zinc-800 pt-2 mt-1">
+                    <span className="text-zinc-400 font-semibold uppercase tracking-wider block">
+                      Recurrence
+                    </span>
+                    <div className="flex items-center gap-1.5 font-semibold text-blue-600 dark:text-blue-400">
+                      <Repeat className="h-3.5 w-3.5" />
+                      <span>{formatRecurrenceSummary(task.recurrence, task.due_date)}</span>
+                    </div>
                   </div>
                 )}
               </div>
@@ -677,7 +767,7 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
                                 className="text-zinc-400 hover:text-black dark:hover:text-white shrink-0 disabled:opacity-50 transition-all duration-200 active:scale-90 hover:scale-110 mt-0.5"
                               >
                                 {isMyCompleted ? (
-                                  <CheckCircle2 className="h-4.5 w-4.5 text-green-550 dark:text-green-400" />
+                                  <CheckCircle2 className="h-4.5 w-4.5 text-green-550 dark:text-green-400 animate-check-pop" />
                                 ) : (
                                   <Circle className="h-4.5 w-4.5" />
                                 )}
@@ -1016,6 +1106,8 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({
           </div>
         </div>
       )}
+
+
     </div>,
     document.body
   );

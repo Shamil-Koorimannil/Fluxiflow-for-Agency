@@ -10,6 +10,7 @@ export const OrganizationProfileSettings: React.FC = () => {
   const [displayName, setDisplayName] = useState('');
   const [description, setDescription] = useState('');
   const [weeklyCapacityHours, setWeeklyCapacityHours] = useState(40);
+  const [enableTaskApproval, setEnableTaskApproval] = useState(true);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   
@@ -23,6 +24,7 @@ export const OrganizationProfileSettings: React.FC = () => {
       setDisplayName(activeOrganization.display_name || '');
       setDescription(activeOrganization.description || '');
       setWeeklyCapacityHours(activeOrganization.weekly_capacity_hours || 40);
+      setEnableTaskApproval(activeOrganization.enable_task_approval !== false);
       setLogoPreview(activeOrganization.logo_url || null);
     }
   }, [activeOrganization]);
@@ -49,6 +51,7 @@ export const OrganizationProfileSettings: React.FC = () => {
       formData.append('display_name', displayName.trim());
       formData.append('description', description.trim());
       formData.append('weekly_capacity_hours', String(weeklyCapacityHours));
+      formData.append('enable_task_approval', String(enableTaskApproval));
       if (logoFile) {
         formData.append('logo', logoFile);
       }
@@ -176,6 +179,33 @@ export const OrganizationProfileSettings: React.FC = () => {
             onChange={(e) => setWeeklyCapacityHours(Number(e.target.value))}
             className="w-full sm:w-48 px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
+        </div>
+
+        {/* Task Approval Toggle */}
+        <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800/80">
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <label className="block text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                Task Approval
+              </label>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                Allow completed tasks to be submitted for approval by an assigned approver.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setEnableTaskApproval(!enableTaskApproval)}
+              className={`relative inline-flex h-7 w-12 shrink-0 flex-shrink-0 items-center rounded-full transition-colors ${
+                enableTaskApproval ? 'bg-emerald-600' : 'bg-zinc-300 dark:bg-zinc-700'
+              }`}
+            >
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                  enableTaskApproval ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
         </div>
 
         <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800 flex justify-end">

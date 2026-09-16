@@ -60,7 +60,7 @@ def get_canonical_user_pending_tasks(user, organization=None, now=None, tz=None,
             now_in_tz = now.astimezone(tz)
             
     user_tasks = get_canonical_user_tasks(user, organization)
-    incomplete_tasks = user_tasks.exclude(status='COMPLETED').filter(due_date__isnull=False)
+    incomplete_tasks = user_tasks.exclude(status='COMPLETED').exclude(assignee_relationships__user=user, assignee_relationships__completed=True).filter(due_date__isnull=False)
     pending_ids = []
     for t in incomplete_tasks:
         due_dt = get_task_due_datetime_in_tz(t.due_date, t.due_time, tz=tz)
@@ -98,7 +98,6 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None, organiza
     overdue_tasks_count = pending_tasks_count
 
     today_tasks_count = user_tasks.filter(due_date=today_date).count()
-    today_incomplete_count = user_tasks.filter(due_date=today_date).exclude(status='COMPLETED').count()
     tomorrow_tasks_count = user_tasks.filter(due_date=tomorrow_date).count()
 
     if organization:
@@ -126,8 +125,6 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None, organiza
                 pending_subtasks_count += 1
         if st.due_date == today_date:
             today_subtasks_count += 1
-            if st.status != 'COMPLETED':
-                today_incomplete_count += 1
         if st.due_date == tomorrow_date:
             tomorrow_subtasks_count += 1
 
@@ -174,10 +171,9 @@ def calculate_user_health_metrics(user, start_date=None, end_date=None, organiza
     historical_score = 70.0 * on_time_completion_rate
     
     pending_penalty = total_effective_overdue * 10
-    today_pending_penalty = today_incomplete_count * 3
     late_completion_penalty = late_completed_tasks_in_last_30_days * 2
     
-    current_workload_score = 100 - pending_penalty - today_pending_penalty - late_completion_penalty
+    current_workload_score = 100 - pending_penalty - late_completion_penalty
     current_workload_score = max(0, current_workload_score)
     
     health_score = historical_score + (30.0 * (current_workload_score / 100.0))
@@ -1867,6 +1863,21 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             return Response({"detail": "Only Organisation admins can modify organization profile."}, status=status.HTTP_403_FORBIDDEN)
 
         active_org = get_active_organization(request.user)
+        if not active_org:
+            return Response({"detail": "No active organization found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = self.get_serializer(active_org, data=request.data, partial=True, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['patch', 'put'], url_path='settings')
+    def update_organization_settings(self, request):
+        from apps.accounts.tenant_context import is_admin_or_org_admin
+        if not is_admin_or_org_admin(request.user, request=request):
+            return Response({"detail": "Only Admins and Project Managers can modify organization settings."}, status=status.HTTP_403_FORBIDDEN)
+
+        active_org = get_active_organization(request.user, request=request)
         if not active_org:
             return Response({"detail": "No active organization found."}, status=status.HTTP_400_BAD_REQUEST)
 
