@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import type { Project, Task } from '../../types';
@@ -23,6 +23,7 @@ type ProjectFilterType = 'all' | 'incompleted' | 'today' | 'tomorrow' | 'upcomin
 export const ProjectDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const { isAdmin } = useOrganization();
@@ -268,11 +269,17 @@ export const ProjectDetail: React.FC = () => {
     );
   }
 
+  // Compute navigation context & back target
+  const fromPath = (location.state as { from?: string } | null)?.from;
+  const isClientContext = Boolean(fromPath?.includes('/clients/') || (!fromPath && project?.client));
+  const backTarget = fromPath || (project?.client ? `/app/clients/${project.client}/projects` : '/app/projects');
+  const backLabel = isClientContext ? 'Back to Client Projects' : 'Back to Projects';
+
   if (projectError || !project) {
     return (
       <div className="max-w-5xl mx-auto space-y-4">
-        <Link to="/app/projects" className="flex items-center gap-2 text-xs font-semibold text-zinc-500 hover:text-black dark:hover:text-white">
-          <ArrowLeft className="h-3.5 w-3.5" /> Back to Projects
+        <Link to={backTarget} className="flex items-center gap-2 text-xs font-semibold text-zinc-500 hover:text-black dark:hover:text-white">
+          <ArrowLeft className="h-3.5 w-3.5" /> {backLabel}
         </Link>
         <div className="rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/50 p-4 text-sm font-medium text-red-650 dark:text-red-400">
           Failed to load project details. It may have been deleted or you lack access permissions.
@@ -383,11 +390,11 @@ export const ProjectDetail: React.FC = () => {
       {/* Breadcrumb back to projects */}
       <div>
         <Link
-          to="/app/projects"
+          to={backTarget}
           className="inline-flex items-center gap-2 text-xs font-semibold text-zinc-500 hover:text-black dark:hover:text-white transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
-          Back to Projects
+          {backLabel}
         </Link>
       </div>
 

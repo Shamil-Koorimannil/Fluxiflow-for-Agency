@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { api } from '../../services/api';
 import type { GlobalSearchResults } from '../../types';
 import { Search as SearchIcon, Folder, CheckSquare } from 'lucide-react';
 import { formatLateDuration, formatDateTime } from '../../utils/time';
 
 export const Search: React.FC = () => {
+  const location = useLocation();
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -163,6 +164,7 @@ export const Search: React.FC = () => {
                   <Link
                     key={proj.id}
                     to={`/app/projects/${proj.id}`}
+                    state={{ from: location.pathname }}
                     className="block bg-white dark:bg-black border border-zinc-200 dark:border-zinc-800 hover:border-black dark:hover:border-white rounded-xl p-4 transition-all shadow-sm"
                   >
                     <h3 className="font-semibold text-sm text-black dark:text-white truncate">{proj.name}</h3>

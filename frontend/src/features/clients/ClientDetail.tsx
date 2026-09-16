@@ -13,6 +13,8 @@ import { formatDateOnly } from '../../utils/time';
 import { ClientFormModal } from './ClientFormModal';
 import { BrandAssetUploadModal } from './BrandAssetUploadModal';
 import { ProjectFormModal } from '../projects/ProjectFormModal';
+import { CreateProjectButton } from '../projects/CreateProjectButton';
+import { TemplateLibraryModal } from '../templates/TemplateLibraryModal';
 import { AddExistingProjectModal } from './AddExistingProjectModal';
 import { ProjectMonthPickerModal } from '../projects/ProjectMonthPickerModal';
 import { CreateFolderModal } from './CreateFolderModal';
@@ -65,6 +67,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isAssetUploadModalOpen, setIsAssetUploadModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+  const [isTemplateLibraryOpen, setIsTemplateLibraryOpen] = useState(false);
   const [isAddExistingModalOpen, setIsAddExistingModalOpen] = useState(false);
   const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
   const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false);
@@ -458,7 +461,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
           {sortedProjects.map(p => (
             <div
               key={p.id}
-              onClick={() => navigate(`/app/projects/${p.id}`)}
+              onClick={() => navigate(`/app/projects/${p.id}`, { state: { from: location.pathname } })}
               className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 hover:shadow-lg hover:border-blue-500/40 transition-all cursor-pointer flex flex-col justify-between"
             >
               <div>
@@ -475,7 +478,7 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        navigate(`/app/projects/${p.id}`);
+                        navigate(`/app/projects/${p.id}`, { state: { from: location.pathname } });
                       }}
                       className="p-1 rounded text-zinc-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
                       title="Open Project"
@@ -865,13 +868,11 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-            <button
-              onClick={() => setIsProjectModalOpen(true)}
-              className="flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-colors shadow-sm flex-1 sm:flex-none"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span>Add Project</span>
-            </button>
+            <CreateProjectButton
+              onSelectBlankProject={() => setIsProjectModalOpen(true)}
+              onSelectTemplates={() => setIsTemplateLibraryOpen(true)}
+              label="Add Project"
+            />
             <button
               onClick={() => setIsAddExistingModalOpen(true)}
               className="flex items-center justify-center gap-1.5 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-semibold rounded-xl transition-colors shadow-sm flex-1 sm:flex-none whitespace-nowrap"
@@ -892,6 +893,16 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
           onClose={() => setIsProjectModalOpen(false)}
           preselectedClientId={client.id}
           onProjectCreated={() => fetchClientDetails()}
+        />
+
+        <TemplateLibraryModal
+          isOpen={isTemplateLibraryOpen}
+          onClose={() => setIsTemplateLibraryOpen(false)}
+          preselectedClientId={client.id}
+          onProjectCreated={(newProjectId) => {
+            fetchClientDetails();
+            navigate(`/app/projects/${newProjectId}`, { state: { from: location.pathname } });
+          }}
         />
 
         <AddExistingProjectModal
@@ -1134,13 +1145,11 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
               Client Projects
             </h2>
             <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-              <button
-                onClick={() => setIsProjectModalOpen(true)}
-                className="flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-colors shadow-sm flex-1 sm:flex-none whitespace-nowrap"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                <span>Add Project</span>
-              </button>
+              <CreateProjectButton
+                onSelectBlankProject={() => setIsProjectModalOpen(true)}
+                onSelectTemplates={() => setIsTemplateLibraryOpen(true)}
+                label="Add Project"
+              />
               <button
                 onClick={() => setIsAddExistingModalOpen(true)}
                 className="flex items-center justify-center gap-1.5 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-semibold rounded-xl transition-colors shadow-sm flex-1 sm:flex-none whitespace-nowrap"
@@ -1194,6 +1203,17 @@ export const ClientDetail: React.FC<ClientDetailProps> = ({ viewMode: propViewMo
         onClose={() => setIsProjectModalOpen(false)}
         preselectedClientId={client.id}
         onProjectCreated={() => fetchClientDetails()}
+      />
+
+      {/* Template Library Modal */}
+      <TemplateLibraryModal
+        isOpen={isTemplateLibraryOpen}
+        onClose={() => setIsTemplateLibraryOpen(false)}
+        preselectedClientId={client.id}
+        onProjectCreated={(newProjectId) => {
+          fetchClientDetails();
+          navigate(`/app/projects/${newProjectId}`, { state: { from: location.pathname } });
+        }}
       />
 
       {/* Add Existing Project Modal */}

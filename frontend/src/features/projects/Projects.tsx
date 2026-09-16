@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../../services/api';
 import type { Project } from '../../types';
-import { Folder, Plus, ArrowUpDown, Calendar, MoreVertical, ExternalLink, Copy, Download, Trash2 } from 'lucide-react';
+import { Folder, ArrowUpDown, Calendar, MoreVertical, ExternalLink, Copy, Download, Trash2 } from 'lucide-react';
 import { useConfirm } from '../../context/ConfirmDialogContext';
 import { Menu, MenuItem } from '@mui/material';
 import { formatDateOnly } from '../../utils/time';
 import { ProjectMonthPickerModal } from './ProjectMonthPickerModal';
 import { ProjectFormModal } from './ProjectFormModal';
+import { CreateProjectButton } from './CreateProjectButton';
+import { TemplateLibraryModal } from '../templates/TemplateLibraryModal';
 import { CustomDropdown } from '../../components/common/CustomDropdown';
 
 import { useOrganization } from '../../context/OrganizationContext';
@@ -16,8 +18,10 @@ import { useOrganization } from '../../context/OrganizationContext';
 export const Projects: React.FC = () => {
   const { confirm, showAlert } = useConfirm();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isTemplateLibraryOpen, setIsTemplateLibraryOpen] = useState(false);
 
   // Three-dot menu state
   const [projectMenuState, setProjectMenuState] = useState<{
@@ -160,7 +164,7 @@ export const Projects: React.FC = () => {
     if (projectMenuState.project) {
       const projId = projectMenuState.project.id;
       handleCloseProjectMenu();
-      navigate(`/app/projects/${projId}`);
+      navigate(`/app/projects/${projId}`, { state: { from: location.pathname } });
     }
   };
 
@@ -250,14 +254,10 @@ export const Projects: React.FC = () => {
         </div>
 
         {isAdmin && (
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="flex items-center gap-1 px-3 py-1.5 md:gap-2 md:px-4 md:py-2 bg-black dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-100 text-white dark:text-black font-medium rounded-lg text-xs md:text-sm transition-colors"
-          >
-            <Plus className="h-4 w-4 shrink-0" />
-            <span className="hidden md:inline">Create Project</span>
-            <span className="inline md:hidden">Project</span>
-          </button>
+          <CreateProjectButton
+            onSelectBlankProject={() => setIsModalOpen(true)}
+            onSelectTemplates={() => setIsTemplateLibraryOpen(true)}
+          />
         )}
       </div>
 
@@ -377,6 +377,7 @@ export const Projects: React.FC = () => {
             <Link
               key={project.id}
               to={`/app/projects/${project.id}`}
+              state={{ from: location.pathname }}
               className="group border border-zinc-200 dark:border-zinc-800 hover:border-black dark:hover:border-white bg-white dark:bg-black rounded-xl p-6 flex flex-col justify-between hover:shadow-md hover:scale-[1.015] transition-all duration-200 ease-out text-black dark:text-white relative focus:outline-none focus:ring-2 focus:ring-blue-500/20"
             >
               <div className="space-y-3">
@@ -496,6 +497,16 @@ export const Projects: React.FC = () => {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onProjectCreated={() => queryClient.invalidateQueries({ queryKey: ['projects'] })}
+      />
+
+      {/* TEMPLATE LIBRARY MODAL */}
+      <TemplateLibraryModal
+        isOpen={isTemplateLibraryOpen}
+        onClose={() => setIsTemplateLibraryOpen(false)}
+        onProjectCreated={(newProjectId) => {
+          queryClient.invalidateQueries({ queryKey: ['projects'] });
+          navigate(`/app/projects/${newProjectId}`, { state: { from: location.pathname } });
+        }}
       />
 
       {/* Month/Year Selection Modal */}
