@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../../services/api';
 import type { Project } from '../../types';
-import { Folder, ArrowUpDown, Calendar, MoreVertical, ExternalLink, Copy, Download, Trash2 } from 'lucide-react';
+import { Folder, ArrowUpDown, Calendar, MoreVertical, ExternalLink, Copy, Download, Trash2, Pencil } from 'lucide-react';
 import { useConfirm } from '../../context/ConfirmDialogContext';
 import { Menu, MenuItem } from '@mui/material';
 import { formatDateOnly } from '../../utils/time';
@@ -12,7 +12,6 @@ import { ProjectFormModal } from './ProjectFormModal';
 import { CreateProjectButton } from './CreateProjectButton';
 import { TemplateLibraryModal } from '../templates/TemplateLibraryModal';
 import { CustomDropdown } from '../../components/common/CustomDropdown';
-
 import { useOrganization } from '../../context/OrganizationContext';
 
 export const Projects: React.FC = () => {
@@ -22,6 +21,7 @@ export const Projects: React.FC = () => {
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isTemplateLibraryOpen, setIsTemplateLibraryOpen] = useState(false);
+  const [projectToEdit, setProjectToEdit] = useState<Project | null>(null);
 
   // Three-dot menu state
   const [projectMenuState, setProjectMenuState] = useState<{
@@ -165,6 +165,15 @@ export const Projects: React.FC = () => {
       const projId = projectMenuState.project.id;
       handleCloseProjectMenu();
       navigate(`/app/projects/${projId}`, { state: { from: location.pathname } });
+    }
+  };
+
+  const handleMenuEditProject = () => {
+    if (projectMenuState.project) {
+      const proj = projectMenuState.project;
+      handleCloseProjectMenu();
+      setProjectToEdit(proj);
+      setIsModalOpen(true);
     }
   };
 
@@ -476,6 +485,12 @@ export const Projects: React.FC = () => {
           <ExternalLink className="h-4 w-4 text-zinc-500" />
           <span>Open</span>
         </MenuItem>
+        {isAdmin && (
+          <MenuItem onClick={handleMenuEditProject}>
+            <Pencil className="h-4 w-4 text-amber-500" />
+            <span>Edit</span>
+          </MenuItem>
+        )}
         <MenuItem onClick={handleMenuDuplicateProject}>
           <Copy className="h-4 w-4 text-blue-500" />
           <span>Duplicate</span>
@@ -492,10 +507,14 @@ export const Projects: React.FC = () => {
         )}
       </Menu>
 
-      {/* CREATE PROJECT MODAL */}
+      {/* CREATE / EDIT PROJECT MODAL */}
       <ProjectFormModal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        projectToEdit={projectToEdit}
+        onClose={() => {
+          setIsModalOpen(false);
+          setProjectToEdit(null);
+        }}
         onProjectCreated={() => queryClient.invalidateQueries({ queryKey: ['projects'] })}
       />
 

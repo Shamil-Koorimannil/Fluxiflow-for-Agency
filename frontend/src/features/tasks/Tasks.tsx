@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { AnimatePresence } from 'framer-motion';
 import { api } from '../../services/api';
 import type { Task } from '../../types';
 import { useAuth } from '../auth/AuthContext';
@@ -39,11 +40,6 @@ export const Tasks: React.FC = () => {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
-
-  const [completingTaskIds, setCompletingTaskIds] = useState<Set<string>>(new Set());
-  const [restoringTaskIds, setRestoringTaskIds] = useState<Set<string>>(new Set());
-
-
 
   useEffect(() => {
     const updateCount = () => {
@@ -103,7 +99,7 @@ export const Tasks: React.FC = () => {
     }
   }, [error]);
 
-  // Task inline completion mutation
+  // Task inline completion mutation with optimistic updates
   const completeTaskMutation = useMutation({
     mutationFn: async (id: string) => {
       if (id.startsWith('subtask_')) {
@@ -114,7 +110,34 @@ export const Tasks: React.FC = () => {
       const response = await api.post(`/tasks/${id}/complete/`);
       return response.data;
     },
-    onSuccess: () => {
+    onMutate: async (id: string) => {
+      await queryClient.cancelQueries({ queryKey: ['tasks'] });
+      const previousTasks = queryClient.getQueryData<Task[]>(['tasks']);
+
+      queryClient.setQueryData<Task[]>(['tasks'], (old = []) =>
+        old.map((t) => {
+          if (t.id === id) {
+            const updatedAssignees = t.assignees?.map((a) =>
+              String(a.id) === String(user?.id) ? { ...a, completed: true } : a
+            );
+            return {
+              ...t,
+              user_completed: true,
+              assignees: updatedAssignees,
+            };
+          }
+          return t;
+        })
+      );
+
+      return { previousTasks };
+    },
+    onError: (_err, _id, context) => {
+      if (context?.previousTasks) {
+        queryClient.setQueryData(['tasks'], context.previousTasks);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['me'] });
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
@@ -127,7 +150,7 @@ export const Tasks: React.FC = () => {
     },
   });
 
-  // Task inline reopen mutation
+  // Task inline reopen mutation with optimistic updates
   const reopenTaskMutation = useMutation({
     mutationFn: async (id: string) => {
       if (id.startsWith('subtask_')) {
@@ -138,7 +161,35 @@ export const Tasks: React.FC = () => {
       const response = await api.post(`/tasks/${id}/reopen/`);
       return response.data;
     },
-    onSuccess: () => {
+    onMutate: async (id: string) => {
+      await queryClient.cancelQueries({ queryKey: ['tasks'] });
+      const previousTasks = queryClient.getQueryData<Task[]>(['tasks']);
+
+      queryClient.setQueryData<Task[]>(['tasks'], (old = []) =>
+        old.map((t) => {
+          if (t.id === id) {
+            const updatedAssignees = t.assignees?.map((a) =>
+              String(a.id) === String(user?.id) ? { ...a, completed: false } : a
+            );
+            return {
+              ...t,
+              user_completed: false,
+              status: t.status === 'COMPLETED' ? 'IN_PROGRESS' : t.status,
+              assignees: updatedAssignees,
+            };
+          }
+          return t;
+        })
+      );
+
+      return { previousTasks };
+    },
+    onError: (_err, _id, context) => {
+      if (context?.previousTasks) {
+        queryClient.setQueryData(['tasks'], context.previousTasks);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['me'] });
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
@@ -150,8 +201,6 @@ export const Tasks: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['project'] });
     },
   });
-
-
 
   const handleOpenDetail = (id: string) => {
     setSelectedTaskId(id);
@@ -185,36 +234,27 @@ export const Tasks: React.FC = () => {
     return myAssignee ? myAssignee.completed : t.status === 'COMPLETED';
   };
 
-  // Helper to ensure exiting tasks stay in active view during slide-left animation
-  const classifyTaskForView = (t: Task) => {
-    if (completingTaskIds.has(t.id)) {
-      const cloned = { ...t, user_completed: false, status: 'PENDING' as const };
-      return classifyTask(cloned, new Date(), user?.id);
-    }
-    return classifyTask(t, new Date(), user?.id);
-  };
-
   // Grouping and Sorting Logic using the classifier
   const deduplicatedTasks = tasks ? Array.from(new Map(tasks.map(t => [t.id, t])).values()) : [];
   let filteredTasks = deduplicatedTasks;
 
   if (activeFilter === 'late') {
-    filteredTasks = deduplicatedTasks.filter((t) => (isTaskCompletedForUser(t) && t.submission_status === 'LATE') || completingTaskIds.has(t.id));
+    filteredTasks = deduplicatedTasks.filter((t) => isTaskCompletedForUser(t) && t.submission_status === 'LATE');
   } else if (activeFilter === 'incompleted') {
-    filteredTasks = deduplicatedTasks.filter((t) => !isTaskCompletedForUser(t) || completingTaskIds.has(t.id));
+    filteredTasks = deduplicatedTasks.filter((t) => !isTaskCompletedForUser(t));
   } else if (activeFilter === 'pending') {
-    filteredTasks = deduplicatedTasks.filter((t) => isTaskPending(t, new Date(), user?.id) || completingTaskIds.has(t.id));
+    filteredTasks = deduplicatedTasks.filter((t) => isTaskPending(t, new Date(), user?.id));
   } else if (activeFilter === 'pending_approval') {
-    filteredTasks = deduplicatedTasks.filter((t) => (t.approval_required && t.approval_status === 'PENDING') || completingTaskIds.has(t.id));
+    filteredTasks = deduplicatedTasks.filter((t) => t.approval_required && t.approval_status === 'PENDING');
   } else if (activeFilter === 'upcoming') {
     const tomorrowDate = new Date();
     tomorrowDate.setDate(tomorrowDate.getDate() + 1);
     const tomorrowStr = getLocalDateString(tomorrowDate);
     filteredTasks = deduplicatedTasks.filter(
-      (t) => (!isTaskCompletedForUser(t) && t.due_date && t.due_date >= tomorrowStr) || completingTaskIds.has(t.id)
+      (t) => !isTaskCompletedForUser(t) && t.due_date && t.due_date >= tomorrowStr
     );
   } else if (activeFilter !== 'all') {
-    filteredTasks = deduplicatedTasks.filter((t) => classifyTaskForView(t) === activeFilter || completingTaskIds.has(t.id));
+    filteredTasks = deduplicatedTasks.filter((t) => classifyTask(t, new Date(), user?.id) === activeFilter);
   }
 
   const dragSelect = useTaskDragSelect({
@@ -292,7 +332,6 @@ export const Tasks: React.FC = () => {
     }
   };
 
-
   const completedList: Task[] = [];
   const todayList: Task[] = [];
   const tomorrowList: Task[] = [];
@@ -301,9 +340,8 @@ export const Tasks: React.FC = () => {
   const noDueDateList: Task[] = [];
 
   deduplicatedTasks.forEach((task) => {
-    const isCompleting = completingTaskIds.has(task.id);
-    const category = isCompleting ? classifyTaskForView(task) : classifyTask(task, new Date(), user?.id);
-    if (category === 'completed' && !isCompleting) {
+    const category = classifyTask(task, new Date(), user?.id);
+    if (category === 'completed') {
       completedList.push(task);
     } else if (category === 'today') {
       todayList.push(task);
@@ -361,9 +399,6 @@ export const Tasks: React.FC = () => {
     return completedAtB.localeCompare(completedAtA);
   });
 
-
-
-
   const handleTaskContextMenu = (e: React.MouseEvent, task: Task) => {
     e.preventDefault();
     e.stopPropagation();
@@ -402,41 +437,12 @@ export const Tasks: React.FC = () => {
         });
       }
     } else {
-      if (completingTaskIds.has(taskId)) return;
-
-      // Mark task as completing
-      setCompletingTaskIds((prev) => new Set(prev).add(taskId));
-
-      // Keep task in completing state for full 420ms animation duration
-      const exitTimer = setTimeout(() => {
-        setCompletingTaskIds((prev) => {
-          const next = new Set(prev);
-          next.delete(taskId);
-          return next;
-        });
-      }, 420);
-
       try {
         await completeTaskMutation.mutateAsync(taskId);
       } catch (err: any) {
-        clearTimeout(exitTimer);
-        setCompletingTaskIds((prev) => {
-          const next = new Set(prev);
-          next.delete(taskId);
-          return next;
-        });
-        setRestoringTaskIds((prev) => new Set(prev).add(taskId));
-        setTimeout(() => {
-          setRestoringTaskIds((prev) => {
-            const next = new Set(prev);
-            next.delete(taskId);
-            return next;
-          });
-        }, 300);
-
         showAlert({
           title: 'Completion Failed',
-          message: err?.response?.data?.detail || 'Failed to complete task. Restoring state.',
+          message: err?.response?.data?.detail || 'Failed to complete task.',
           variant: 'warning',
         });
       }
@@ -457,15 +463,8 @@ export const Tasks: React.FC = () => {
   };
 
   const renderTaskCard = (task: Task) => {
-    const isCompleting = completingTaskIds.has(task.id);
-    const isRestoring = restoringTaskIds.has(task.id);
-
     return (
-      <TaskAnimationWrapper
-        key={task.id}
-        isCompleting={isCompleting}
-        isRestoring={isRestoring}
-      >
+      <TaskAnimationWrapper key={task.id}>
         <TaskCard
           task={task}
           currentUser={user}
@@ -477,7 +476,6 @@ export const Tasks: React.FC = () => {
           }}
           onToggleComplete={handleToggleCompleteTask}
           isMutating={completeTaskMutation.isPending || reopenTaskMutation.isPending}
-          isCompleting={isCompleting}
           isSelected={dragSelect.isSelected(task.id)}
           onToggleSelect={(id, shift) => dragSelect.toggleSelect(id, shift)}
           onPointerDown={dragSelect.handlePointerDown}
@@ -504,10 +502,15 @@ export const Tasks: React.FC = () => {
             </span>
           )}
         </h3>
-        <div className="space-y-2">{list.map(renderTaskCard)}</div>
+        <div className="flex flex-col gap-2">
+          <AnimatePresence mode="popLayout" initial={false}>
+            {list.map(renderTaskCard)}
+          </AnimatePresence>
+        </div>
       </div>
     );
   };
+
 
   if (isLoading) {
     return (

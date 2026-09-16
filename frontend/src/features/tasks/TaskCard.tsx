@@ -1,9 +1,12 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Task, User } from '../../types';
 import { CheckCircle2, Circle, Check, Pencil, Repeat, MessageSquare, Paperclip, Link, Clock } from 'lucide-react';
 import { TaskDatePicker } from './TaskDatePicker';
+import { TaskAssigneePicker } from './TaskAssigneePicker';
 import { TaskTypeBadge } from './TaskTypeBadge';
 import { getLocalDateString, getTaskDateStatusDetails } from '../../utils/time';
+import { api } from '../../services/api';
 
 export interface TaskCardProps {
   task: Task;
@@ -35,13 +38,60 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   isMutating = false,
   isCompleting = false,
   isSelected = false,
+  onToggleSelect,
   onPointerDown,
   onPointerMove,
   onPointerUp,
   onPointerCancel,
   onCardClick,
+  isSelectionActive = false,
   onContextMenu,
 }) => {
+  const queryClient = useQueryClient();
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [nameValue, setNameValue] = useState(task.name);
+
+  useEffect(() => {
+    setNameValue(task.name);
+  }, [task.name]);
+
+  const updateTaskNameMutation = useMutation({
+    mutationFn: async (newName: string) => {
+      const isSubtask = task.is_subtask || task.id.startsWith('subtask_');
+      const realId = isSubtask ? task.id.replace('subtask_', '') : task.id;
+      const endpoint = isSubtask ? `/subtasks/${realId}/` : `/tasks/${realId}/`;
+      const response = await api.patch(endpoint, { name: newName });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
+      queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
+      queryClient.invalidateQueries({ queryKey: ['employee-workload'] });
+      queryClient.invalidateQueries({ queryKey: ['team'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
+      if (task.project) {
+        queryClient.invalidateQueries({ queryKey: ['project', task.project] });
+      }
+      queryClient.invalidateQueries({ queryKey: ['task', task.id] });
+      if (task.parent_task_id) {
+        queryClient.invalidateQueries({ queryKey: ['task', task.parent_task_id] });
+      }
+    },
+  });
+
+  const handleSaveName = () => {
+    const trimmed = nameValue.trim();
+    if (trimmed && trimmed !== task.name) {
+      updateTaskNameMutation.mutate(trimmed);
+    } else {
+      setNameValue(task.name);
+    }
+    setIsEditingName(false);
+  };
+
   const isAssigned = task.assignees?.some((a) => String(a.id) === String(currentUser?.id));
   const canComplete = isAdmin || isAssigned;
   const myAssignee = task.assignees?.find((a) => String(a.id) === String(currentUser?.id));
@@ -98,7 +148,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   const renderAssigneesList = (assignees: Task['assignees']) => {
     if (!assignees || assignees.length === 0) {
       return (
-        <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-550 flex items-center gap-1 bg-zinc-50 dark:bg-zinc-950 px-2 py-0.5 rounded-full border border-zinc-200/50 dark:border-zinc-850 select-none uppercase tracking-wider">
+        <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-550 flex items-center gap-1 bg-zinc-50 dark:bg-zinc-950 px-2 py-0.5 rounded-full border border-zinc-200/50 dark:border-zinc-850 select-none uppercase tracking-wider hover:border-zinc-400 transition-colors">
           👤 Unassigned
         </span>
       );
@@ -168,6 +218,25 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       }`}
     >
       <div className="flex items-start md:items-center gap-3 min-w-0 flex-1">
+        {/* Task Selection Control (Distinct square checkbox for selection) */}
+        {(isSelectionActive || onToggleSelect) && (
+          <div
+            className="shrink-0 flex items-center pr-1 self-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={(e) => {
+                e.stopPropagation();
+                onToggleSelect?.(task.id, (e.nativeEvent as MouseEvent).shiftKey);
+              }}
+              className="h-4 w-4 rounded border-zinc-300 dark:border-zinc-700 text-black dark:text-white focus:ring-black dark:focus:ring-white cursor-pointer accent-black dark:accent-white"
+              title="Select task"
+            />
+          </div>
+        )}
+
         {/* Completion Checkbox Button with smooth transition */}
         <button
           type="button"
@@ -192,15 +261,55 @@ export const TaskCard: React.FC<TaskCardProps> = ({
 
         {/* Task Hierarchy & Details */}
         <div className="min-w-0 flex-1 space-y-1">
-          {/* Primary Task / Subtask Name */}
+          {/* Primary Task / Subtask Name with Inline Edit */}
           <div className="flex items-center gap-2 flex-wrap min-w-0">
-            <h4
-              className={`text-sm font-semibold truncate transition-all duration-300 ${
-                isCompleted ? 'line-through text-zinc-400 dark:text-zinc-555' : 'text-black dark:text-white'
-              }`}
-            >
-              {task.name}
-            </h4>
+            {isEditingName ? (
+              <input
+                type="text"
+                value={nameValue}
+                onChange={(e) => setNameValue(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === 'Enter') handleSaveName();
+                  if (e.key === 'Escape') {
+                    setNameValue(task.name);
+                    setIsEditingName(false);
+                  }
+                }}
+                onBlur={handleSaveName}
+                autoFocus
+                disabled={updateTaskNameMutation.isPending}
+                className="text-sm font-semibold bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 rounded px-2 py-0.5 text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white w-full max-w-md shadow-2xs"
+              />
+            ) : (
+              <h4
+                onDoubleClick={(e) => {
+                  if (isAdmin) {
+                    e.stopPropagation();
+                    setIsEditingName(true);
+                  }
+                }}
+                className={`text-sm font-semibold truncate transition-all duration-300 flex items-center gap-1.5 group/name ${
+                  isCompleted ? 'line-through text-zinc-400 dark:text-zinc-555' : 'text-black dark:text-white'
+                }`}
+              >
+                <span>{task.name}</span>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsEditingName(true);
+                    }}
+                    className="opacity-0 group-hover/name:opacity-100 text-zinc-400 hover:text-black dark:hover:text-white transition-opacity p-0.5"
+                    title="Edit task name"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                )}
+              </h4>
+            )}
 
             {/* Completed Badge */}
             {isCompleted && (
@@ -225,22 +334,27 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             </div>
           )}
 
-          {/* Assignees block */}
-          <div className="flex items-center gap-1.5 pt-0.5">
-            {renderAssigneesList(task.assignees)}
+          {/* Assignees block with interactive picker */}
+          <div className="flex items-center gap-1.5 pt-0.5" onClick={(e) => e.stopPropagation()}>
+            <TaskAssigneePicker
+              task={task}
+              currentUser={currentUser}
+              isAdmin={isAdmin}
+              renderAssigneesList={renderAssigneesList}
+            />
           </div>
 
           {/* Date display, Task Type Badge, & Priority indicator */}
           <div className="flex items-center gap-2.5 flex-wrap text-[11px] text-zinc-450 mt-1">
-            {task.due_date && (() => {
-              const statusDetails = getTaskDateStatusDetails(task.due_date, task.due_time, isCompleted);
-              return (
-                <div className="flex items-center gap-1.5 font-medium">
-                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${statusDetails.dotColorClass}`} />
-                  <TaskDatePicker task={task} />
-                </div>
-              );
-            })()}
+            <div className="flex items-center gap-1.5 font-medium" onClick={(e) => e.stopPropagation()}>
+              {task.due_date ? (() => {
+                const statusDetails = getTaskDateStatusDetails(task.due_date, task.due_time, isCompleted);
+                return <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${statusDetails.dotColorClass}`} />;
+              })() : (
+                <span className="h-1.5 w-1.5 rounded-full shrink-0 bg-zinc-300 dark:bg-zinc-700" />
+              )}
+              <TaskDatePicker task={task} />
+            </div>
 
             {/* Prominent Past Due Warning Badge */}
             {!isCompleted && task.due_date && task.due_date < getLocalDateString(new Date()) && (
@@ -374,3 +488,4 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     </div>
   );
 };
+

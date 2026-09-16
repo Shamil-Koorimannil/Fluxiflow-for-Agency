@@ -12,13 +12,15 @@ interface ProjectFormModalProps {
   onClose: () => void;
   preselectedClientId?: string;
   onProjectCreated?: () => void;
+  projectToEdit?: Project | null;
 }
 
 export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   isOpen,
   onClose,
   preselectedClientId,
-  onProjectCreated
+  onProjectCreated,
+  projectToEdit,
 }) => {
   const queryClient = useQueryClient();
   const { isAdmin } = useOrganization();
@@ -33,10 +35,18 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (preselectedClientId) {
-      setSelectedClientId(preselectedClientId);
+    if (projectToEdit) {
+      setName(projectToEdit.name || '');
+      setDescription(projectToEdit.description || '');
+      setProjectDate(projectToEdit.project_date ? projectToEdit.project_date.split('T')[0] : '');
+      setSelectedClientId(projectToEdit.client || preselectedClientId || '');
+    } else {
+      setName('');
+      setDescription('');
+      setProjectDate('');
+      setSelectedClientId(preselectedClientId || '');
     }
-  }, [preselectedClientId]);
+  }, [projectToEdit, preselectedClientId, isOpen]);
 
   // Fetch clients if user is admin
   useEffect(() => {
@@ -67,7 +77,12 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     };
 
     try {
-      await api.post<Project>('/projects/', payload);
+      if (projectToEdit) {
+        await api.patch<Project>(`/projects/${projectToEdit.id}/`, payload);
+        queryClient.invalidateQueries({ queryKey: ['project', projectToEdit.id] });
+      } else {
+        await api.post<Project>('/projects/', payload);
+      }
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       if (onProjectCreated) onProjectCreated();
       onClose();
@@ -79,7 +94,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       if (err.response?.data?.name) {
         setError(err.response.data.name[0]);
       } else {
-        setError('Failed to create project. Please try again.');
+        setError(projectToEdit ? 'Failed to update project. Please try again.' : 'Failed to create project. Please try again.');
       }
     } finally {
       setLoading(false);
@@ -94,7 +109,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
           <div className="flex items-center gap-2">
             <Folder className="h-5 w-5 text-blue-500" />
             <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
-              Create New Project
+              {projectToEdit ? 'Edit Project' : 'Create New Project'}
             </h2>
           </div>
           <button
@@ -193,7 +208,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
               className="flex items-center gap-1.5 px-5 py-2 text-xs font-semibold bg-black dark:bg-white text-white dark:text-black hover:bg-zinc-800 dark:hover:bg-zinc-200 rounded-xl transition-colors shadow-sm disabled:opacity-50"
             >
               {loading && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
-              <span>Create Project</span>
+              <span>{projectToEdit ? 'Save Changes' : 'Create Project'}</span>
             </button>
           </div>
         </form>

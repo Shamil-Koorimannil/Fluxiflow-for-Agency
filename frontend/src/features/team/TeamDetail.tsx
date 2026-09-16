@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, Mail, Shield, CheckCircle2,
   AlertCircle, RefreshCw, Heart, Download
@@ -12,14 +13,13 @@ import { TaskCard } from '../tasks/TaskCard';
 import { TaskAnimationWrapper } from '../tasks/TaskAnimationWrapper';
 import { TaskFormModal } from '../tasks/TaskFormModal';
 import { useTaskDragSelect } from '../../hooks/useTaskDragSelect';
-import { getLocalDateString, formatDateOnly } from '../../utils/time';
+import { formatDateOnly } from '../../utils/time';
 import { useAuth } from '../auth/AuthContext';
 import { useOrganization } from '../../context/OrganizationContext';
 import { getRoleDisplayLabel } from '../../utils/roleUtils';
 import { useConfirm } from '../../context/ConfirmDialogContext';
 import { CustomDropdown } from '../../components/common/CustomDropdown';
 import type { DropdownOption } from '../../components/common/CustomDropdown';
-import { isTaskPending } from '../../utils/taskClassifier';
 import { DatePicker } from '../../components/common/DatePicker';
 
 interface TeamMemberDetailResponse {
@@ -70,8 +70,6 @@ export const TeamDetail: React.FC = () => {
   const { user: currentUser } = useAuth();
   const { isAdmin } = useOrganization();
 
-  // Task Filter state
-  const [filter, setFilter] = useState<'ALL' | 'PENDING' | 'INCOMPLETED' | 'COMPLETED' | 'TODAY' | 'UPCOMING' | 'NO_DUE_DATE'>('ALL');
   const [mainView, setMainView] = useState<'work' | 'performance'>('work');
 
   // Selected task modal state
@@ -101,11 +99,6 @@ export const TeamDetail: React.FC = () => {
     { value: 'ALL', label: 'All Time' },
   ], []);
 
-  const SORT_OPTIONS: DropdownOption<'newest' | 'oldest'>[] = useMemo(() => [
-    { value: 'newest', label: 'Newest First' },
-    { value: 'oldest', label: 'Oldest First' },
-  ], []);
-
   const MONTH_OPTIONS: DropdownOption<number>[] = useMemo(() => MONTH_NAMES.map((m, idx) => ({
     value: idx + 1,
     label: m,
@@ -117,10 +110,9 @@ export const TeamDetail: React.FC = () => {
   })), [YEARS]);
 
   const [periodType, setPeriodType] = useState<PeriodType>('THIS_MONTH');
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest'>('newest');
+  const [sortBy] = useState<'newest' | 'oldest'>('newest');
   const [selectMonth, setSelectMonth] = useState<number>(currentMonthVal);
   const [selectYear, setSelectYear] = useState<number>(currentYearVal);
-
 
   const [customStartDate, setCustomStartDate] = useState<string>('');
   const [customEndDate, setCustomEndDate] = useState<string>('');
@@ -272,17 +264,27 @@ export const TeamDetail: React.FC = () => {
     refetch();
   };
 
-  const [completingTaskIds, setCompletingTaskIds] = useState<Set<string>>(new Set());
-  const [restoringTaskIds, setRestoringTaskIds] = useState<Set<string>>(new Set());
-
   const handleToggleComplete = async (task: Task, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    const taskId = task.id;
-    if (task.status === 'COMPLETED') {
+    const isCompleted = task.status === 'COMPLETED';
+
+    // Optimistically update query cache
+    queryClient.setQueriesData<TeamMemberDetailResponse>({ queryKey: ['team-member', id] }, (old) => {
+      if (!old) return old;
+      return {
+        ...old,
+        tasks: old.tasks.map((t) =>
+          t.id === task.id ? { ...t, status: isCompleted ? 'IN_PROGRESS' : 'COMPLETED', user_completed: !isCompleted } : t
+        ),
+      };
+    });
+
+    if (isCompleted) {
       try {
         await api.post(`/tasks/${task.id}/reopen/`);
         invalidateMemberQueries();
       } catch (err: any) {
+        refetch();
         showAlert({
           title: 'Error',
           message: err.response?.data?.detail || 'Failed to update task completion status.',
@@ -290,35 +292,11 @@ export const TeamDetail: React.FC = () => {
         });
       }
     } else {
-      if (completingTaskIds.has(taskId)) return;
-      setCompletingTaskIds((prev) => new Set(prev).add(taskId));
-
-      const exitTimer = setTimeout(() => {
-        setCompletingTaskIds((prev) => {
-          const next = new Set(prev);
-          next.delete(taskId);
-          return next;
-        });
-      }, 420);
-
       try {
         await api.post(`/tasks/${task.id}/complete/`);
         invalidateMemberQueries();
       } catch (err: any) {
-        clearTimeout(exitTimer);
-        setCompletingTaskIds((prev) => {
-          const next = new Set(prev);
-          next.delete(taskId);
-          return next;
-        });
-        setRestoringTaskIds((prev) => new Set(prev).add(taskId));
-        setTimeout(() => {
-          setRestoringTaskIds((prev) => {
-            const next = new Set(prev);
-            next.delete(taskId);
-            return next;
-          });
-        }, 300);
+        refetch();
         showAlert({
           title: 'Error',
           message: err.response?.data?.detail || 'Failed to complete task.',
@@ -328,51 +306,60 @@ export const TeamDetail: React.FC = () => {
     }
   };
 
-  const todayStr = getLocalDateString(new Date());
+  const memberTasks = useMemo(() => {
+    if (!tasks || tasks.length === 0) return [];
 
-  const incompleteTasks = useMemo(() => {
-    return tasks.filter((t) => t.status !== 'COMPLETED' || completingTaskIds.has(t.id));
-  }, [tasks, completingTaskIds]);
+    const isCompletedForMember = (t: Task) => {
+      if ((t.status as string) === 'COMPLETED' || (t.approval_required && t.approval_status === 'PENDING')) return true;
+      const myAssignee = t.assignees?.find((a) => String(a.id) === String(id));
+      return myAssignee ? myAssignee.completed : (t.status as string) === 'COMPLETED';
+    };
 
-  const pendingTasks = useMemo(() => {
-    return tasks.filter((t) => isTaskPending(t));
-  }, [tasks]);
+    const g1: Task[] = [];
+    const g2: Task[] = [];
+    const g3: Task[] = [];
 
-  const completedTasks = useMemo(() => {
-    return tasks.filter((t) => t.status === 'COMPLETED');
-  }, [tasks]);
-
-  const sortTasks = (taskList: Task[]) => {
-    return [...taskList].sort((a, b) => {
-      const dateA = a.due_date ? a.due_date.split('T')[0] : a.created_at || '';
-      const dateB = b.due_date ? b.due_date.split('T')[0] : b.created_at || '';
-
-      if (!dateA && !dateB) return 0;
-      if (!dateA) return 1;
-      if (!dateB) return -1;
-
-      return sortBy === 'oldest' ? dateA.localeCompare(dateB) : dateB.localeCompare(dateA);
+    tasks.forEach((t) => {
+      if (isCompletedForMember(t)) {
+        g3.push(t);
+      } else if (t.due_date) {
+        g1.push(t);
+      } else {
+        g2.push(t);
+      }
     });
-  };
 
-  // Filtered Incomplete Tasks sorted according to sortBy
-  const filteredIncompleteTasks = useMemo(() => {
-    let list = incompleteTasks;
-    if (filter === 'PENDING') {
-      list = pendingTasks;
-    } else if (filter === 'TODAY') {
-      list = list.filter((t) => t.due_date && t.due_date.split('T')[0] === todayStr);
-    } else if (filter === 'UPCOMING') {
-      list = list.filter((t) => t.due_date && t.due_date.split('T')[0] > todayStr);
-    } else if (filter === 'NO_DUE_DATE') {
-      list = list.filter((t) => !t.due_date);
-    }
-    return sortTasks(list);
-  }, [incompleteTasks, pendingTasks, filter, todayStr, sortBy]);
+    g1.sort((a, b) => {
+      const dateCompare = (a.due_date || '').localeCompare(b.due_date || '');
+      if (dateCompare !== 0) return dateCompare;
+      const timeCompare = (a.due_time || '23:59:59').localeCompare(b.due_time || '23:59:59');
+      if (timeCompare !== 0) return timeCompare;
+      return a.created_at.localeCompare(b.created_at);
+    });
 
-  const sortedCompletedTasks = useMemo(() => {
-    return sortTasks(completedTasks);
-  }, [completedTasks, sortBy]);
+    g2.sort((a, b) => a.created_at.localeCompare(b.created_at));
+
+    g3.sort((a, b) => {
+      const dateA = a.completed_at || a.due_date || a.created_at;
+      const dateB = b.completed_at || b.due_date || b.created_at;
+      return dateB.localeCompare(dateA);
+    });
+
+    return [...g1, ...g2, ...g3];
+  }, [tasks, id]);
+
+  const completedTasksCount = useMemo(() => {
+    if (!tasks) return 0;
+    return tasks.filter((t) => {
+      if ((t.status as string) === 'COMPLETED' || (t.approval_required && t.approval_status === 'PENDING')) return true;
+      const myAssignee = t.assignees?.find((a) => String(a.id) === String(id));
+      return myAssignee ? myAssignee.completed : (t.status as string) === 'COMPLETED';
+    }).length;
+  }, [tasks, id]);
+
+  const incompleteTasksCount = useMemo(() => {
+    return (tasks?.length || 0) - completedTasksCount;
+  }, [tasks, completedTasksCount]);
 
   const getHealthColor = (score?: number, status?: string) => {
     if (score === undefined || score === null || status === 'no_data') {
@@ -545,13 +532,13 @@ export const TeamDetail: React.FC = () => {
             </div>
             <div className="flex-1 border-l border-zinc-200 dark:border-zinc-800">
               <span className="block text-xl font-bold text-emerald-600 dark:text-emerald-400">
-                {workloadStats?.completed_tasks_count ?? completedTasks.length}
+                {workloadStats?.completed_tasks_count ?? completedTasksCount}
               </span>
               <span className="text-[11px] text-zinc-400 font-medium whitespace-nowrap">Completed</span>
             </div>
             <div className="flex-1 border-l border-zinc-200 dark:border-zinc-800">
               <span className="block text-xl font-bold text-blue-600 dark:text-blue-400">
-                {workloadStats?.active_tasks_count ?? incompleteTasks.length}
+                {workloadStats?.active_tasks_count ?? incompleteTasksCount}
               </span>
               <span className="text-[11px] text-zinc-400 font-medium whitespace-nowrap">Incomplete</span>
             </div>
@@ -662,11 +649,11 @@ export const TeamDetail: React.FC = () => {
               </div>
               <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
                 <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">Completed</span>
-                <span className="block text-xl font-black text-emerald-500 mt-1">{completedTasks.length}</span>
+                <span className="block text-xl font-black text-emerald-500 mt-1">{completedTasksCount}</span>
               </div>
               <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
                 <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">Incomplete</span>
-                <span className="block text-xl font-black text-amber-500 mt-1">{incompleteTasks.length}</span>
+                <span className="block text-xl font-black text-amber-500 mt-1">{incompleteTasksCount}</span>
               </div>
               <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
                 <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">On-Time Rate</span>
@@ -723,71 +710,26 @@ export const TeamDetail: React.FC = () => {
       ) : (
         /* ASSIGNED WORK VIEW */
         <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800 pb-3">
-            {/* Status Filter Tabs */}
-            <div className="flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar w-full sm:w-auto">
-              {[
-                { key: 'ALL', label: `All Tasks (${tasks.length})` },
-                { key: 'PENDING', label: `Pending (${pendingTasks.length})` },
-                { key: 'INCOMPLETED', label: `Incomplete (${incompleteTasks.length})` },
-                { key: 'COMPLETED', label: `Completed (${completedTasks.length})` },
-                { key: 'TODAY', label: 'Today' },
-                { key: 'UPCOMING', label: 'Upcoming' },
-                { key: 'NO_DUE_DATE', label: 'No Due Date' }
-              ].map(tab => (
-                <button
-                  key={tab.key}
-                  onClick={() => setFilter(tab.key as any)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${
-                    filter === tab.key
-                      ? 'bg-black dark:bg-white text-white dark:text-black shadow-xs'
-                      : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Task Sorting Selector */}
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider whitespace-nowrap">Sort:</span>
-              <CustomDropdown<'newest' | 'oldest'>
-                options={SORT_OPTIONS}
-                value={sortBy}
-                onChange={(val) => setSortBy(val)}
-                size="sm"
-              />
-            </div>
+          <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-3">
+            <h3 className="text-xs font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">
+              TASKS ({memberTasks.length})
+            </h3>
           </div>
 
-        {/* INCOMPLETE TASKS SECTION (Single Continuous Grid sorted by Due Date) */}
-        {filter !== 'COMPLETED' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-                INCOMPLETE TASKS ({filteredIncompleteTasks.length})
-              </h3>
+          {memberTasks.length === 0 ? (
+            <div className="text-center py-12 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl bg-white/40 dark:bg-zinc-900/20 p-6">
+              <CheckCircle2 className="h-8 w-8 text-zinc-400 mx-auto mb-2 opacity-50" />
+              <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">No tasks assigned to this member</p>
             </div>
-
-            {filteredIncompleteTasks.length === 0 ? (
-              <div className="text-center py-12 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl bg-white/40 dark:bg-zinc-900/20 p-6">
-                <CheckCircle2 className="h-8 w-8 text-zinc-400 mx-auto mb-2 opacity-50" />
-                <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">No incomplete tasks match this filter</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {filteredIncompleteTasks.map((task) => (
-                  <TaskAnimationWrapper
-                    key={task.id}
-                    isCompleting={completingTaskIds.has(task.id)}
-                    isRestoring={restoringTaskIds.has(task.id)}
-                  >
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <AnimatePresence mode="popLayout" initial={false}>
+                {memberTasks.map((task) => (
+                  <TaskAnimationWrapper key={task.id}>
                     <TaskCard
                       task={task}
                       currentUser={currentUser}
                       isAdmin={isAdmin}
-                      isCompleting={completingTaskIds.has(task.id)}
                       onOpenDetail={(taskId) => {
                         const targetTask = tasks.find((t) => t.id === taskId);
                         if (targetTask) {
@@ -811,50 +753,10 @@ export const TeamDetail: React.FC = () => {
                     />
                   </TaskAnimationWrapper>
                 ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* COMPLETED TASKS SECTION */}
-        {(filter === 'ALL' || filter === 'COMPLETED') && sortedCompletedTasks.length > 0 && (
-          <div className="space-y-4 pt-4 border-t border-zinc-200 dark:border-zinc-800">
-            <h3 className="text-xs font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-              COMPLETED TASKS ({sortedCompletedTasks.length})
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {sortedCompletedTasks.map((task) => (
-                <TaskCard
-                  key={`completed-${task.id}`}
-                  task={task}
-                  currentUser={currentUser}
-                  isAdmin={isAdmin}
-                  onOpenDetail={(taskId) => {
-                    const targetTask = tasks.find((t) => t.id === taskId);
-                    if (targetTask) {
-                      setSelectedTask(targetTask);
-                      setIsTaskModalOpen(true);
-                    }
-                  }}
-                  onToggleComplete={(t) => handleToggleComplete(t)}
-                  onEdit={(t) => {
-                    setSelectedTask(t);
-                    setIsTaskModalOpen(true);
-                  }}
-                  isSelected={dragSelect.isSelected(task.id)}
-                  onToggleSelect={(taskId, shiftKey) => dragSelect.toggleSelect(taskId, shiftKey)}
-                  onPointerDown={(e, taskId) => dragSelect.handlePointerDown(e, taskId)}
-                  onPointerMove={dragSelect.handlePointerMove}
-                  onPointerUp={dragSelect.handlePointerUpOrCancel}
-                  onPointerCancel={dragSelect.handlePointerUpOrCancel}
-                  onCardClick={(e, taskId) => dragSelect.handleCardClick(e, taskId)}
-                  isSelectionActive={dragSelect.isSelectionActive}
-                />
-              ))}
+              </AnimatePresence>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
       )}
 
       {/* Task Edit/Detail Modal */}

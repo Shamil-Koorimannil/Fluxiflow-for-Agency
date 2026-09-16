@@ -104,13 +104,13 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
             org_member_ids = set(active_org.memberships.filter(is_active=True).values_list('user_id', flat=True))
 
-            original_tasks = Task.objects.filter(project=project)
+            original_tasks = Task.objects.filter(project=project).order_by('created_at', 'id')
             for orig_task in original_tasks:
                 new_task = Task.objects.create(
                     organization=active_org,
                     project=new_project,
                     task_type=orig_task.task_type,
-                    name=f"{orig_task.name} Copy",
+                    name=orig_task.name,
                     description=orig_task.description or '',
                     due_date=orig_task.due_date,
                     due_time=orig_task.due_time,
@@ -133,10 +133,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
                             completed_at=None
                         )
 
-                for subtask in orig_task.subtasks.all():
+                for subtask in orig_task.subtasks.all().order_by('created_at', 'id'):
                     new_subtask = SubTask.objects.create(
                         task=new_task,
-                        name=f"{subtask.name} Copy",
+                        name=subtask.name,
                         due_date=subtask.due_date,
                         due_time=subtask.due_time,
                         status='PENDING',

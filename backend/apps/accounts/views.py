@@ -68,6 +68,74 @@ def get_canonical_user_pending_tasks(user, organization=None, now=None, tz=None,
             pending_ids.append(t.id)
     return user_tasks.filter(id__in=pending_ids)
 
+
+def sort_tasks_canonically_for_member(tasks_list, member_user):
+    """
+    Sorts tasks canonically for member_user:
+    Group 1: Active + Dated (TaskAssignee.completed = False & due_date is not None)
+             Ordered by: due_date ASC, due_time ASC, created_at ASC, id ASC
+    Group 2: Active + No Due Date (TaskAssignee.completed = False & due_date is None)
+             Ordered by: created_at ASC, id ASC
+    Group 3: Completed (TaskAssignee.completed = True OR status = 'COMPLETED' OR approval pending)
+             Ordered by: completed_at DESC, due_date DESC, created_at DESC
+    """
+    g1 = []
+    g2 = []
+    g3 = []
+
+    for task in tasks_list:
+        is_completed_for_member = False
+
+        if task.status == 'COMPLETED' or (getattr(task, 'approval_required', False) and getattr(task, 'approval_status', '') == 'PENDING'):
+            is_completed_for_member = True
+        else:
+            my_assignee = None
+            if hasattr(task, 'assignee_relationships'):
+                for a in task.assignee_relationships.all():
+                    if str(a.user_id) == str(member_user.id):
+                        my_assignee = a
+                        break
+
+            if my_assignee is not None:
+                is_completed_for_member = my_assignee.completed
+            else:
+                is_completed_for_member = (task.status == 'COMPLETED')
+
+        if is_completed_for_member:
+            g3.append(task)
+        else:
+            if task.due_date is not None:
+                g1.append(task)
+            else:
+                g2.append(task)
+
+    def g1_key(t):
+        return (
+            str(t.due_date or ''),
+            str(t.due_time or '23:59:59'),
+            str(t.created_at or ''),
+            str(t.id)
+        )
+
+    def g2_key(t):
+        return (
+            str(t.created_at or ''),
+            str(t.id)
+        )
+
+    def g3_key(t):
+        return (
+            str(t.completed_at or t.due_date or ''),
+            str(t.created_at or '')
+        )
+
+    g1.sort(key=g1_key)
+    g2.sort(key=g2_key)
+    g3.sort(key=g3_key, reverse=True)
+
+    return g1 + g2 + g3
+
+
 def calculate_user_health_metrics(user, start_date=None, end_date=None, organization=None, request=None, tz=None):
     if tz is None:
         tz = resolve_business_tz(request=request, organization=organization, user=user)
@@ -1240,7 +1308,7 @@ class TeamWorkloadView(views.APIView):
                 "completed": TaskSerializer(completed_tasks, many=True, context=context).data,
                 "overdue": TaskSerializer(overdue_tasks, many=True, context=context).data,
             },
-            "tasks": TaskSerializer(user_tasks, many=True, context=context).data
+            "tasks": TaskSerializer(sort_tasks_canonically_for_member(user_tasks, user), many=True, context=context).data
         })
 
 
@@ -1414,9 +1482,10 @@ class TeamTasksView(views.APIView):
 
         # Query using the canonical assignment relationship scoped to active org
         queryset = get_canonical_user_tasks(user, active_org)
+        ordered_queryset = sort_tasks_canonically_for_member(queryset, user)
             
         context = {'request': request, 'target_user': user}
-        serializer = TaskSerializer(queryset, many=True, context=context)
+        serializer = TaskSerializer(ordered_queryset, many=True, context=context)
         return Response(serializer.data)
 
 

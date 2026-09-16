@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { AnimatePresence } from 'framer-motion';
 import { api } from '../../services/api';
 import type { Project, Task } from '../../types';
 import { useAuth } from '../auth/AuthContext';
@@ -45,9 +46,6 @@ export const ProjectDetail: React.FC = () => {
 
   const [isPasteModalOpen, setIsPasteModalOpen] = useState(false);
   const [copiedTasksCount, setCopiedTasksCount] = useState(0);
-
-  const [completingTaskIds, setCompletingTaskIds] = useState<Set<string>>(new Set());
-  const [restoringTaskIds, setRestoringTaskIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const updateCount = () => {
@@ -111,12 +109,8 @@ export const ProjectDetail: React.FC = () => {
   };
 
   const editProjectMutation = useMutation({
-    mutationFn: async (data: {
-      name: string;
-      description: string;
-      project_date?: string | null;
-    }) => {
-      const response = await api.patch(`/projects/${id}/`, data);
+    mutationFn: async (updatedData: { name: string; description: string; project_date: string | null }) => {
+      const response = await api.patch(`/projects/${id}/`, updatedData);
       return response.data;
     },
     onSuccess: () => {
@@ -163,7 +157,34 @@ export const ProjectDetail: React.FC = () => {
       const response = await api.post(`/tasks/${taskId}/complete/`);
       return response.data;
     },
-    onSuccess: () => {
+    onMutate: async (taskId: string) => {
+      await queryClient.cancelQueries({ queryKey: ['tasks', { project: id }] });
+      const previousTasks = queryClient.getQueryData<Task[]>(['tasks', { project: id }]);
+
+      queryClient.setQueryData<Task[]>(['tasks', { project: id }], (old = []) =>
+        old.map((t) => {
+          if (t.id === taskId) {
+            const updatedAssignees = t.assignees?.map((a) =>
+              String(a.id) === String(user?.id) ? { ...a, completed: true } : a
+            );
+            return {
+              ...t,
+              user_completed: true,
+              assignees: updatedAssignees,
+            };
+          }
+          return t;
+        })
+      );
+
+      return { previousTasks };
+    },
+    onError: (_err, _taskId, context) => {
+      if (context?.previousTasks) {
+        queryClient.setQueryData(['tasks', { project: id }], context.previousTasks);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
       queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
@@ -181,7 +202,35 @@ export const ProjectDetail: React.FC = () => {
       const response = await api.post(`/tasks/${taskId}/reopen/`);
       return response.data;
     },
-    onSuccess: () => {
+    onMutate: async (taskId: string) => {
+      await queryClient.cancelQueries({ queryKey: ['tasks', { project: id }] });
+      const previousTasks = queryClient.getQueryData<Task[]>(['tasks', { project: id }]);
+
+      queryClient.setQueryData<Task[]>(['tasks', { project: id }], (old = []) =>
+        old.map((t) => {
+          if (t.id === taskId) {
+            const updatedAssignees = t.assignees?.map((a) =>
+              String(a.id) === String(user?.id) ? { ...a, completed: false } : a
+            );
+            return {
+              ...t,
+              user_completed: false,
+              status: t.status === 'COMPLETED' ? 'IN_PROGRESS' : t.status,
+              assignees: updatedAssignees,
+            };
+          }
+          return t;
+        })
+      );
+
+      return { previousTasks };
+    },
+    onError: (_err, _taskId, context) => {
+      if (context?.previousTasks) {
+        queryClient.setQueryData(['tasks', { project: id }], context.previousTasks);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['teamTasks'] });
       queryClient.invalidateQueries({ queryKey: ['teamWorkload'] });
@@ -239,9 +288,9 @@ export const ProjectDetail: React.FC = () => {
   if (activeFilter === 'assigned_to_me') {
     filteredTasks = deduplicatedTasks.filter((t) => t.assignees.some((a) => String(a.id) === String(user?.id)));
   } else if (activeFilter === 'incompleted' || activeFilter === 'pending') {
-    filteredTasks = deduplicatedTasks.filter((t) => !isTaskCompletedForUser(t) || completingTaskIds.has(t.id));
+    filteredTasks = deduplicatedTasks.filter((t) => !isTaskCompletedForUser(t));
   } else if (activeFilter !== 'all') {
-    filteredTasks = deduplicatedTasks.filter((t) => classifyTask(t, new Date(), user?.id) === activeFilter || completingTaskIds.has(t.id));
+    filteredTasks = deduplicatedTasks.filter((t) => classifyTask(t, new Date(), user?.id) === activeFilter);
   }
 
   const dragSelect = useTaskDragSelect({
@@ -290,7 +339,7 @@ export const ProjectDetail: React.FC = () => {
 
   const handleToggleCompleteProjectTask = async (targetTask: Task) => {
     const taskId = targetTask.id;
-    if (targetTask.status === 'COMPLETED') {
+    if (isTaskCompletedForUser(targetTask)) {
       try {
         await reopenTaskMutation.mutateAsync(taskId);
       } catch (err: any) {
@@ -301,34 +350,9 @@ export const ProjectDetail: React.FC = () => {
         });
       }
     } else {
-      if (completingTaskIds.has(taskId)) return;
-      setCompletingTaskIds((prev) => new Set(prev).add(taskId));
-
-      const exitTimer = setTimeout(() => {
-        setCompletingTaskIds((prev) => {
-          const next = new Set(prev);
-          next.delete(taskId);
-          return next;
-        });
-      }, 420);
-
       try {
         await completeTaskMutation.mutateAsync(taskId);
       } catch (err: any) {
-        clearTimeout(exitTimer);
-        setCompletingTaskIds((prev) => {
-          const next = new Set(prev);
-          next.delete(taskId);
-          return next;
-        });
-        setRestoringTaskIds((prev) => new Set(prev).add(taskId));
-        setTimeout(() => {
-          setRestoringTaskIds((prev) => {
-            const next = new Set(prev);
-            next.delete(taskId);
-            return next;
-          });
-        }, 300);
         showAlert({
           title: 'Completion Failed',
           message: err?.response?.data?.detail || 'Failed to complete task.',
@@ -339,15 +363,8 @@ export const ProjectDetail: React.FC = () => {
   };
 
   const renderTaskTile = (task: Task) => {
-    const isCompleting = completingTaskIds.has(task.id);
-    const isRestoring = restoringTaskIds.has(task.id);
-
     return (
-      <TaskAnimationWrapper
-        key={task.id}
-        isCompleting={isCompleting}
-        isRestoring={isRestoring}
-      >
+      <TaskAnimationWrapper key={task.id}>
         <TaskCard
           task={task}
           currentUser={user}
@@ -359,7 +376,6 @@ export const ProjectDetail: React.FC = () => {
           }}
           onToggleComplete={handleToggleCompleteProjectTask}
           isMutating={completeTaskMutation.isPending || reopenTaskMutation.isPending}
-          isCompleting={isCompleting}
           isSelected={dragSelect.isSelected(task.id)}
           onToggleSelect={(id, shift) => dragSelect.toggleSelect(id, shift)}
           onPointerDown={dragSelect.handlePointerDown}
@@ -581,8 +597,10 @@ export const ProjectDetail: React.FC = () => {
             )}
           </div>
         ) : (
-          <div className="space-y-2">
-            {filteredTasks.map(renderTaskTile)}
+          <div className="flex flex-col gap-2">
+            <AnimatePresence mode="popLayout" initial={false}>
+              {filteredTasks.map(renderTaskTile)}
+            </AnimatePresence>
           </div>
         )}
       </div>
