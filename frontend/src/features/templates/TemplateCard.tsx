@@ -15,7 +15,10 @@ import {
   Share2,
   Folder,
   Eye,
-  CheckCircle2
+  CheckCircle2,
+  Code,
+  Smartphone,
+  Layers
 } from 'lucide-react';
 import type { ProjectTemplate } from '../../types';
 
@@ -27,6 +30,12 @@ interface TemplateCardProps {
 
 const getTemplateIcon = (iconName?: string | null) => {
   switch (iconName) {
+    case 'code':
+      return <Code className="h-5 w-5 text-blue-500 dark:text-blue-400" />;
+    case 'smartphone':
+      return <Smartphone className="h-5 w-5 text-purple-500 dark:text-purple-400" />;
+    case 'layers':
+      return <Layers className="h-5 w-5 text-indigo-500 dark:text-indigo-400" />;
     case 'package':
       return <Package className="h-5 w-5 text-blue-500 dark:text-blue-400" />;
     case 'layout':
